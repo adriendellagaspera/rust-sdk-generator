@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::contracts::{
     AccessorDefinition, AccessorKindDefinition, Bindings, MapDefinition, ModelDefinition,
-    OperationDefinition, ResourceDefinition, SdkDefinition,
+    OperationDefinition, ResourceDefinition, ScalarEnumDefinition, SdkDefinition,
 };
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, parse_type};
@@ -472,6 +472,67 @@ fn map_response_model(
     ))
 }
 
+fn scalar_enum_response_model(
+    openapi: &OpenApiIndex,
+    bindings: &Bindings,
+    raw: &str,
+    resource_path: &[String],
+    public_name: &str,
+) -> Result<(String, ModelDefinition), &'static str> {
+    let schema = openapi.schema(raw).map_err(|_| RESPONSE_VIEW_UNPROVEN)?;
+    let values = schema
+        .get("enum")
+        .and_then(Value::as_array)
+        .ok_or(RESPONSE_VIEW_UNPROVEN)?;
+    if schema.get("type").and_then(Value::as_str) != Some("string")
+        || values.is_empty()
+        || values.iter().any(|value| !value.is_string())
+    {
+        return Err(RESPONSE_VIEW_UNPROVEN);
+    }
+    let variants = bindings.enums.get(raw).ok_or(RESPONSE_VIEW_UNPROVEN)?;
+    if variants.is_empty()
+        || variants
+            .iter()
+            .any(|variant| variant.payload.is_some() || variant.wire_name.is_none())
+    {
+        return Err(RESPONSE_VIEW_UNPROVEN);
+    }
+    let expected: BTreeSet<_> = values.iter().filter_map(Value::as_str).collect();
+    let actual: BTreeSet<_> = variants
+        .iter()
+        .filter_map(|variant| variant.wire_name.as_deref())
+        .collect();
+    if expected.len() != values.len() || actual.len() != variants.len() || expected != actual {
+        return Err(RESPONSE_VIEW_UNPROVEN);
+    }
+
+    let name = response_model_name(resource_path, public_name);
+    if !public_model_name_available(&name, bindings) {
+        return Err("capability.public_model_name_collision");
+    }
+    Ok((
+        name,
+        ModelDefinition {
+            raw: Some(raw.into()),
+            constructor: None,
+            exclude: None,
+            adapters: None,
+            union: None,
+            simple_union: None,
+            type_alias: None,
+            map: None,
+            scalar_enum: Some(ScalarEnumDefinition {
+                root: raw.into(),
+                path: Vec::new(),
+            }),
+            union_factory: None,
+            borrowed: None,
+            accessors: None,
+        },
+    ))
+}
+
 fn response_model(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
@@ -494,6 +555,9 @@ fn response_model(
             return map_response_model(openapi, bindings, raw, resource_path, public_name);
         }
         return response_view(openapi, bindings, raw, resource_path, public_name);
+    }
+    if bindings.enums.contains_key(raw) {
+        return scalar_enum_response_model(openapi, bindings, raw, resource_path, public_name);
     }
     Err(RESPONSE_VIEW_UNPROVEN)
 }
