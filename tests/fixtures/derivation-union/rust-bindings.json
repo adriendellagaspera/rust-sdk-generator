@@ -1,0 +1,43 @@
+{
+  "schema_version": 2,
+  "structs": {
+    "FoundItem": [
+      {"name": "score", "type": "f64"},
+      {"name": "id", "type": "String"}
+    ],
+    "MissingItem": [
+      {"name": "retryable", "type": "bool"},
+      {"name": "query", "type": "String"}
+    ]
+  },
+  "enums": {
+    "LookupPayload": [
+      {"name": "Variant7", "payload": "MissingItem", "wire_name": null},
+      {"name": "Variant2", "payload": "FoundItem", "wire_name": null}
+    ]
+  },
+  "aliases": {},
+  "operations": {
+    "opaque_union_call": {
+      "name": "unrelated_method_name",
+      "parameters": [],
+      "return_type": "Result<LookupPayload, Error>",
+      "success_type": "LookupPayload",
+      "stream": null
+    }
+  },
+  "symbol_paths": {
+    "FoundItem": "crate::raw::FoundItem",
+    "MissingItem": "crate::raw::MissingItem",
+    "LookupPayload": "crate::raw::LookupPayload"
+  },
+  "binding": {
+    "client": {
+      "type_path": "crate::raw::Client",
+      "constructor": "new",
+      "api_key_builder": "with_api_key",
+      "base_url_builder": "with_base_url"
+    },
+    "type_preludes": ["crate::raw::*"]
+  }
+}
