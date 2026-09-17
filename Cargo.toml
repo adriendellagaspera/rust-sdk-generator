@@ -2,7 +2,7 @@
 name = "rust-sdk-generator"
 version = "0.2.8"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 description = "Deterministic derivation and generation of idiomatic Rust SDK surfaces from OpenAPI and normalized bindings"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/adriendellagaspera/rust-sdk-generator"
