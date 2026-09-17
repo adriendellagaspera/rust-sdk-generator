@@ -174,7 +174,10 @@ fn outer_generic(spelling: &str) -> Result<Option<(&str, &str)>> {
     if constructor.is_empty() || constructor.chars().any(char::is_whitespace) {
         return Ok(None);
     }
-    Ok(Some((constructor, &spelling[first + 1..spelling.len() - 1])))
+    Ok(Some((
+        constructor,
+        &spelling[first + 1..spelling.len() - 1],
+    )))
 }
 
 pub fn parse_type(spelling: &str) -> Result<Type> {
