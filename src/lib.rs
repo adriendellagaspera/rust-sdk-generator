@@ -4,6 +4,11 @@
 //! Concrete OpenAPI-to-Rust backends remain adapters that only produce [`Bindings`].
 
 mod contracts;
+mod error;
+mod openapi;
+mod rust_type;
+mod symbols;
+mod validation;
 
 pub use contracts::{
     AccessorDefinition, AccessorKindDefinition, ApiInventory, BindingLayout, Bindings,
@@ -13,3 +18,5 @@ pub use contracts::{
     SimpleUnionVariant, StreamBinding, StreamDefinition, UnionDefinition, UnionFactoryDefinition,
     VariantBinding,
 };
+pub use error::{Diagnostic, GenerationError};
+pub use rust_type::{Type, TypeKind, parse_type};
