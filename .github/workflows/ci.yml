@@ -71,6 +71,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+      - name: Lint Rust generator
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Test Rust generator
+        run: cargo test --all-targets --all-features
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
@@ -80,7 +86,7 @@ jobs:
       - run: .test-venv/bin/python -m unittest discover -s tests -p 'test_*.py'
       - name: Enforce backend-neutral dependency direction
         run: |
-          test -z "$(grep -R -n -E 'openapi_to_rust_bindings|openapi-to-rust-bindings|import openapi_to_rust' src/rust_sdk_generator || true)"
+          test -z "$(grep -R -n -E 'openapi_to_rust_bindings|openapi-to-rust-bindings|import openapi_to_rust' src/rust_sdk_generator src/*.rs || true)"
 
   bindings:
     name: bindings
