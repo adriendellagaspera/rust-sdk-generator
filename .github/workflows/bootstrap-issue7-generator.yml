@@ -21,7 +21,13 @@ jobs:
           source_dir="$(mktemp -d)"
           git clone --depth=1 --branch rust-sdk-compiler https://github.com/adriendellagaspera/mistralai-rs.git "$source_dir"
           source_sha="$(git -C "$source_dir" rev-parse HEAD)"
-          rm -rf src tests LICENSE-MIT LICENSE-APACHE COMPATIBILITY.json pyproject.toml uv.lock
+          source_version="$(python - "$source_dir/pyproject.toml" <<'PY'
+          import sys, tomllib
+          from pathlib import Path
+          print(tomllib.loads(Path(sys.argv[1]).read_text())["project"]["version"])
+          PY
+          )"
+          rm -rf src tests LICENSE-MIT LICENSE-APACHE COMPATIBILITY.json pyproject.toml uv.lock dist .test-venv
           mkdir -p src
           cp -R "$source_dir/src/rust_sdk_compiler" src/rust_sdk_generator
           cp -R "$source_dir/tests" tests
@@ -31,18 +37,21 @@ jobs:
           from pathlib import Path
           for path in [*Path('src').rglob('*.py'), *Path('tests').rglob('*.py')]:
               text = path.read_text()
-              path.write_text(text.replace('rust_sdk_compiler', 'rust_sdk_generator'))
+              text = text.replace('rust_sdk_compiler', 'rust_sdk_generator')
+              if path.parts[0] == 'tests':
+                  text = text.replace('rust-sdk-compiler', 'rust-sdk-generator')
+              path.write_text(text)
           init = Path('src/rust_sdk_generator/__init__.py')
           init.write_text(init.read_text().replace('standalone Rust SDK compiler', 'standalone Rust SDK generator'))
           PY
-          cat > pyproject.toml <<'EOF'
+          cat > pyproject.toml <<EOF
           [build-system]
           requires = ["setuptools==75.8.0"]
           build-backend = "setuptools.build_meta"
 
           [project]
           name = "rust-sdk-generator"
-          version = "0.2.8"
+          version = "${source_version}"
           description = "Deterministic derivation and generation of idiomatic Rust SDK surfaces from OpenAPI and normalized bindings"
           readme = "README.md"
           requires-python = ">=3.11"
@@ -60,11 +69,11 @@ jobs:
           [tool.setuptools.package-data]
           rust_sdk_generator = ["*.json"]
           EOF
-          cat > COMPATIBILITY.json <<'EOF'
+          cat > COMPATIBILITY.json <<EOF
           {
             "schema_version": 1,
             "package_name": "rust-sdk-generator",
-            "package_version": "0.2.8",
+            "package_version": "${source_version}",
             "bindings_schema_version": 2
           }
           EOF
@@ -86,8 +95,11 @@ jobs:
           Intentionally left in \`mistralai-rs\`: Mistral OpenAPI/source tracking, official SDK extraction, taxonomy/public naming evidence, current auto-projection orchestration, Mistral runtime integration and repository compatibility/release gates. Those responsibilities move only through their owning issues.
           EOF
           uv lock
-          uv sync --frozen
-          uv run python -m unittest discover -s tests -p 'test_*.py'
+          uv build --wheel
+          uv venv .test-venv --python 3.11
+          uv pip install --python .test-venv/bin/python dist/*.whl
+          .test-venv/bin/python -m unittest discover -s tests -p 'test_*.py'
+          rm -rf dist .test-venv
           test -z "$(grep -R -n -E 'openapi_to_rust_bindings|openapi-to-rust-bindings|import openapi_to_rust' src/rust_sdk_generator || true)"
           printf '%s\n' "$source_sha" > .bootstrap-source-commit
       - name: Install standalone CI and remove bootstrap workflow
@@ -107,8 +119,10 @@ jobs:
               steps:
                 - uses: actions/checkout@v4
                 - uses: astral-sh/setup-uv@v6
-                - run: uv sync --frozen
-                - run: uv run python -m unittest discover -s tests -p 'test_*.py'
+                - run: uv build --wheel
+                - run: uv venv .test-venv --python 3.11
+                - run: uv pip install --python .test-venv/bin/python dist/*.whl
+                - run: .test-venv/bin/python -m unittest discover -s tests -p 'test_*.py'
                 - name: Enforce backend-neutral dependency direction
                   run: |
                     test -z "$(grep -R -n -E 'openapi_to_rust_bindings|openapi-to-rust-bindings|import openapi_to_rust' src/rust_sdk_generator || true)"
