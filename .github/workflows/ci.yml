@@ -30,3 +30,16 @@ jobs:
         working-directory: openapi-to-rust-bindings
       - run: .test-venv/bin/python -m unittest discover -s tests -p 'test_*.py'
         working-directory: openapi-to-rust-bindings
+  integration:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv build --wheel
+      - run: uv build --wheel
+        working-directory: openapi-to-rust-bindings
+      - run: uv venv .integration-venv --python 3.11
+      - run: uv pip install --python .integration-venv/bin/python dist/*.whl
+      - run: uv pip install --python .integration-venv/bin/python tree-sitter==0.25.2 tree-sitter-rust==0.24.0
+      - run: uv pip install --python .integration-venv/bin/python --no-deps openapi-to-rust-bindings/dist/*.whl
+      - run: .integration-venv/bin/python -m unittest tests.test_bindings_integration
