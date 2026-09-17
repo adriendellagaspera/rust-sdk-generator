@@ -5,6 +5,7 @@
 
 mod compiler;
 mod contracts;
+mod derivation;
 mod emit;
 mod error;
 #[allow(dead_code)]
@@ -32,13 +33,14 @@ pub use contracts::{
     SimpleUnionDefinition, SimpleUnionVariant, StreamBinding, StreamDefinition, UnionDefinition,
     UnionFactoryDefinition, VariantBinding,
 };
+pub use derivation::{
+    Derivation, DerivationError, DerivationReason, DerivationReport, DerivationStatus, DeriveInput,
+    OperationDerivation, PublicSdkSurface, SdkOverrides, derive,
+};
 pub use error::{Diagnostic, GenerationError};
 pub use rust_type::{Type, TypeKind, parse_type};
 
 /// Validate and generate an SDK from an explicit complete definition.
-///
-/// This is the behavior-equivalent migration endpoint. `derive()` is intentionally
-/// reserved for the semantic expansion tracked by issue #1.
 pub fn generate(input: GenerateInput) -> Result<GeneratedSdk, GenerationError> {
     compiler::generate(input)
 }
