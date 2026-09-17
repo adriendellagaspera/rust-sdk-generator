@@ -47,7 +47,10 @@ fn derives_inline_scalar_object_without_schema_name_identity() {
 
     let operation = &derivation.definition.resources["reports"].operations["snapshot"];
     assert_eq!(operation.raw_method.as_deref(), Some("call_result_31"));
-    assert_eq!(operation.response.as_deref(), Some("SnapshotReportsResponse"));
+    assert_eq!(
+        operation.response.as_deref(),
+        Some("SnapshotReportsResponse")
+    );
 
     let generated = generate(GenerateInput {
         openapi,
@@ -59,7 +62,10 @@ fn derives_inline_scalar_object_without_schema_name_identity() {
     assert_eq!(generated.inventory.client, "ReportsClient");
     assert_eq!(generated.inventory.models, vec!["SnapshotReportsResponse"]);
     assert_eq!(generated.inventory.resources[0].path, vec!["reports"]);
-    assert_eq!(generated.inventory.resources[0].operations, vec!["snapshot"]);
+    assert_eq!(
+        generated.inventory.resources[0].operations,
+        vec!["snapshot"]
+    );
 
     let types = &generated.files["facade_types.rs"];
     assert!(types.contains("pub struct SnapshotReportsResponse { raw: OpaquePayload9 }"));
