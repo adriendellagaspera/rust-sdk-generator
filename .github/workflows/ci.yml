@@ -6,7 +6,7 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -70,131 +70,23 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          persist-credentials: true
-          ref: ${{ github.head_ref }}
-          fetch-depth: 0
-      - name: Apply OpenAPI parity edit and restore canonical CI
-        env:
-          HEAD_REF: ${{ github.head_ref }}
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path('src/openapi.rs')
-          source = path.read_text()
-          old_methods = '''                for method in [
-                    "get", "put", "post", "delete", "options", "head", "patch", "trace",
-                ] {'''
-          new_methods = '''                for method in ["get", "put", "post", "delete", "patch", "head", "options"] {'''
-          if old_methods in source:
-              source = source.replace(old_methods, new_methods, 1)
-          elif '"trace"' in source[source.find('for method in'):source.find('for method in') + 250]:
-              raise SystemExit('unexpected HTTP method formatting')
-
-          marker = '''        let discriminator = schema
-            .pointer("/discriminator/propertyName")'''
-          if 'let mut candidates: BTreeMap<String, BTreeMap<String, String>>' not in source:
-              if marker not in source:
-                  raise SystemExit('discriminator marker not found')
-              fallback = '''        if schema
-            .pointer("/discriminator/propertyName")
-            .and_then(Value::as_str)
-            .is_none()
-        {
-            let referenced: Vec<String> = branches
-                .iter()
-                .filter_map(ref_name)
-                .map(str::to_owned)
-                .collect();
-            if referenced.len() == branches.len() {
-                let mut candidates: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
-                for payload in &referenced {
-                    if let Some(properties) = self
-                        .schema(payload)?
-                        .get("properties")
-                        .and_then(Value::as_object)
-                    {
-                        for (property_name, property_schema) in properties {
-                            if let Some(value) = property_schema.get("const") {
-                                let tag = match value {
-                                    Value::String(value) => value.clone(),
-                                    Value::Bool(true) => "True".into(),
-                                    Value::Bool(false) => "False".into(),
-                                    Value::Null => "None".into(),
-                                    value => value.to_string(),
-                                };
-                                candidates
-                                    .entry(property_name.clone())
-                                    .or_default()
-                                    .insert(tag, payload.clone());
-                            }
-                        }
-                    }
-                }
-                let mut complete = candidates
-                    .into_iter()
-                    .filter(|(_, mapping)| mapping.len() == referenced.len());
-                if let Some((property_name, mapping)) = complete.next()
-                    && complete.next().is_none()
-                {
-                    return Ok((property_name, mapping));
-                }
-            }
-        }
-
-'''
-              source = source.replace(marker, fallback + marker, 1)
-
-          if 'fn infers_unique_const_discriminator_without_discriminator_object()' not in source:
-              test_insert = r'''
-
-    #[test]
-    fn infers_unique_const_discriminator_without_discriminator_object() {
-        let value = serde_json::json!({
-            "components": {"schemas": {
-                "Animal": {"oneOf": [
-                    {"$ref": "#/components/schemas/Cat"},
-                    {"$ref": "#/components/schemas/Dog"}
-                ]},
-                "Cat": {"type": "object", "properties": {"kind": {"const": "cat"}}},
-                "Dog": {"type": "object", "properties": {"kind": {"const": "dog"}}}
-            }}
-        });
-        let index = OpenApiIndex::new(&OpenApi(value)).expect("valid index");
-        let (property, mapping) = index.union("Animal", &[]).expect("inferred union");
-        assert_eq!(property, "kind");
-        assert_eq!(mapping["cat"], "Cat");
-        assert_eq!(mapping["dog"], "Dog");
-    }
-
-    #[test]
-    fn ignores_trace_operations_to_match_existing_contract() {
-        let value = serde_json::json!({
-            "paths": {"/trace": {"trace": {"operationId": "trace_only"}}}
-        });
-        let index = OpenApiIndex::new(&OpenApi(value)).expect("valid index");
-        assert!(!index.operations.contains_key("trace_only"));
-    }
-'''
-              head, tail = source.rsplit('\n}', 1)
-              source = head + test_insert + '\n}' + tail
-          path.write_text(source)
-          PY
-          cargo fmt --all
-          rm -f .migration-trigger .github/workflows/migration-edit.yml
-          git fetch origin main --depth=1
-          git show FETCH_HEAD:.github/workflows/ci.yml > .github/workflows/ci.yml
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/openapi.rs .migration-trigger .github/workflows/migration-edit.yml .github/workflows/ci.yml
-          if ! git diff --cached --quiet; then
-            git commit -m 'fix: preserve existing OpenAPI union behavior'
-            git push origin "HEAD:${HEAD_REF}"
-          fi
+          persist-credentials: false
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
       - name: Lint Rust generator
         run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Test Rust generator
         run: cargo test --all-targets --all-features
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
+      - run: uv build --wheel
+      - run: uv venv .test-venv --python 3.11
+      - run: uv pip install --python .test-venv/bin/python dist/*.whl
+      - run: .test-venv/bin/python -m unittest discover -s tests -p 'test_*.py'
+      - name: Enforce backend-neutral dependency direction
+        run: |
+          test -z "$(grep -R -n -E 'openapi_to_rust_bindings|openapi-to-rust-bindings|import openapi_to_rust' src/rust_sdk_generator src/*.rs || true)"
 
   bindings:
     name: bindings
