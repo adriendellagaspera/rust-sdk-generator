@@ -1,3 +1,4 @@
+# Retry after aligning the bindings metadata contract with the workspace.
 name: Materialize issue 7 boundary hardening
 on:
   push:
