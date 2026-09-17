@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::contracts::{Bindings, ClientDefinition, OpenApi, SdkDefinition};
 use crate::error::{Diagnostic, GenerationError};
 use crate::openapi::OpenApiIndex;
+use crate::reconcile::reconcile;
 
 /// Consumer-provided public resource/method naming evidence.
 ///
@@ -160,7 +161,9 @@ fn operation_ids(openapi: &OpenApi) -> Result<BTreeSet<String>, DerivationError>
     let mut result = BTreeSet::new();
     if let Some(paths) = root.get("paths").and_then(serde_json::Value::as_object) {
         for path_item in paths.values().filter_map(serde_json::Value::as_object) {
-            for method in ["get", "put", "post", "delete", "patch", "head", "options"] {
+            for method in [
+                "get", "put", "post", "delete", "patch", "head", "options", "trace",
+            ] {
                 let Some(operation) = path_item.get(method).and_then(serde_json::Value::as_object)
                 else {
                     continue;
@@ -241,10 +244,11 @@ fn validate_evidence(
 
 /// Derive a complete SDK definition and exhaustive operation report.
 ///
-/// The first contract slice intentionally rejects not-yet-migrated projection
-/// capabilities instead of guessing. Subsequent #1 slices replace these stable
-/// rejections with backend-neutral inference while preserving closed-world
-/// classification.
+/// Generic reconciliation is intentionally conservative: a binding is attached
+/// only when OpenAPI request/response structure identifies one unique operation
+/// without relying on a raw-generator method name. Later #1 slices replace the
+/// projection rejection with SDK inference; transport-sensitive ambiguity stays
+/// rejected until Bindings carries source-operation and representation identity.
 pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
     let DeriveInput {
         openapi,
@@ -258,6 +262,7 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
         .map_err(DerivationError::from_generation)?;
     let operation_ids = operation_ids(&openapi)?;
     validate_evidence(&operation_ids, &surface, &overrides)?;
+    let reconciliation = reconcile(&openapi, &bindings).map_err(DerivationError::from_generation)?;
 
     let mut operations = BTreeMap::new();
     for operation_id in operation_ids {
@@ -277,14 +282,35 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                 binding: None,
             }
         } else {
-            OperationDerivation {
-                status: DerivationStatus::Rejected,
-                reason: DerivationReason {
-                    code: "capability.derivation_not_implemented".into(),
-                    detail: None,
-                },
-                public_paths,
-                binding: None,
+            let matched = reconciliation.get(&operation_id).ok_or_else(|| {
+                DerivationError::new(
+                    "derivation.reconciliation_missing",
+                    format!("operation {operation_id} was not reconciled"),
+                )
+            })?;
+            if let Some(binding) = &matched.binding {
+                OperationDerivation {
+                    status: DerivationStatus::Rejected,
+                    reason: DerivationReason {
+                        code: "capability.projection_not_implemented".into(),
+                        detail: None,
+                    },
+                    public_paths,
+                    binding: Some(binding.clone()),
+                }
+            } else {
+                OperationDerivation {
+                    status: DerivationStatus::Rejected,
+                    reason: DerivationReason {
+                        code: matched
+                            .reason
+                            .unwrap_or("bindings.no_structural_match")
+                            .into(),
+                        detail: None,
+                    },
+                    public_paths,
+                    binding: None,
+                }
             }
         };
         operations.insert(operation_id, outcome);
@@ -314,7 +340,9 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contracts::{BindingLayout, ClientBinding};
+    use crate::contracts::{
+        BindingLayout, ClientBinding, OperationBinding, ParameterBinding, StreamBinding,
+    };
 
     fn openapi() -> OpenApi {
         OpenApi(serde_json::json!({
@@ -418,5 +446,88 @@ mod tests {
             serde_json::to_vec(&decoded).expect("serialize again"),
             first
         );
+    }
+
+    #[test]
+    fn unique_structural_binding_is_reported_without_name_identity() {
+        let api = OpenApi(serde_json::json!({
+            "openapi": "3.1.0",
+            "paths": {
+                "/weather/{city}": {"get": {
+                    "operationId": "read_forecast",
+                    "parameters": [
+                        {"name": "city", "in": "path", "schema": {"type": "string"}},
+                        {"name": "days", "in": "query", "schema": {"type": "integer"}}
+                    ],
+                    "responses": {"200": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Forecast"}}}}}
+                }}
+            }
+        }));
+        let mut raw = bindings();
+        raw.operations.insert(
+            "opaque_call".into(),
+            OperationBinding {
+                name: "opaque_call".into(),
+                parameters: vec![
+                    ParameterBinding {
+                        name: "days".into(),
+                        type_name: "Option<i64>".into(),
+                    },
+                    ParameterBinding {
+                        name: "city".into(),
+                        type_name: "impl AsRef<str>".into(),
+                    },
+                ],
+                return_type: "Result<Forecast, Error>".into(),
+                success_type: "Forecast".into(),
+                stream: None,
+            },
+        );
+        let derivation = derive(DeriveInput {
+            openapi: api,
+            bindings: raw,
+            surface: PublicSdkSurface::default(),
+            overrides: SdkOverrides::default(),
+        })
+        .expect("derive");
+        let outcome = &derivation.report.operations["read_forecast"];
+        assert_eq!(outcome.binding.as_deref(), Some("opaque_call"));
+        assert_eq!(outcome.reason.code, "capability.projection_not_implemented");
+    }
+
+    #[test]
+    fn transport_ambiguity_is_machine_readable() {
+        let api = OpenApi(serde_json::json!({
+            "openapi": "3.1.0",
+            "paths": {
+                "/archive": {"get": {
+                    "operationId": "archive",
+                    "responses": {"200": {"content": {
+                        "application/json": {"schema": {"$ref": "#/components/schemas/Archive"}},
+                        "application/octet-stream": {"schema": {"type": "string", "format": "binary"}}
+                    }}}
+                }}
+            }
+        }));
+        let derivation = derive(DeriveInput {
+            openapi: api,
+            bindings: bindings(),
+            surface: PublicSdkSurface::default(),
+            overrides: SdkOverrides::default(),
+        })
+        .expect("derive");
+        assert_eq!(
+            derivation.report.operations["archive"].reason.code,
+            "transport.source_operation_identity_required"
+        );
+    }
+
+    #[test]
+    fn imported_stream_types_are_not_needed_for_json_reconciliation() {
+        let _ = StreamBinding {
+            item_type: "bytes::Bytes".into(),
+            error_type: "reqwest::Error".into(),
+            lifetime: "'static".into(),
+        };
     }
 }
