@@ -8,7 +8,7 @@ import re
 from tree_sitter import Language, Node, Parser
 import tree_sitter_rust
 
-from rust_sdk_generator import Bindings
+from .model import Bindings
 
 
 class ParseError(ValueError):

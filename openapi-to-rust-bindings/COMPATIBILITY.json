@@ -4,10 +4,6 @@
   "package_version": "0.2.2",
   "bindings_schema_version": 2,
   "sidecar": "rust-bindings.json",
-  "compiler": {
-    "name": "rust-sdk-generator",
-    "commit": "fdd9901f24095761e8daf6a83ee2e5de63da8ddf"
-  },
   "backend": {
     "name": "openapi-to-rust",
     "version": "0.16.0",

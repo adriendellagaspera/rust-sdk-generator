@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "openapi-to-rust-bindings"
 version = "0.2.2"
-description = "Load openapi-to-rust binding metadata into rust-sdk-generator Bindings"
+description = "Normalize openapi-to-rust output into the rust-sdk-generator Bindings contract"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT OR Apache-2.0"}
 dependencies = [
-  "rust-sdk-generator @ git+https://github.com/adriendellagaspera/rust-sdk-generator.git@fdd9901f24095761e8daf6a83ee2e5de63da8ddf",
+  "jsonschema==4.23.0",
   "tree-sitter==0.25.2",
   "tree-sitter-rust==0.24.0",
 ]
@@ -18,3 +18,7 @@ dependencies = [
 [tool.setuptools]
 package-dir = {"" = "src"}
 packages = ["openapi_to_rust_bindings"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+openapi_to_rust_bindings = ["*.json"]

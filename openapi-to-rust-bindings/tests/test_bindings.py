@@ -4,8 +4,7 @@ import tomllib
 import unittest
 
 import openapi_to_rust_bindings as package
-from openapi_to_rust_bindings import parse_bindings, read_bindings
-from rust_sdk_generator import Bindings
+from openapi_to_rust_bindings import Bindings, parse_bindings, read_bindings
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -16,7 +15,7 @@ class BindingsPackageTests(unittest.TestCase):
     def test_public_api_is_functional_and_small(self):
         self.assertEqual(
             set(package.__all__),
-            {"ParseError", "parse_bindings", "read_bindings"},
+            {"Bindings", "ParseError", "parse_bindings", "read_bindings"},
         )
 
     def test_tests_use_installed_package_not_source_tree(self):
@@ -55,25 +54,25 @@ pub enum State {
             "in-progress",
         )
 
-    def test_package_does_not_import_compiler_internals(self):
-        source = (SRC / "openapi_to_rust_bindings" / "parser.py").read_text()
-        self.assertNotIn("rust_sdk_generator.sdk_", source)
-        self.assertNotIn("RawIr", source)
-        self.assertNotIn("Adapter", source)
+    def test_package_does_not_import_compiler_runtime(self):
+        for name in ("model.py", "parser.py", "reader.py"):
+            source = (SRC / "openapi_to_rust_bindings" / name).read_text()
+            self.assertNotIn("rust_sdk_generator", source)
+            self.assertNotIn("RawIr", source)
+            self.assertNotIn("Adapter", source)
 
-    def test_metadata_pins_compiler_and_backend_contracts(self):
+    def test_metadata_pins_backend_contract_without_python_compiler_dependency(self):
         project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
         self.assertEqual(project["name"], "openapi-to-rust-bindings")
         self.assertEqual(project["version"], package.__version__)
-        self.assertIn("rust-sdk-generator @ git+https://github.com/adriendellagaspera/rust-sdk-generator.git@fdd9901f24095761e8daf6a83ee2e5de63da8ddf", project["dependencies"])
+        self.assertIn("jsonschema==4.23.0", project["dependencies"])
+        self.assertFalse(
+            any(dependency.startswith("rust-sdk-generator") for dependency in project["dependencies"])
+        )
         compatibility = json.loads((ROOT / "COMPATIBILITY.json").read_text())
         self.assertEqual(compatibility["package_version"], package.__version__)
         self.assertEqual(compatibility["bindings_schema_version"], 2)
         self.assertEqual(compatibility["sidecar"], "rust-bindings.json")
-        self.assertEqual(
-            compatibility["compiler"]["commit"],
-            "fdd9901f24095761e8daf6a83ee2e5de63da8ddf",
-        )
         self.assertEqual(
             compatibility["backend"]["commit"],
             "2af34b86ca9f38c35787f13ec5841989efcf4b99",
