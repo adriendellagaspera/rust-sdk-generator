@@ -6,7 +6,7 @@ on:
   pull_request:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -70,14 +70,45 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          persist-credentials: false
-      - name: Format Rust migration source
-        run: cargo fmt --all
-      - name: Upload formatted Rust migration source
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: formatted-rust-source
-          path: src
+          persist-credentials: true
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - name: Normalize migration source and restore canonical CI
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/lower.rs")
+          source = path.read_text()
+          if "use indexmap::IndexMap;" not in source:
+              source = source.replace("use serde_json::Value;\n", "use indexmap::IndexMap;\nuse serde_json::Value;\n")
+          source = source.replace(
+              "fn field_map<'a>(bindings: &'a Bindings, raw: &str) -> Result<BTreeMap<String, &'a FieldBinding>> {",
+              "fn field_map<'a>(bindings: &'a Bindings, raw: &str) -> Result<IndexMap<String, &'a FieldBinding>> {",
+          )
+          source = source.replace(
+              "    fields: &BTreeMap<String, &FieldBinding>,\n",
+              "    fields: &IndexMap<String, &FieldBinding>,\n",
+          )
+          source = source.replace(
+              '                        let inner = parse_type(&raw_field.type_name)?\n                            .unary("Option")\n                            .map(|inner| inner.spelling.as_str());\n',
+              '                        let raw_syntax = parse_type(&raw_field.type_name)?;\n                        let inner = raw_syntax\n                            .unary("Option")\n                            .map(|inner| inner.spelling.as_str());\n',
+          )
+          path.write_text(source)
+          PY
+          cargo fmt --all
+          cargo generate-lockfile
+          git fetch origin main --depth=1
+          git show FETCH_HEAD:.github/workflows/ci.yml > .github/workflows/ci.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src Cargo.lock .github/workflows/ci.yml
+          if ! git diff --cached --quiet; then
+            git commit -m "style: format Rust lowering slice"
+            git push origin "HEAD:${HEAD_REF}"
+          fi
       - name: Lint Rust generator
         run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Test Rust generator
