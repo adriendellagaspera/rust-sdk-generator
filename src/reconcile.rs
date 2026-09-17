@@ -93,7 +93,10 @@ fn request_shape(operation: &Value) -> std::result::Result<RequestShape, &'stati
         if parameter.contains_key("$ref") {
             return Err("request.parameter_binding_unsupported");
         }
-        if !matches!(parameter.get("in").and_then(Value::as_str), Some("path" | "query")) {
+        if !matches!(
+            parameter.get("in").and_then(Value::as_str),
+            Some("path") | Some("query")
+        ) {
             return Err("request.parameter_binding_unsupported");
         }
         let Some(name) = parameter.get("name").and_then(Value::as_str) else {
@@ -111,13 +114,16 @@ fn request_shape(operation: &Value) -> std::result::Result<RequestShape, &'stati
     {
         None => None,
         Some(content) if content.is_empty() => None,
-        Some(content) if content.len() == 1 && content.contains_key("application/json") => content
-            .get("application/json")
-            .and_then(|payload| payload.get("schema"))
-            .and_then(ref_name)
-            .map(str::to_owned)
-            .ok_or("request.inline_or_unresolved")?
-            .into(),
+        Some(content) if content.len() == 1 && content.contains_key("application/json") => {
+            Some(
+                content
+                    .get("application/json")
+                    .and_then(|payload| payload.get("schema"))
+                    .and_then(ref_name)
+                    .map(str::to_owned)
+                    .ok_or("request.inline_or_unresolved")?,
+            )
+        }
         Some(_) => return Err("request.media_projection_unsupported"),
     };
 
@@ -139,10 +145,7 @@ fn response_shape(operation: &Value) -> std::result::Result<ResponseShape, &'sta
     if success.len() != 1 {
         return Err("response.multiple_success_contracts");
     }
-    let content = success[0]
-        .1
-        .get("content")
-        .and_then(Value::as_object);
+    let content = success[0].1.get("content").and_then(Value::as_object);
     let Some(content) = content.filter(|content| !content.is_empty()) else {
         return Ok(ResponseShape::Empty);
     };
@@ -150,7 +153,9 @@ fn response_shape(operation: &Value) -> std::result::Result<ResponseShape, &'sta
         return Err("transport.source_operation_identity_required");
     }
     let (media, payload) = content.iter().next().expect("one response media");
-    let schema = payload.get("schema").unwrap_or(&Value::Null);
+    let Some(schema) = payload.get("schema") else {
+        return Err("response.inline_or_unresolved");
+    };
     if media == "application/json" {
         if let Some(reference) = ref_name(schema) {
             return Ok(ResponseShape::JsonRef(reference.into()));
@@ -232,7 +237,7 @@ fn binding_matches(
         if matching.len() != 1 {
             return false;
         }
-        body_index = matching.first().copied();
+        body_index = Some(matching[0]);
     }
 
     let raw_names: Vec<_> = binding
@@ -383,9 +388,18 @@ mod tests {
         }));
         let raw = operation(
             vec![
-                ParameterBinding { name: "request".into(), type_name: "PublishRequest".into() },
-                ParameterBinding { name: "preview".into(), type_name: "Option<bool>".into() },
-                ParameterBinding { name: "article_id".into(), type_name: "impl AsRef<str>".into() },
+                ParameterBinding {
+                    name: "request".into(),
+                    type_name: "PublishRequest".into(),
+                },
+                ParameterBinding {
+                    name: "preview".into(),
+                    type_name: "Option<bool>".into(),
+                },
+                ParameterBinding {
+                    name: "article_id".into(),
+                    type_name: "impl AsRef<str>".into(),
+                },
             ],
             "Article",
         );
