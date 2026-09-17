@@ -201,8 +201,8 @@ fn rust_scalar(type_name: &str) -> Result<(ScalarKind, bool), &'static str> {
     let kind = match inner {
         "String" => ScalarKind::String,
         "bool" => ScalarKind::Boolean,
-        "i8" | "i16" | "i32" | "i64" | "i128" | "isize" | "u8" | "u16" | "u32"
-        | "u64" | "u128" | "usize" => ScalarKind::Integer,
+        "i8" | "i16" | "i32" | "i64" | "i128" | "isize" | "u8" | "u16" | "u32" | "u64" | "u128"
+        | "usize" => ScalarKind::Integer,
         "f32" | "f64" => ScalarKind::Number,
         _ => return Err(RESPONSE_VIEW_UNPROVEN),
     };
@@ -233,12 +233,7 @@ fn response_view(
     let fields = bindings.structs.get(raw).ok_or(RESPONSE_VIEW_UNPROVEN)?;
     let by_name: BTreeMap<_, _> = fields
         .iter()
-        .map(|field| {
-            (
-                field.name.strip_prefix("r#").unwrap_or(&field.name),
-                field,
-            )
-        })
+        .map(|field| (field.name.strip_prefix("r#").unwrap_or(&field.name), field))
         .collect();
     let wire_fields: BTreeSet<_> = properties.keys().map(String::as_str).collect();
     let raw_fields: BTreeSet<_> = by_name.keys().copied().collect();
