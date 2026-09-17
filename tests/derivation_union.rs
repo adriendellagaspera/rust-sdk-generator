@@ -108,7 +108,7 @@ fn derives_structurally_proven_simple_union_response() {
 }
 
 #[test]
-fn rejects_union_payload_drift() {
+fn rejects_union_payload_drift_during_reconciliation() {
     let (openapi, mut bindings, surface) = fixture();
     bindings
         .enums
@@ -125,10 +125,7 @@ fn rejects_union_payload_drift() {
     .expect("derive");
     let outcome = &derivation.report.operations["lookup_item"];
     assert_eq!(outcome.status, DerivationStatus::Rejected);
-    assert_eq!(
-        outcome.reason.code,
-        "capability.response_union_derivation_required"
-    );
+    assert_eq!(outcome.reason.code, "bindings.no_structural_match");
 }
 
 #[test]
