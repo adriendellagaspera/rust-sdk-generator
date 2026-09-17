@@ -16,7 +16,7 @@ fn fixture() -> (OpenApi, Bindings, PublicSdkSurface) {
 }
 
 #[test]
-fn derives_structurally_proven_alias_and_map_responses() {
+fn derives_structurally_proven_model_algebra_responses() {
     let (openapi, bindings, surface) = fixture();
 
     let derivation = derive(DeriveInput {
@@ -27,24 +27,23 @@ fn derives_structurally_proven_alias_and_map_responses() {
     })
     .expect("derive");
 
-    for operation_id in ["read_labels", "read_tags"] {
+    for operation_id in ["read_labels", "read_mode", "read_tags"] {
         let outcome = &derivation.report.operations[operation_id];
         assert_eq!(outcome.status, DerivationStatus::Derived);
         assert_eq!(outcome.reason.code, "inference.structurally_proven");
     }
-
-    let enum_outcome = &derivation.report.operations["read_mode"];
-    assert_eq!(enum_outcome.status, DerivationStatus::Rejected);
-    assert_eq!(
-        enum_outcome.reason.code,
-        "capability.response_model_derivation_required"
-    );
 
     let labels = &derivation.definition.models["LabelsCatalogMetadataResponse"];
     assert_eq!(labels.raw.as_deref(), Some("LabelMap"));
     let map = labels.map.as_ref().expect("map response model");
     assert_eq!(map.root, "LabelMap");
     assert!(map.path.is_empty());
+
+    let mode = &derivation.definition.models["ModeCatalogMetadataResponse"];
+    assert_eq!(mode.raw.as_deref(), Some("RunMode"));
+    let scalar_enum = mode.scalar_enum.as_ref().expect("scalar enum response model");
+    assert_eq!(scalar_enum.root, "RunMode");
+    assert!(scalar_enum.path.is_empty());
 
     let tags = &derivation.definition.models["TagsCatalogMetadataResponse"];
     assert_eq!(tags.raw.as_deref(), Some("TagList"));
@@ -56,10 +55,13 @@ fn derives_structurally_proven_alias_and_map_responses() {
         Some("LabelsCatalogMetadataResponse")
     );
     assert_eq!(
+        metadata.operations["mode"].response.as_deref(),
+        Some("ModeCatalogMetadataResponse")
+    );
+    assert_eq!(
         metadata.operations["tags"].response.as_deref(),
         Some("TagsCatalogMetadataResponse")
     );
-    assert!(!metadata.operations.contains_key("mode"));
 
     let generated = generate(GenerateInput {
         openapi,
@@ -73,6 +75,7 @@ fn derives_structurally_proven_alias_and_map_responses() {
         generated.inventory.models,
         vec![
             "LabelsCatalogMetadataResponse",
+            "ModeCatalogMetadataResponse",
             "TagsCatalogMetadataResponse"
         ]
     );
@@ -83,8 +86,11 @@ fn derives_structurally_proven_alias_and_map_responses() {
     );
     assert_eq!(
         generated.inventory.resources[1].operations,
-        vec!["labels", "tags"]
+        vec!["labels", "mode", "tags"]
     );
+    let facade = &generated.files["facade_types.rs"];
+    assert!(facade.contains("impl From<RunMode> for ModeCatalogMetadataResponse"));
+    assert!(facade.contains("impl From<ModeCatalogMetadataResponse> for RunMode"));
 }
 
 #[test]
@@ -121,6 +127,26 @@ fn rejects_map_response_value_drift() {
     })
     .expect("derive");
     let outcome = &derivation.report.operations["read_labels"];
+    assert_eq!(outcome.status, DerivationStatus::Rejected);
+    assert_eq!(
+        outcome.reason.code,
+        "capability.response_model_derivation_required"
+    );
+}
+
+#[test]
+fn rejects_scalar_enum_wire_drift() {
+    let (openapi, mut bindings, surface) = fixture();
+    bindings.enums.get_mut("RunMode").expect("enum binding")[1].wire_name = Some("safer".into());
+
+    let derivation = derive(DeriveInput {
+        openapi,
+        bindings,
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive");
+    let outcome = &derivation.report.operations["read_mode"];
     assert_eq!(outcome.status, DerivationStatus::Rejected);
     assert_eq!(
         outcome.reason.code,
