@@ -17,3 +17,16 @@ jobs:
       - name: Enforce backend-neutral dependency direction
         run: |
           test -z "$(grep -R -n -E 'openapi_to_rust_bindings|openapi-to-rust-bindings|import openapi_to_rust' src/rust_sdk_generator || true)"
+  bindings:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv build --wheel
+        working-directory: openapi-to-rust-bindings
+      - run: uv venv .test-venv --python 3.11
+        working-directory: openapi-to-rust-bindings
+      - run: uv pip install --python .test-venv/bin/python dist/*.whl
+        working-directory: openapi-to-rust-bindings
+      - run: .test-venv/bin/python -m unittest discover -s tests -p 'test_*.py'
+        working-directory: openapi-to-rust-bindings
