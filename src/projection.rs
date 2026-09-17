@@ -4,11 +4,11 @@ use indexmap::IndexMap;
 use serde_json::Value;
 
 use crate::contracts::{
-    AccessorDefinition, AccessorKindDefinition, Bindings, ModelDefinition, OperationDefinition,
-    ResourceDefinition, SdkDefinition,
+    AccessorDefinition, AccessorKindDefinition, Bindings, MapDefinition, ModelDefinition,
+    OperationDefinition, ResourceDefinition, SdkDefinition,
 };
 use crate::openapi::{OpenApiIndex, ref_name};
-use crate::rust_type::parse_type;
+use crate::rust_type::{Type, parse_type};
 use crate::symbols::field_identifier;
 
 const REQUEST_MODEL_UNPROVEN: &str = "capability.request_model_not_structurally_provable";
@@ -306,6 +306,198 @@ fn response_view(
     ))
 }
 
+fn integer_rust_type(value: &str) -> bool {
+    matches!(
+        value,
+        "i8" | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "isize"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "usize"
+    )
+}
+
+fn type_matches_schema(
+    schema: &Value,
+    syntax: &Type,
+    bindings: &Bindings,
+    seen_aliases: &mut BTreeSet<String>,
+) -> Result<bool, &'static str> {
+    if let Some(alias) = bindings.aliases.get(&syntax.spelling) {
+        if !seen_aliases.insert(syntax.spelling.clone()) {
+            return Err(RESPONSE_VIEW_UNPROVEN);
+        }
+        let expanded = parse_type(alias).map_err(|_| RESPONSE_VIEW_UNPROVEN)?;
+        let matches = type_matches_schema(schema, &expanded, bindings, seen_aliases)?;
+        seen_aliases.remove(&syntax.spelling);
+        return Ok(matches);
+    }
+
+    Ok(match schema.get("type").and_then(Value::as_str) {
+        Some("string") => syntax.spelling == "String",
+        Some("boolean") => syntax.spelling == "bool",
+        Some("integer") => integer_rust_type(&syntax.spelling),
+        Some("number") => matches!(syntax.spelling.as_str(), "f32" | "f64"),
+        Some("array") => {
+            let Some(items) = schema.get("items") else {
+                return Ok(false);
+            };
+            let Some(inner) = syntax.unary("Vec") else {
+                return Ok(false);
+            };
+            type_matches_schema(items, inner, bindings, seen_aliases)?
+        }
+        Some("object") => {
+            let Some(additional) = schema.get("additionalProperties") else {
+                return Ok(false);
+            };
+            syntax.constructor.as_deref() == Some("std::collections::BTreeMap")
+                && syntax.arguments.len() == 2
+                && syntax.arguments[0].spelling == "String"
+                && type_matches_schema(additional, &syntax.arguments[1], bindings, seen_aliases)?
+        }
+        _ => false,
+    })
+}
+
+fn alias_response_model(
+    openapi: &OpenApiIndex,
+    bindings: &Bindings,
+    raw: &str,
+    resource_path: &[String],
+    public_name: &str,
+) -> Result<(String, ModelDefinition), &'static str> {
+    let alias = bindings.aliases.get(raw).ok_or(RESPONSE_VIEW_UNPROVEN)?;
+    let syntax = parse_type(alias).map_err(|_| RESPONSE_VIEW_UNPROVEN)?;
+    let schema = openapi.schema(raw).map_err(|_| RESPONSE_VIEW_UNPROVEN)?;
+    let mut seen_aliases = BTreeSet::from([raw.to_owned()]);
+    if !type_matches_schema(schema, &syntax, bindings, &mut seen_aliases)? {
+        return Err(RESPONSE_VIEW_UNPROVEN);
+    }
+
+    let name = response_model_name(resource_path, public_name);
+    if !public_model_name_available(&name, bindings) {
+        return Err("capability.public_model_name_collision");
+    }
+    Ok((
+        name,
+        ModelDefinition {
+            raw: Some(raw.into()),
+            constructor: None,
+            exclude: None,
+            adapters: None,
+            union: None,
+            simple_union: None,
+            type_alias: Some(true),
+            map: None,
+            scalar_enum: None,
+            union_factory: None,
+            borrowed: None,
+            accessors: None,
+        },
+    ))
+}
+
+fn map_response_model(
+    openapi: &OpenApiIndex,
+    bindings: &Bindings,
+    raw: &str,
+    resource_path: &[String],
+    public_name: &str,
+) -> Result<(String, ModelDefinition), &'static str> {
+    let schema = openapi.schema(raw).map_err(|_| RESPONSE_VIEW_UNPROVEN)?;
+    if schema.get("type").and_then(Value::as_str) != Some("object")
+        || schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .is_some_and(|properties| !properties.is_empty())
+    {
+        return Err(RESPONSE_VIEW_UNPROVEN);
+    }
+    let additional = schema
+        .get("additionalProperties")
+        .filter(|value| **value != Value::Bool(false))
+        .ok_or(RESPONSE_VIEW_UNPROVEN)?;
+    let fields = bindings.structs.get(raw).ok_or(RESPONSE_VIEW_UNPROVEN)?;
+    if fields.len() != 1
+        || fields[0].name.strip_prefix("r#").unwrap_or(&fields[0].name) != "additional_properties"
+    {
+        return Err(RESPONSE_VIEW_UNPROVEN);
+    }
+    let mapping = parse_type(&fields[0].type_name).map_err(|_| RESPONSE_VIEW_UNPROVEN)?;
+    if mapping.constructor.as_deref() != Some("std::collections::BTreeMap")
+        || mapping.arguments.len() != 2
+        || mapping.arguments[0].spelling != "String"
+    {
+        return Err(RESPONSE_VIEW_UNPROVEN);
+    }
+    if !type_matches_schema(
+        additional,
+        &mapping.arguments[1],
+        bindings,
+        &mut BTreeSet::new(),
+    )? {
+        return Err(RESPONSE_VIEW_UNPROVEN);
+    }
+
+    let name = response_model_name(resource_path, public_name);
+    if !public_model_name_available(&name, bindings) {
+        return Err("capability.public_model_name_collision");
+    }
+    Ok((
+        name,
+        ModelDefinition {
+            raw: Some(raw.into()),
+            constructor: None,
+            exclude: None,
+            adapters: None,
+            union: None,
+            simple_union: None,
+            type_alias: None,
+            map: Some(MapDefinition {
+                root: raw.into(),
+                path: Vec::new(),
+            }),
+            scalar_enum: None,
+            union_factory: None,
+            borrowed: None,
+            accessors: None,
+        },
+    ))
+}
+
+fn response_model(
+    openapi: &OpenApiIndex,
+    bindings: &Bindings,
+    raw: &str,
+    resource_path: &[String],
+    public_name: &str,
+) -> Result<(String, ModelDefinition), &'static str> {
+    if bindings.aliases.contains_key(raw) {
+        return alias_response_model(openapi, bindings, raw, resource_path, public_name);
+    }
+    if bindings.structs.contains_key(raw) {
+        let schema = openapi.schema(raw).map_err(|_| RESPONSE_VIEW_UNPROVEN)?;
+        if schema.get("type").and_then(Value::as_str) == Some("object")
+            && schema.get("additionalProperties").is_some()
+            && schema
+                .get("properties")
+                .and_then(Value::as_object)
+                .is_none_or(|properties| properties.is_empty())
+        {
+            return map_response_model(openapi, bindings, raw, resource_path, public_name);
+        }
+        return response_view(openapi, bindings, raw, resource_path, public_name);
+    }
+    Err(RESPONSE_VIEW_UNPROVEN)
+}
+
 fn response_projection(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
@@ -350,7 +542,7 @@ fn response_projection(
         if raw_binding.success_type != raw {
             return Err(RESPONSE_VIEW_UNPROVEN);
         }
-        let (name, model) = response_view(openapi, bindings, raw, resource_path, public_name)?;
+        let (name, model) = response_model(openapi, bindings, raw, resource_path, public_name)?;
         return Ok(ProjectedResponse::Json(name, Box::new(model)));
     }
     let binary = schema.get("type").and_then(Value::as_str) == Some("string")
