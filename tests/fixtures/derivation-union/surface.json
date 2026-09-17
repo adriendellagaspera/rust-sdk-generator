@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "client": "SearchClient",
+  "operations": {
+    "lookup_item": ["search.lookup"]
+  }
+}
