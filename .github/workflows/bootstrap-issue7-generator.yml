@@ -1,0 +1,123 @@
+name: Materialize issue 7 generator
+on:
+  push:
+    branches: [issue-7-bootstrap-generator]
+permissions:
+  contents: write
+jobs:
+  materialize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: issue-7-bootstrap-generator
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+      - name: Import current generic generator package
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_dir="$(mktemp -d)"
+          git clone --depth=1 --branch rust-sdk-compiler https://github.com/adriendellagaspera/mistralai-rs.git "$source_dir"
+          source_sha="$(git -C "$source_dir" rev-parse HEAD)"
+          rm -rf src tests LICENSE-MIT LICENSE-APACHE COMPATIBILITY.json pyproject.toml uv.lock
+          mkdir -p src
+          cp -R "$source_dir/src/rust_sdk_compiler" src/rust_sdk_generator
+          cp -R "$source_dir/tests" tests
+          cp "$source_dir/LICENSE-MIT" LICENSE-MIT
+          cp "$source_dir/LICENSE-APACHE" LICENSE-APACHE
+          python - <<'PY'
+          from pathlib import Path
+          for path in [*Path('src').rglob('*.py'), *Path('tests').rglob('*.py')]:
+              text = path.read_text()
+              path.write_text(text.replace('rust_sdk_compiler', 'rust_sdk_generator'))
+          init = Path('src/rust_sdk_generator/__init__.py')
+          init.write_text(init.read_text().replace('standalone Rust SDK compiler', 'standalone Rust SDK generator'))
+          PY
+          cat > pyproject.toml <<'EOF'
+          [build-system]
+          requires = ["setuptools==75.8.0"]
+          build-backend = "setuptools.build_meta"
+
+          [project]
+          name = "rust-sdk-generator"
+          version = "0.2.8"
+          description = "Deterministic derivation and generation of idiomatic Rust SDK surfaces from OpenAPI and normalized bindings"
+          readme = "README.md"
+          requires-python = ">=3.11"
+          license = {text = "MIT OR Apache-2.0"}
+          dependencies = [
+            "ruamel.yaml==0.18.6",
+            "jsonschema==4.23.0",
+          ]
+
+          [tool.setuptools]
+          package-dir = {"" = "src"}
+          packages = ["rust_sdk_generator"]
+          include-package-data = true
+
+          [tool.setuptools.package-data]
+          rust_sdk_generator = ["*.json"]
+          EOF
+          cat > COMPATIBILITY.json <<'EOF'
+          {
+            "schema_version": 1,
+            "package_name": "rust-sdk-generator",
+            "package_version": "0.2.8",
+            "bindings_schema_version": 2
+          }
+          EOF
+          cat > README.md <<EOF
+          # rust-sdk-generator
+
+          Backend-neutral Rust SDK generator. The root package consumes OpenAPI, normalized Rust Bindings, an explicit complete SDK description and runtime integration data, then emits deterministic idiomatic Rust source.
+
+          The initial standalone behavior is migrated from the latest generic \`rust-sdk-compiler\` package branch in \`adriendellagaspera/mistralai-rs\` at \`${source_sha}\`. This includes the generic OpenAPI object-composition fixes merged after the historical extraction snapshot referenced by issue #7.
+
+          The package deliberately has no dependency on \`openapi-to-rust\` or \`openapi-to-rust-bindings\`. The sibling \`openapi-to-rust-bindings/\` component is imported separately and may depend on this package only through the normalized \`Bindings\` contract.
+
+          The compile-era public API is retained during the behavior-neutral bootstrap. Issue #1 evolves it to \`derive()\` / \`generate()\` with \`PublicSdkSurface\`, \`SdkOverrides\`, \`SdkDefinition\` and \`DerivationReport\`.
+
+          ## Bootstrap inventory
+
+          Moved here: the complete backend-neutral generator package, its Menagerie/Library/composed-OpenAPI fixtures, Bindings schema validation, structural Rust-type logic, lowering, emission and generic tests from the current package branch.
+
+          Intentionally left in \`mistralai-rs\`: Mistral OpenAPI/source tracking, official SDK extraction, taxonomy/public naming evidence, current auto-projection orchestration, Mistral runtime integration and repository compatibility/release gates. Those responsibilities move only through their owning issues.
+          EOF
+          uv lock
+          uv sync --frozen
+          uv run python -m unittest discover -s tests -p 'test_*.py'
+          test -z "$(grep -R -n -E 'openapi_to_rust_bindings|openapi-to-rust-bindings|import openapi_to_rust' src/rust_sdk_generator || true)"
+          printf '%s\n' "$source_sha" > .bootstrap-source-commit
+      - name: Install standalone CI and remove bootstrap workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > .github/workflows/ci.yml <<'EOF'
+          name: CI
+          on:
+            push:
+            pull_request:
+          permissions:
+            contents: read
+          jobs:
+            generator:
+              runs-on: ubuntu-24.04
+              steps:
+                - uses: actions/checkout@v4
+                - uses: astral-sh/setup-uv@v6
+                - run: uv sync --frozen
+                - run: uv run python -m unittest discover -s tests -p 'test_*.py'
+                - name: Enforce backend-neutral dependency direction
+                  run: |
+                    test -z "$(grep -R -n -E 'openapi_to_rust_bindings|openapi-to-rust-bindings|import openapi_to_rust' src/rust_sdk_generator || true)"
+          EOF
+          rm .github/workflows/bootstrap-issue7-generator.yml
+          source_sha="$(cat .bootstrap-source-commit)"
+          rm .bootstrap-source-commit
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "feat: bootstrap standalone rust sdk generator" -m "Imported generic behavior from mistralai-rs rust-sdk-compiler ${source_sha}."
+          git push origin HEAD:issue-7-bootstrap-generator
