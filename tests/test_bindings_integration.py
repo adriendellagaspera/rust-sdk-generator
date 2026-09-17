@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import unittest
 
-from openapi_to_rust_bindings import parse_bindings
+from openapi_to_rust_bindings import Bindings, parse_bindings
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,10 +27,10 @@ class BindingsIntegrationTests(unittest.TestCase):
             (BINDINGS_FIXTURE / "types.rs").read_bytes(),
             (BINDINGS_FIXTURE / "client.rs").read_bytes(),
         )
-        expected = json.loads(
-            (GENERATOR_FIXTURE / "rust-bindings.json").read_text()
+        expected = Bindings.from_dict(
+            json.loads((GENERATOR_FIXTURE / "rust-bindings.json").read_text())
         )
-        self.assertEqual(parsed.to_dict(), expected)
+        self.assertEqual(parsed, expected)
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
