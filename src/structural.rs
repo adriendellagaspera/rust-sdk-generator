@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::Value;
 
 use crate::contracts::Bindings;
-use crate::rust_type::parse_type;
+use crate::rust_type::{Type, parse_type};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ScalarKind {
@@ -51,6 +51,25 @@ fn scalar_schema(schema: &Value) -> Option<(ScalarKind, bool)> {
     (nulls == 1).then_some((scalar?, true))
 }
 
+fn nullable_schema(schema: &Value) -> Option<&Value> {
+    let branches = schema.get("anyOf").and_then(Value::as_array)?;
+    if branches.len() != 2 {
+        return None;
+    }
+    let mut non_null = None;
+    let mut nulls = 0;
+    for branch in branches {
+        if branch.get("type").and_then(Value::as_str) == Some("null") {
+            nulls += 1;
+        } else if non_null.is_none() {
+            non_null = Some(branch);
+        } else {
+            return None;
+        }
+    }
+    (nulls == 1).then_some(non_null?)
+}
+
 fn integer_rust_type(value: &str) -> bool {
     matches!(
         value,
@@ -86,6 +105,70 @@ fn rust_scalar(type_name: &str) -> Option<(ScalarKind, bool)> {
         _ => return None,
     };
     Some((kind, optional))
+}
+
+fn type_matches_schema(
+    schema: &Value,
+    syntax: &Type,
+    bindings: &Bindings,
+    seen_aliases: &mut BTreeSet<String>,
+) -> bool {
+    if let Some(alias) = bindings.aliases.get(&syntax.spelling) {
+        if !seen_aliases.insert(syntax.spelling.clone()) {
+            return false;
+        }
+        let matched = parse_type(alias)
+            .ok()
+            .is_some_and(|expanded| type_matches_schema(schema, &expanded, bindings, seen_aliases));
+        seen_aliases.remove(&syntax.spelling);
+        return matched;
+    }
+
+    if let Some(non_null) = nullable_schema(schema) {
+        return syntax
+            .unary("Option")
+            .is_some_and(|inner| type_matches_schema(non_null, inner, bindings, seen_aliases));
+    }
+    if syntax.unary("Option").is_some() {
+        return false;
+    }
+
+    match schema.get("type").and_then(Value::as_str) {
+        Some("string") => syntax.spelling == "String",
+        Some("boolean") => syntax.spelling == "bool",
+        Some("integer") => integer_rust_type(&syntax.spelling),
+        Some("number") => matches!(syntax.spelling.as_str(), "f32" | "f64"),
+        Some("array") => schema.get("items").is_some_and(|items| {
+            syntax
+                .unary("Vec")
+                .is_some_and(|inner| type_matches_schema(items, inner, bindings, seen_aliases))
+        }),
+        Some("object") => schema
+            .get("additionalProperties")
+            .filter(|additional| **additional != Value::Bool(false))
+            .is_some_and(|additional| {
+                syntax.constructor.as_deref() == Some("std::collections::BTreeMap")
+                    && syntax.arguments.len() == 2
+                    && syntax.arguments[0].spelling == "String"
+                    && type_matches_schema(
+                        additional,
+                        &syntax.arguments[1],
+                        bindings,
+                        seen_aliases,
+                    )
+            }),
+        _ => false,
+    }
+}
+
+pub(crate) fn rust_type_matches_schema(
+    schema: &Value,
+    type_name: &str,
+    bindings: &Bindings,
+) -> bool {
+    parse_type(type_name).ok().is_some_and(|syntax| {
+        type_matches_schema(schema, &syntax, bindings, &mut BTreeSet::new())
+    })
 }
 
 pub(crate) fn scalar_object_shape(schema: &Value) -> Option<BTreeMap<String, ScalarFieldShape>> {
