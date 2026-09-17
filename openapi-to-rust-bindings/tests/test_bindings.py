@@ -61,11 +61,16 @@ pub enum State {
         self.assertNotIn("RawIr", source)
         self.assertNotIn("Adapter", source)
 
-    def test_metadata_pins_compiler_and_backend_contracts(self):
-        project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
+    def test_metadata_records_generator_and_backend_contracts(self):
+        metadata = tomllib.loads((ROOT / "pyproject.toml").read_text())
+        project = metadata["project"]
         self.assertEqual(project["name"], "openapi-to-rust-bindings")
         self.assertEqual(project["version"], package.__version__)
-        self.assertIn("rust-sdk-generator @ git+https://github.com/adriendellagaspera/rust-sdk-generator.git@fdd9901f24095761e8daf6a83ee2e5de63da8ddf", project["dependencies"])
+        self.assertIn("rust-sdk-generator==0.2.8", project["dependencies"])
+        self.assertEqual(
+            metadata["tool"]["uv"]["sources"]["rust-sdk-generator"],
+            {"workspace": True},
+        )
         compatibility = json.loads((ROOT / "COMPATIBILITY.json").read_text())
         self.assertEqual(compatibility["package_version"], package.__version__)
         self.assertEqual(compatibility["bindings_schema_version"], 2)
