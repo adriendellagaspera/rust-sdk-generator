@@ -11,7 +11,8 @@ use crate::contracts::{
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, parse_type};
 use crate::structural::{
-    ScalarKind as StructuralScalarKind, raw_scalar_struct_shape, scalar_object_shape,
+    ScalarKind as StructuralScalarKind, raw_scalar_struct_shape, rust_type_matches_schema,
+    scalar_object_shape,
 };
 use crate::symbols::field_identifier;
 
@@ -404,6 +405,39 @@ fn inline_response_view(
             union_factory: None,
             borrowed: Some(false),
             accessors: Some(accessors),
+        },
+    ))
+}
+
+fn inline_array_response_model(
+    bindings: &Bindings,
+    schema: &Value,
+    raw: &str,
+    resource_path: &[String],
+    public_name: &str,
+) -> Result<(String, ModelDefinition), &'static str> {
+    if !bindings.aliases.contains_key(raw) || !rust_type_matches_schema(schema, raw, bindings) {
+        return Err(RESPONSE_VIEW_UNPROVEN);
+    }
+    let name = response_model_name(resource_path, public_name);
+    if !public_model_name_available(&name, bindings) {
+        return Err("capability.public_model_name_collision");
+    }
+    Ok((
+        name,
+        ModelDefinition {
+            raw: Some(raw.into()),
+            constructor: None,
+            exclude: None,
+            adapters: None,
+            union: None,
+            simple_union: None,
+            type_alias: Some(true),
+            map: None,
+            scalar_enum: None,
+            union_factory: None,
+            borrowed: None,
+            accessors: None,
         },
     ))
 }
@@ -826,6 +860,19 @@ fn response_projection(
         }
         if schema.get("type").and_then(Value::as_str) == Some("object") {
             let (name, model) = inline_response_view(
+                bindings,
+                schema,
+                &raw_binding.success_type,
+                resource_path,
+                public_name,
+            )?;
+            return Ok(ProjectedResponse::Json {
+                name: name.clone(),
+                models: vec![(name, model)],
+            });
+        }
+        if schema.get("type").and_then(Value::as_str) == Some("array") {
+            let (name, model) = inline_array_response_model(
                 bindings,
                 schema,
                 &raw_binding.success_type,
