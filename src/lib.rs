@@ -20,6 +20,7 @@ mod lower;
 mod naming;
 #[allow(dead_code)]
 mod openapi;
+mod projection;
 mod reconcile;
 mod rust_type;
 #[allow(dead_code)]
