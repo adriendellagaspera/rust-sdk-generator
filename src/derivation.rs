@@ -3,9 +3,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::contracts::{
-    Bindings, ClientDefinition, OpenApi, SdkDefinition,
-};
+use crate::contracts::{Bindings, ClientDefinition, OpenApi, SdkDefinition};
 use crate::error::{Diagnostic, GenerationError};
 use crate::openapi::OpenApiIndex;
 
@@ -368,22 +366,30 @@ mod tests {
         .expect("derive");
 
         assert_eq!(
-            derivation.report.operations.keys().map(String::as_str).collect::<Vec<_>>(),
+            derivation
+                .report
+                .operations
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
             vec!["create_widget", "list_widgets"]
         );
-        assert!(derivation
-            .report
-            .operations
-            .values()
-            .all(|item| item.status == DerivationStatus::Rejected));
+        assert!(
+            derivation
+                .report
+                .operations
+                .values()
+                .all(|item| item.status == DerivationStatus::Rejected)
+        );
     }
 
     #[test]
     fn explicit_exclusion_is_observable() {
         let mut overrides = SdkOverrides::default();
-        overrides
-            .excluded_operations
-            .insert("create_widget".into(), "consumer does not expose mutation".into());
+        overrides.excluded_operations.insert(
+            "create_widget".into(),
+            "consumer does not expose mutation".into(),
+        );
         let derivation = derive(DeriveInput {
             openapi: openapi(),
             bindings: bindings(),
@@ -408,6 +414,9 @@ mod tests {
         let second = serde_json::to_vec(&derive(input).expect("second")).expect("serialize");
         assert_eq!(first, second);
         let decoded: Derivation = serde_json::from_slice(&first).expect("round trip");
-        assert_eq!(serde_json::to_vec(&decoded).expect("serialize again"), first);
+        assert_eq!(
+            serde_json::to_vec(&decoded).expect("serialize again"),
+            first
+        );
     }
 }
