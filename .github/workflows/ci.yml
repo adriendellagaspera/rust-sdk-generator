@@ -10,36 +10,48 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - run: uv build --wheel
+      - run: uv build --wheel --package rust-sdk-generator --out-dir dist/generator
       - run: uv venv .test-venv --python 3.11
-      - run: uv pip install --python .test-venv/bin/python dist/*.whl
+      - run: uv pip install --python .test-venv/bin/python dist/generator/*.whl
       - run: .test-venv/bin/python -m unittest discover -s tests -p 'test_*.py'
-      - name: Enforce backend-neutral dependency direction
+      - name: Enforce backend-neutral generator boundary
         run: |
-          test -z "$(grep -R -n -E 'openapi_to_rust_bindings|openapi-to-rust-bindings|import openapi_to_rust' src/rust_sdk_generator || true)"
+          test -z "$(grep -R -n -E 'openapi_to_rust_bindings|openapi-to-rust-bindings|import openapi_to_rust|tree_sitter' src/rust_sdk_generator || true)"
   bindings:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - run: uv build --wheel
-        working-directory: openapi-to-rust-bindings
-      - run: uv venv .test-venv --python 3.11
-        working-directory: openapi-to-rust-bindings
-      - run: uv pip install --python .test-venv/bin/python dist/*.whl
-        working-directory: openapi-to-rust-bindings
-      - run: .test-venv/bin/python -m unittest discover -s tests -p 'test_*.py'
-        working-directory: openapi-to-rust-bindings
+      - run: uv build --wheel --package rust-sdk-generator --out-dir dist/generator
+      - run: uv build --wheel --package openapi-to-rust-bindings --out-dir dist/bindings
+      - run: uv venv .bindings-venv --python 3.11
+      - run: uv pip install --python .bindings-venv/bin/python dist/generator/*.whl dist/bindings/*.whl
+      - run: .bindings-venv/bin/python -m unittest discover -s openapi-to-rust-bindings/tests -p 'test_*.py'
+      - name: Enforce Bindings-only generator dependency
+        run: |
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          for path in Path('openapi-to-rust-bindings/src/openapi_to_rust_bindings').glob('*.py'):
+              tree = ast.parse(path.read_text(), filename=str(path))
+              for node in ast.walk(tree):
+                  if isinstance(node, ast.Import) and any(alias.name.startswith('rust_sdk_generator') for alias in node.names):
+                      raise SystemExit(f'backend adapter imports generator module directly: {path}')
+                  if isinstance(node, ast.ImportFrom) and (node.module or '').startswith('rust_sdk_generator'):
+                      if node.module != 'rust_sdk_generator' or {alias.name for alias in node.names} != {'Bindings'}:
+                          raise SystemExit(f'backend adapter exceeds Bindings contract: {path}:{node.lineno}')
+          PY
   integration:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - run: uv build --wheel
-      - run: uv build --wheel
-        working-directory: openapi-to-rust-bindings
+      - run: uv build --wheel --package rust-sdk-generator --out-dir dist/generator
+      - run: uv build --wheel --package openapi-to-rust-bindings --out-dir dist/bindings
       - run: uv venv .integration-venv --python 3.11
-      - run: uv pip install --python .integration-venv/bin/python dist/*.whl
-      - run: uv pip install --python .integration-venv/bin/python tree-sitter==0.25.2 tree-sitter-rust==0.24.0
-      - run: uv pip install --python .integration-venv/bin/python --no-deps openapi-to-rust-bindings/dist/*.whl
-      - run: .integration-venv/bin/python -m unittest tests.test_bindings_integration
+      - run: uv pip install --python .integration-venv/bin/python dist/generator/*.whl dist/bindings/*.whl
+      - run: .integration-venv/bin/python -m unittest discover -s integration -p 'test_*.py'
+      - name: Verify workspace lock has no self-Git dependency
+        run: |
+          test -z "$(grep -n 'github.com/adriendellagaspera/rust-sdk-generator' uv.lock || true)"
+          test ! -e openapi-to-rust-bindings/uv.lock
