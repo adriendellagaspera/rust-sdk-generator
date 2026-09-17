@@ -1,0 +1,50 @@
+name: Labels
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: labels-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  label:
+    name: label
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write # Apply deterministic labels to same-repository PRs.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Apply area labels from changed files
+        uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7.0.0
+        with:
+          repo-token: ${{ github.token }}
+          sync-labels: true
+      - name: Apply category label from conventional title
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          type="${PR_TITLE%%:*}"
+          type="${type%%(*}"
+          type="${type%!}"
+          case "$type" in
+            fix) category=C-bug ;;
+            feat) category=C-feature ;;
+            refactor|perf) category=C-refactor ;;
+            *) category=C-maintenance ;;
+          esac
+          while IFS= read -r label; do
+            case "$label" in C-*) gh pr edit "$PR_NUMBER" --remove-label "$label" ;; esac
+          done < <(gh pr view "$PR_NUMBER" --json labels --jq '.labels[].name')
+          gh pr edit "$PR_NUMBER" --add-label "$category"
