@@ -11,6 +11,7 @@ use crate::error::{GenerationError, Result};
 use crate::ir::*;
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, TypeKind, parse_type};
+use crate::structural::{raw_scalar_struct_shape, scalar_object_shape};
 use crate::symbols::{SymbolProvider, field_identifier};
 
 fn error(code: &'static str, message: impl Into<String>) -> GenerationError {
@@ -1048,6 +1049,9 @@ fn response_matches(
             .filter_map(|variant| variant.payload.as_deref())
             .collect();
         return Ok(payloads == actual);
+    }
+    if let Some(wire) = scalar_object_shape(schema) {
+        return Ok(raw_scalar_struct_shape(bindings, raw).is_some_and(|actual| actual == wire));
     }
     Ok(false)
 }
