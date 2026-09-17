@@ -27,7 +27,7 @@ enum ScalarKind {
 #[derive(Debug, Clone)]
 enum ProjectedResponse {
     Empty,
-    Json(String, ModelDefinition),
+    Json(String, Box<ModelDefinition>),
 }
 
 #[derive(Debug, Clone)]
@@ -351,7 +351,7 @@ fn response_projection(
             return Err(RESPONSE_VIEW_UNPROVEN);
         }
         let (name, model) = response_view(openapi, bindings, raw, resource_path, public_name)?;
-        return Ok(ProjectedResponse::Json(name, model));
+        return Ok(ProjectedResponse::Json(name, Box::new(model)));
     }
     let binary = schema.get("type").and_then(Value::as_str) == Some("string")
         && schema.get("format").and_then(Value::as_str) == Some("binary");
@@ -383,7 +383,7 @@ pub(crate) fn project_operation(
     let response = response_projection(openapi, bindings, operation, binding, &path, &public_name)?;
     let (response_name, empty_response, response_model) = match response {
         ProjectedResponse::Empty => (None, Some(true), None),
-        ProjectedResponse::Json(name, model) => (Some(name.clone()), None, Some((name, model))),
+        ProjectedResponse::Json(name, model) => (Some(name.clone()), None, Some((name, *model))),
     };
     let mut models = Vec::new();
     if let Some(model) = request_model {
