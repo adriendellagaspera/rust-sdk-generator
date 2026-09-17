@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value};
 
-use crate::error::{GenerationError, Result};
 use crate::OpenApi;
+use crate::error::{GenerationError, Result};
 
 const SCHEMA_ANNOTATIONS: &[&str] = &[
     "deprecated",
