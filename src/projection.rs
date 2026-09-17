@@ -68,7 +68,12 @@ fn semantic_pascal_identifier(value: &str) -> Result<String, &'static str> {
                 .unwrap_or_default()
         })
         .collect();
-    if name.is_empty() || !name.chars().next().is_some_and(|first| first.is_ascii_alphabetic()) {
+    if name.is_empty()
+        || !name
+            .chars()
+            .next()
+            .is_some_and(|first| first.is_ascii_alphabetic())
+    {
         return Err(RESPONSE_UNION_REQUIRED);
     }
     Ok(name)
@@ -623,8 +628,13 @@ fn union_response_model(
         return Err(RESPONSE_UNION_REQUIRED);
     }
 
-    let raw_variants = bindings.enums.get(raw_union).ok_or(RESPONSE_UNION_REQUIRED)?;
-    if raw_variants.len() != references.len() || raw_variants.iter().any(|variant| variant.payload.is_none()) {
+    let raw_variants = bindings
+        .enums
+        .get(raw_union)
+        .ok_or(RESPONSE_UNION_REQUIRED)?;
+    if raw_variants.len() != references.len()
+        || raw_variants.iter().any(|variant| variant.payload.is_none())
+    {
         return Err(RESPONSE_UNION_REQUIRED);
     }
     let payload_to_variant: BTreeMap<_, _> = raw_variants
@@ -655,13 +665,9 @@ fn union_response_model(
             return Err("capability.public_model_name_collision");
         }
         let branch_name = format!("{union_name}{public_variant}");
-        let (adapter, branch_model) = response_view_named(
-            openapi,
-            bindings,
-            &reference,
-            branch_name,
-        )
-        .map_err(|_| RESPONSE_UNION_REQUIRED)?;
+        let (adapter, branch_model) =
+            response_view_named(openapi, bindings, &reference, branch_name)
+                .map_err(|_| RESPONSE_UNION_REQUIRED)?;
         models.push((adapter.clone(), branch_model));
         let raw_variant = payload_to_variant
             .get(&reference)
