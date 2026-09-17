@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value};
 
-use crate::OpenApi;
 use crate::error::{GenerationError, Result};
+use crate::OpenApi;
 
 const SCHEMA_ANNOTATIONS: &[&str] = &[
     "deprecated",
@@ -21,7 +21,10 @@ fn error(code: &'static str, message: impl Into<String>) -> GenerationError {
 
 fn component_ref(value: Option<&Value>) -> Option<&str> {
     let prefix = "#/components/schemas/";
-    value?.as_str()?.strip_prefix(prefix).filter(|name| !name.is_empty())
+    value?
+        .as_str()?
+        .strip_prefix(prefix)
+        .filter(|name| !name.is_empty())
 }
 
 pub(crate) fn ref_name(schema: &Value) -> Option<&str> {
@@ -49,12 +52,14 @@ fn nullable_property_inner(schema: &Map<String, Value>) -> Option<Map<String, Va
     if branches.len() != 2 || schema.keys().any(|key| !allowed.contains(key.as_str())) {
         return None;
     }
+
     let null = serde_json::json!({"type": "null"});
     let null_count = branches.iter().filter(|branch| **branch == null).count();
     let values: Vec<_> = branches.iter().filter(|branch| **branch != null).collect();
     if null_count != 1 || values.len() != 1 {
         return None;
     }
+
     let mut inner = values[0].as_object()?.clone();
     for key in SCHEMA_ANNOTATIONS {
         if let Some(value) = schema.get(*key)
@@ -63,8 +68,7 @@ fn nullable_property_inner(schema: &Map<String, Value>) -> Option<Map<String, Va
             inner.insert((*key).into(), value.clone());
         }
     }
-    if schema.get("default").is_some_and(|value| !value.is_null())
-        && !inner.contains_key("default")
+    if schema.get("default").is_some_and(|value| !value.is_null()) && !inner.contains_key("default")
     {
         inner.insert("default".into(), schema["default"].clone());
     }
@@ -79,6 +83,7 @@ fn intersect_property_schema(
     if left == right {
         return Ok(left.clone());
     }
+
     let left_inner = nullable_property_inner(left);
     let right_inner = nullable_property_inner(right);
     if let (Some(left_inner), None) = (&left_inner, &right_inner) {
@@ -110,9 +115,7 @@ fn intersect_property_schema(
         ));
     }
 
-    let left_values = literal_values(left);
-    let right_values = literal_values(right);
-    let values = match (left_values, right_values) {
+    let values = match (literal_values(left), literal_values(right)) {
         (None, None) => None,
         (None, Some(values)) | (Some(values), None) => Some(values),
         (Some(left_values), Some(right_values)) => {
@@ -139,6 +142,7 @@ fn intersect_property_schema(
             }
         }
     }
+
     if let Some(values) = values {
         let allowed: BTreeSet<_> = values.iter().map(json_value_key).collect();
         result.insert("enum".into(), Value::Array(values));
@@ -185,13 +189,18 @@ fn merge_object_shapes(parts: &[Map<String, Value>], context: &str) -> Result<Va
                     })?;
                     properties.insert(
                         name.clone(),
-                        Value::Object(intersect_property_schema(previous, schema, &format!("{context}.{name}"))?),
+                        Value::Object(intersect_property_schema(
+                            previous,
+                            schema,
+                            &format!("{context}.{name}"),
+                        )?),
                     );
                 } else {
                     properties.insert(name.clone(), schema.clone());
                 }
             }
         }
+
         if let Some(names) = part.get("required") {
             for name in names.as_array().ok_or_else(|| {
                 error(
@@ -210,6 +219,7 @@ fn merge_object_shapes(parts: &[Map<String, Value>], context: &str) -> Result<Va
                 }
             }
         }
+
         if let Some(candidate) = part.get("additionalProperties") {
             if let Some(previous) = &additional_properties
                 && previous != candidate
@@ -258,9 +268,10 @@ pub(crate) struct OpenApiIndex {
 
 impl OpenApiIndex {
     pub fn new(openapi: &OpenApi) -> Result<Self> {
-        let root = openapi.0.as_object().ok_or_else(|| {
-            error("openapi.invalid", "OpenAPI document must be a JSON object")
-        })?;
+        let root = openapi
+            .0
+            .as_object()
+            .ok_or_else(|| error("openapi.invalid", "OpenAPI document must be a JSON object"))?;
         let schemas = root
             .get("components")
             .and_then(Value::as_object)
@@ -285,11 +296,14 @@ impl OpenApiIndex {
                     .and_then(Value::as_array)
                     .cloned()
                     .unwrap_or_default();
-                for method in ["get", "put", "post", "delete", "options", "head", "patch", "trace"] {
+                for method in [
+                    "get", "put", "post", "delete", "options", "head", "patch", "trace",
+                ] {
                     let Some(operation) = path_item.get(method).and_then(Value::as_object) else {
                         continue;
                     };
-                    let Some(operation_id) = operation.get("operationId").and_then(Value::as_str) else {
+                    let Some(operation_id) = operation.get("operationId").and_then(Value::as_str)
+                    else {
                         continue;
                     };
                     let mut normalized = operation.clone();
@@ -316,7 +330,10 @@ impl OpenApiIndex {
                 }
             }
         }
-        Ok(Self { schemas, operations })
+        Ok(Self {
+            schemas,
+            operations,
+        })
     }
 
     pub fn schema(&self, name: &str) -> Result<&Value> {
@@ -359,6 +376,7 @@ impl OpenApiIndex {
                 )
             })?;
             let mut parts = Vec::new();
+
             if let Some(reference_value) = schema.get("$ref") {
                 let reference = component_ref(Some(reference_value)).ok_or_else(|| {
                     error(
@@ -373,7 +391,10 @@ impl OpenApiIndex {
                     cycle.push(reference.into());
                     return Err(error(
                         "openapi.recursive_object",
-                        format!("recursive OpenAPI object composition: {}", cycle.join(" -> ")),
+                        format!(
+                            "recursive OpenAPI object composition: {}",
+                            cycle.join(" -> ")
+                        ),
                     ));
                 }
                 stack.push(reference.into());
@@ -385,6 +406,7 @@ impl OpenApiIndex {
                 );
                 stack.pop();
             }
+
             if let Some(all_of) = schema.get("allOf") {
                 let branches = all_of.as_array().ok_or_else(|| {
                     error(
@@ -432,6 +454,7 @@ impl OpenApiIndex {
                 }
                 parts.push(local);
             }
+
             if parts.is_empty() {
                 return Err(error(
                     "openapi.not_object",
@@ -451,7 +474,9 @@ impl OpenApiIndex {
             schema = if segment == "items" {
                 schema.get("items")
             } else {
-                schema.get("properties").and_then(|properties| properties.get(segment))
+                schema
+                    .get("properties")
+                    .and_then(|properties| properties.get(segment))
             }
             .ok_or_else(|| {
                 error(
@@ -459,6 +484,7 @@ impl OpenApiIndex {
                     format!("invalid OpenAPI union path {root}.{}", path.join(".")),
                 )
             })?;
+
             if let Some(branches) = schema.get("anyOf").and_then(Value::as_array) {
                 let non_null: Vec<_> = branches
                     .iter()
@@ -469,6 +495,7 @@ impl OpenApiIndex {
                 }
             }
         }
+
         let branches = schema
             .get("oneOf")
             .or_else(|| schema.get("anyOf"))
@@ -483,10 +510,11 @@ impl OpenApiIndex {
                     format!("OpenAPI union discriminator missing at {root}"),
                 )
             })?;
-        let explicit = schema
+
+        if let Some(mapping) = schema
             .pointer("/discriminator/mapping")
-            .and_then(Value::as_object);
-        if let Some(mapping) = explicit {
+            .and_then(Value::as_object)
+        {
             let mut result = BTreeMap::new();
             for (tag, target) in mapping {
                 let target = component_ref(Some(target)).ok_or_else(|| {
@@ -513,13 +541,10 @@ impl OpenApiIndex {
                 .get("properties")
                 .and_then(|properties| properties.get(discriminator))
                 .and_then(|property| {
-                    property
-                        .get("const")
-                        .and_then(Value::as_str)
-                        .or_else(|| {
-                            let values = property.get("enum")?.as_array()?;
-                            (values.len() == 1).then(|| values[0].as_str()).flatten()
-                        })
+                    property.get("const").and_then(Value::as_str).or_else(|| {
+                        let values = property.get("enum")?.as_array()?;
+                        (values.len() == 1).then(|| values[0].as_str()).flatten()
+                    })
                 })
                 .ok_or_else(|| {
                     error(
