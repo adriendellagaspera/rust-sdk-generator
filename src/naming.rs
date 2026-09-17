@@ -12,11 +12,11 @@ const ACTION_PREFIXES: &[&str] = &[
 ];
 
 const RUST_KEYWORDS: &[&str] = &[
-    "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn",
-    "for", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref",
-    "return", "self", "Self", "static", "struct", "super", "trait", "true", "type", "unsafe",
-    "use", "where", "while", "async", "await", "dyn", "abstract", "become", "box", "do",
-    "final", "macro", "override", "priv", "typeof", "unsized", "virtual", "yield", "try",
+    "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn", "for",
+    "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return",
+    "self", "Self", "static", "struct", "super", "trait", "true", "type", "unsafe", "use", "where",
+    "while", "async", "await", "dyn", "abstract", "become", "box", "do", "final", "macro",
+    "override", "priv", "typeof", "unsized", "virtual", "yield", "try",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,8 +71,9 @@ fn operation_stem(operation_id: &str) -> String {
     let normalized = identifier(operation_id);
     let parts: Vec<_> = normalized.split('_').collect();
     let version = parts.iter().position(|part| {
-        part.strip_prefix('v')
-            .is_some_and(|digits| !digits.is_empty() && digits.chars().all(|ch| ch.is_ascii_digit()))
+        part.strip_prefix('v').is_some_and(|digits| {
+            !digits.is_empty() && digits.chars().all(|ch| ch.is_ascii_digit())
+        })
     });
     match version {
         Some(0) | None => normalized,
@@ -128,12 +129,10 @@ fn canonical_surface_path(paths: &[String]) -> NamingDecision {
         .iter()
         .map(|path| path.split('.').collect::<Vec<_>>())
         .collect();
-    if parsed.iter().any(|parts| {
-        parts.len() < 2
-            || parts
-                .iter()
-                .any(|part| !valid_public_identifier(part))
-    }) {
+    if parsed
+        .iter()
+        .any(|parts| parts.len() < 2 || parts.iter().any(|part| !valid_public_identifier(part)))
+    {
         return NamingDecision {
             public_path: None,
             evidence,
@@ -233,7 +232,10 @@ fn fallback_resources_from_surface(
         let mut parts: Vec<_> = path.split('.').map(str::to_owned).collect();
         parts.pop();
         for tag in &input.tags {
-            resources.entry(tag.clone()).or_default().insert(parts.clone());
+            resources
+                .entry(tag.clone())
+                .or_default()
+                .insert(parts.clone());
         }
     }
     resources
@@ -481,11 +483,8 @@ mod tests {
                 "/jobs/{id}": {"delete": {"operationId": "jobs_delete", "tags": ["jobs.admin"], "responses": {"204": {}}}}
             }
         }));
-        let decisions = derive_public_paths(
-            &api,
-            &surface(&[("jobs_list", &["work.jobs.list"])]),
-        )
-        .expect("naming");
+        let decisions = derive_public_paths(&api, &surface(&[("jobs_list", &["work.jobs.list"])]))
+            .expect("naming");
         assert_eq!(
             decisions["jobs_delete"].public_path.as_deref(),
             Some("work.jobs.admin.delete")
