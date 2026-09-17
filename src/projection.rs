@@ -9,9 +9,10 @@ use crate::contracts::{
 };
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::parse_type;
+use crate::symbols::field_identifier;
 
 const REQUEST_MODEL_UNPROVEN: &str = "capability.request_model_not_structurally_provable";
-const RESPONSE_VIEW_UNPROVEN: &str = "capability.response_view_not_structurally_provable";
+const RESPONSE_VIEW_UNPROVEN: &str = "capability.response_model_derivation_required";
 const RESPONSE_UNION_REQUIRED: &str = "capability.response_union_derivation_required";
 const BINARY_RESPONSE_REQUIRED: &str = "capability.binary_response_derivation_required";
 
@@ -210,48 +211,9 @@ fn rust_scalar(type_name: &str) -> Result<(ScalarKind, bool), &'static str> {
 
 fn safe_accessor_name(name: &str) -> bool {
     let mut chars = name.chars();
-    matches!(chars.next(), Some(first) if first.is_ascii_alphabetic() || first == '_')
-        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
-        && !matches!(
-            name,
-            "as" | "async"
-                | "await"
-                | "break"
-                | "const"
-                | "continue"
-                | "crate"
-                | "dyn"
-                | "else"
-                | "enum"
-                | "extern"
-                | "false"
-                | "fn"
-                | "for"
-                | "if"
-                | "impl"
-                | "in"
-                | "let"
-                | "loop"
-                | "match"
-                | "mod"
-                | "move"
-                | "mut"
-                | "pub"
-                | "ref"
-                | "return"
-                | "self"
-                | "Self"
-                | "static"
-                | "struct"
-                | "super"
-                | "trait"
-                | "true"
-                | "type"
-                | "unsafe"
-                | "use"
-                | "where"
-                | "while"
-        )
+    let valid = matches!(chars.next(), Some(first) if first.is_ascii_alphabetic() || first == '_')
+        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_');
+    valid && field_identifier(name).is_ok_and(|public| public == name)
 }
 
 fn response_view(
@@ -302,7 +264,8 @@ fn response_view(
         if !safe_accessor_name(name) {
             return Err(RESPONSE_VIEW_UNPROVEN);
         }
-        let (wire_kind, nullable) = scalar_schema(&properties[name]).ok_or(RESPONSE_VIEW_UNPROVEN)?;
+        let (wire_kind, nullable) =
+            scalar_schema(&properties[name]).ok_or(RESPONSE_VIEW_UNPROVEN)?;
         let field = by_name[name.as_str()];
         let (raw_kind, optional) = rust_scalar(&field.type_name)?;
         let expected_optional = !required.contains(name.as_str()) || nullable;
