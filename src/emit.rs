@@ -429,20 +429,30 @@ fn emit_map(model: &ModelSpec, spec: &MapModelSpec) -> String {
 
 fn emit_scalar_enum(model: &ModelSpec, spec: &ScalarEnumModelSpec) -> String {
     let variants = spec.variants.join(",");
-    let arms = spec
+    let forward = spec
         .variants
         .iter()
         .map(|variant| format!("{}::{variant} => Self::{variant}", model.name))
         .collect::<Vec<_>>()
         .join(",");
+    let reverse = spec
+        .variants
+        .iter()
+        .map(|variant| format!("{}::{variant} => Self::{variant}", model.raw))
+        .collect::<Vec<_>>()
+        .join(",");
     format!(
-        "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n#[non_exhaustive]\npub enum {} {{\n{}\n}}\n\nimpl From<{}> for {} {{\n    fn from(value: {}) -> Self {{ match value {{\n{}\n    }} }}\n}}",
+        "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n#[non_exhaustive]\npub enum {} {{\n{}\n}}\n\nimpl From<{}> for {} {{\n    fn from(value: {}) -> Self {{ match value {{\n{}\n    }} }}\n}}\n\nimpl From<{}> for {} {{\n    fn from(value: {}) -> Self {{ match value {{\n{}\n    }} }}\n}}",
         model.name,
         indent(&variants, 4),
         model.name,
         model.raw,
         model.name,
-        indent(&arms, 8)
+        indent(&forward, 8),
+        model.raw,
+        model.name,
+        model.raw,
+        indent(&reverse, 8)
     )
 }
 
