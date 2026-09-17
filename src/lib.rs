@@ -5,9 +5,13 @@
 
 mod contracts;
 mod error;
+// These compiler-front-end primitives are introduced one review slice before lowering consumes them.
+#[allow(dead_code)]
 mod openapi;
 mod rust_type;
+#[allow(dead_code)]
 mod symbols;
+#[allow(dead_code, clippy::collapsible_if)]
 mod validation;
 
 pub use contracts::{
