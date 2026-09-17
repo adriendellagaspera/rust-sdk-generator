@@ -27,7 +27,7 @@ jobs:
           print(tomllib.loads(Path(sys.argv[1]).read_text())["project"]["version"])
           PY
           )"
-          rm -rf src tests LICENSE-MIT LICENSE-APACHE COMPATIBILITY.json pyproject.toml uv.lock dist .test-venv
+          rm -rf src tests LICENSE-MIT LICENSE-APACHE COMPATIBILITY.json pyproject.toml uv.lock dist .test-venv build
           mkdir -p src
           cp -R "$source_dir/src/rust_sdk_compiler" src/rust_sdk_generator
           cp -R "$source_dir/tests" tests
@@ -99,39 +99,19 @@ jobs:
           uv venv .test-venv --python 3.11
           uv pip install --python .test-venv/bin/python dist/*.whl
           .test-venv/bin/python -m unittest discover -s tests -p 'test_*.py'
-          rm -rf dist .test-venv
           test -z "$(grep -R -n -E 'openapi_to_rust_bindings|openapi-to-rust-bindings|import openapi_to_rust' src/rust_sdk_generator || true)"
+          rm -rf dist .test-venv build
+          find src tests -type d -name '__pycache__' -prune -exec rm -rf {} +
+          find src -maxdepth 1 -type d -name '*.egg-info' -prune -exec rm -rf {} +
           printf '%s\n' "$source_sha" > .bootstrap-source-commit
-      - name: Install standalone CI and remove bootstrap workflow
+      - name: Commit imported package
         shell: bash
         run: |
           set -euo pipefail
-          cat > .github/workflows/ci.yml <<'EOF'
-          name: CI
-          on:
-            push:
-            pull_request:
-          permissions:
-            contents: read
-          jobs:
-            generator:
-              runs-on: ubuntu-24.04
-              steps:
-                - uses: actions/checkout@v4
-                - uses: astral-sh/setup-uv@v6
-                - run: uv build --wheel
-                - run: uv venv .test-venv --python 3.11
-                - run: uv pip install --python .test-venv/bin/python dist/*.whl
-                - run: .test-venv/bin/python -m unittest discover -s tests -p 'test_*.py'
-                - name: Enforce backend-neutral dependency direction
-                  run: |
-                    test -z "$(grep -R -n -E 'openapi_to_rust_bindings|openapi-to-rust-bindings|import openapi_to_rust' src/rust_sdk_generator || true)"
-          EOF
-          rm .github/workflows/bootstrap-issue7-generator.yml
           source_sha="$(cat .bootstrap-source-commit)"
           rm .bootstrap-source-commit
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add -A
+          git add README.md pyproject.toml uv.lock COMPATIBILITY.json LICENSE-MIT LICENSE-APACHE src tests
           git commit -m "feat: bootstrap standalone rust sdk generator" -m "Imported generic behavior from mistralai-rs rust-sdk-compiler ${source_sha}."
           git push origin HEAD:issue-7-bootstrap-generator
