@@ -59,9 +59,10 @@ jobs:
         run: >-
           uvx --from ruff==0.16.8 ruff check
           --select E4,E7,E9,F63,F7,F82
-          src tests scripts
+          tests/test_bindings_integration.py scripts
           openapi-to-rust-bindings/src
           openapi-to-rust-bindings/tests
+          openapi-to-rust-bindings/scripts
 
   generator:
     name: generator
@@ -77,16 +78,9 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Test Rust generator
         run: cargo test --all-targets --all-features
-      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
-        with:
-          enable-cache: true
-      - run: uv build --wheel
-      - run: uv venv .test-venv --python 3.11
-      - run: uv pip install --python .test-venv/bin/python dist/*.whl
-      - run: .test-venv/bin/python -m unittest discover -s tests -p 'test_*.py'
       - name: Enforce backend-neutral dependency direction
         run: |
-          test -z "$(grep -R -n -E 'openapi_to_rust_bindings|openapi-to-rust-bindings|import openapi_to_rust' src/rust_sdk_generator src/*.rs || true)"
+          test -z "$(grep -R -n -E 'openapi_to_rust_bindings|openapi-to-rust-bindings|import openapi_to_rust' src/*.rs || true)"
 
   bindings:
     name: bindings
@@ -119,14 +113,15 @@ jobs:
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
-      - run: uv build --wheel
+      - run: cargo build --locked --bin rust-sdk-generator
       - run: uv build --wheel
         working-directory: openapi-to-rust-bindings
       - run: uv venv .integration-venv --python 3.11
-      - run: uv pip install --python .integration-venv/bin/python dist/*.whl
-      - run: uv pip install --python .integration-venv/bin/python tree-sitter==0.25.2 tree-sitter-rust==0.24.0
-      - run: uv pip install --python .integration-venv/bin/python --no-deps openapi-to-rust-bindings/dist/*.whl
-      - run: .integration-venv/bin/python -m unittest tests.test_bindings_integration
+      - run: uv pip install --python .integration-venv/bin/python openapi-to-rust-bindings/dist/*.whl
+      - name: Prove adapter sidecar drives the Rust CLI
+        env:
+          RUST_SDK_GENERATOR_BIN: target/debug/rust-sdk-generator
+        run: .integration-venv/bin/python -m unittest tests.test_bindings_integration
 
   gate:
     name: gate
