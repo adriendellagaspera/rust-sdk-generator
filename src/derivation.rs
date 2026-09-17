@@ -360,7 +360,9 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                 }
             } else {
                 let binding = matched.binding.as_deref().expect("matched binding");
-                let path = public_path.as_deref().expect("naming decision has public path");
+                let path = public_path
+                    .as_deref()
+                    .expect("naming decision has public path");
                 match project_operation(&index, &bindings, &operation_id, binding, path)
                     .and_then(|projected| insert_projection(&mut definition, projected))
                 {
@@ -624,7 +626,10 @@ mod tests {
 
         let request = &derivation.definition.models["UpdateWorkJobsRequest"];
         assert_eq!(request.raw.as_deref(), Some("UpdateJobRequest"));
-        assert_eq!(request.constructor.as_deref(), Some(&["title".to_owned()][..]));
+        assert_eq!(
+            request.constructor.as_deref(),
+            Some(&["title".to_owned()][..])
+        );
         let operation = &derivation.definition.resources["work_jobs"].operations["update"];
         assert_eq!(operation.operation_id, "revise_job");
         assert_eq!(operation.raw_method.as_deref(), Some("call_42"));
