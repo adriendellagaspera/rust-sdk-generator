@@ -49,7 +49,10 @@ impl Bindings {
         if self.schema_version != 2 {
             return Err(invalid(
                 "bindings.schema_version",
-                format!("unsupported bindings schema version {}", self.schema_version),
+                format!(
+                    "unsupported bindings schema version {}",
+                    self.schema_version
+                ),
             ));
         }
 
@@ -106,9 +109,8 @@ impl Bindings {
             }
         }
         for (name, alias) in &self.aliases {
-            parse_type(alias).map_err(|error| {
-                invalid(format!("bindings.aliases.{name}"), error.to_string())
-            })?;
+            parse_type(alias)
+                .map_err(|error| invalid(format!("bindings.aliases.{name}"), error.to_string()))?;
         }
         for (key, operation) in &self.operations {
             require_nonempty(&format!("bindings.operations.{key}.name"), &operation.name)?;
@@ -146,7 +148,10 @@ impl Bindings {
                 })?;
             }
         }
-        require_unique("bindings.binding.type_preludes", &self.binding.type_preludes)?;
+        require_unique(
+            "bindings.binding.type_preludes",
+            &self.binding.type_preludes,
+        )?;
         Ok(())
     }
 
@@ -227,7 +232,13 @@ fn model_schema_branch_matches(model: &ModelDefinition, branch: &str) -> bool {
         return false;
     }
     let forbidden: &[&str] = match branch {
-        "union" => &["scalar_enum", "map", "constructor", "union_factory", "accessors"],
+        "union" => &[
+            "scalar_enum",
+            "map",
+            "constructor",
+            "union_factory",
+            "accessors",
+        ],
         "simple_union" => &[
             "scalar_enum",
             "union",
@@ -274,7 +285,13 @@ fn model_schema_branch_matches(model: &ModelDefinition, branch: &str) -> bool {
             "accessors",
         ],
         "union_factory" => &["scalar_enum", "union", "map", "constructor", "accessors"],
-        "accessors" => &["scalar_enum", "union", "map", "constructor", "union_factory"],
+        "accessors" => &[
+            "scalar_enum",
+            "union",
+            "map",
+            "constructor",
+            "union_factory",
+        ],
         _ => unreachable!(),
     };
     forbidden.iter().all(|name| !has(name))
@@ -321,10 +338,7 @@ impl SdkDefinition {
                 if let Some(values) = values {
                     require_unique(&format!("definition.models.{name}.{field}"), values)?;
                     for value in values {
-                        require_identifier(
-                            &format!("definition.models.{name}.{field}"),
-                            value,
-                        )?;
+                        require_identifier(&format!("definition.models.{name}.{field}"), value)?;
                     }
                 }
             }
@@ -336,7 +350,10 @@ impl SdkDefinition {
                         "path must not be empty",
                     ));
                 }
-                require_unique(&format!("definition.models.{name}.union.targets"), &union.targets)?;
+                require_unique(
+                    &format!("definition.models.{name}.union.targets"),
+                    &union.targets,
+                )?;
             }
             if let Some(simple) = &model.simple_union {
                 if simple.variants.is_empty() {
@@ -392,10 +409,7 @@ impl SdkDefinition {
                     ));
                 }
                 for segment in path {
-                    require_identifier(
-                        &format!("definition.resources.{module}.path"),
-                        segment,
-                    )?;
+                    require_identifier(&format!("definition.resources.{module}.path"), segment)?;
                 }
             }
             for (name, operation) in &resource.operations {
@@ -404,9 +418,7 @@ impl SdkDefinition {
                     name,
                 )?;
                 require_nonempty(
-                    &format!(
-                        "definition.resources.{module}.operations.{name}.operation_id"
-                    ),
+                    &format!("definition.resources.{module}.operations.{name}.operation_id"),
                     &operation.operation_id,
                 )?;
                 let responses = usize::from(operation.response.is_some())
@@ -450,7 +462,8 @@ mod tests {
             include_str!("../tests/fixtures/menagerie/policy.json"),
             include_str!("../tests/fixtures/library/policy.json"),
         ] {
-            let definition: SdkDefinition = serde_json::from_str(value).expect("fixture definition");
+            let definition: SdkDefinition =
+                serde_json::from_str(value).expect("fixture definition");
             definition.validate().expect("valid definition");
         }
     }
