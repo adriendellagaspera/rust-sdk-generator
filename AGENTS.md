@@ -6,9 +6,10 @@ boundaries and executable contracts, not a second implementation spec.
 
 ## Repository map
 
-- `src/rust_sdk_generator/`: backend-neutral SDK derivation and Rust emission.
-- `tests/`: generator fixtures and tests that do not require a concrete backend.
-- `openapi-to-rust-bindings/`: conversion from `openapi-to-rust` output to normalized `Bindings`.
+- `src/*.rs`: canonical Rust generator library, CLI, contracts, lowering and emission.
+- `tests/fixtures/`, `tests/oracle/`, `tests/rust_surface.rs`: generic generator behavior and surface proofs.
+- `tests/test_bindings_integration.py`: adapter-sidecar-to-Rust-CLI integration proof.
+- `openapi-to-rust-bindings/`: conversion from `openapi-to-rust` output to normalized `Bindings` JSON.
 - `.github/workflows/`: required automation and quality gates.
 - `scripts/`: small repository-policy checks used locally and in CI.
 
@@ -18,14 +19,15 @@ Run the same focused contracts CI runs rather than inventing ad-hoc validation:
 
 ```sh
 python3 scripts/check_agent_contract.py
-uvx --from ruff==0.16.8 ruff check --select E4,E7,E9,F63,F7,F82 src tests scripts openapi-to-rust-bindings/src openapi-to-rust-bindings/tests
-uv build --wheel
-python -m unittest discover -s tests -p 'test_*.py'
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-targets --all-features
+uvx --from ruff==0.16.8 ruff check --select E4,E7,E9,F63,F7,F82 tests/test_bindings_integration.py scripts openapi-to-rust-bindings/src openapi-to-rust-bindings/tests openapi-to-rust-bindings/scripts
 (cd openapi-to-rust-bindings && uv build --wheel)
 ```
 
-Use the full GitHub CI before merge for the isolated wheel-install and generic
-integration checks.
+Use the full GitHub CI before merge for the isolated adapter wheel-install and
+generic adapter-to-CLI integration checks.
 
 ## Gated invariants
 
