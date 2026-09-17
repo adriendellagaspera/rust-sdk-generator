@@ -114,16 +114,14 @@ fn request_shape(operation: &Value) -> std::result::Result<RequestShape, &'stati
     {
         None => None,
         Some(content) if content.is_empty() => None,
-        Some(content) if content.len() == 1 && content.contains_key("application/json") => {
-            Some(
-                content
-                    .get("application/json")
-                    .and_then(|payload| payload.get("schema"))
-                    .and_then(ref_name)
-                    .map(str::to_owned)
-                    .ok_or("request.inline_or_unresolved")?,
-            )
-        }
+        Some(content) if content.len() == 1 && content.contains_key("application/json") => Some(
+            content
+                .get("application/json")
+                .and_then(|payload| payload.get("schema"))
+                .and_then(ref_name)
+                .map(str::to_owned)
+                .ok_or("request.inline_or_unresolved")?,
+        ),
         Some(_) => return Err("request.media_projection_unsupported"),
     };
 
@@ -188,7 +186,11 @@ fn raw_parameter_name(value: &str) -> &str {
     value.strip_prefix("r#").unwrap_or(value)
 }
 
-fn response_matches(shape: &ResponseShape, binding: &OperationBinding, bindings: &Bindings) -> bool {
+fn response_matches(
+    shape: &ResponseShape,
+    binding: &OperationBinding,
+    bindings: &Bindings,
+) -> bool {
     match shape {
         ResponseShape::Empty => binding.success_type == "()",
         ResponseShape::JsonRef(reference) => binding.success_type == *reference,
@@ -408,7 +410,10 @@ mod tests {
             &bindings(BTreeMap::from([("call_17".into(), raw)])),
         )
         .expect("reconcile");
-        assert_eq!(result["publish_article"].binding.as_deref(), Some("call_17"));
+        assert_eq!(
+            result["publish_article"].binding.as_deref(),
+            Some("call_17")
+        );
         assert_eq!(result["publish_article"].reason, None);
     }
 
