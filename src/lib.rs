@@ -19,6 +19,7 @@ mod ir;
 mod lower;
 #[allow(dead_code)]
 mod openapi;
+mod reconcile;
 mod rust_type;
 #[allow(dead_code)]
 mod symbols;
