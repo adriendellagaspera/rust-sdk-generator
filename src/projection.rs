@@ -309,8 +309,17 @@ fn response_view(
 fn integer_rust_type(value: &str) -> bool {
     matches!(
         value,
-        "i8" | "i16" | "i32" | "i64" | "i128" | "isize" | "u8" | "u16" | "u32"
-            | "u64" | "u128" | "usize"
+        "i8" | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "isize"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "usize"
     )
 }
 
@@ -417,11 +426,7 @@ fn map_response_model(
         .ok_or(RESPONSE_VIEW_UNPROVEN)?;
     let fields = bindings.structs.get(raw).ok_or(RESPONSE_VIEW_UNPROVEN)?;
     if fields.len() != 1
-        || fields[0]
-            .name
-            .strip_prefix("r#")
-            .unwrap_or(&fields[0].name)
-            != "additional_properties"
+        || fields[0].name.strip_prefix("r#").unwrap_or(&fields[0].name) != "additional_properties"
     {
         return Err(RESPONSE_VIEW_UNPROVEN);
     }
