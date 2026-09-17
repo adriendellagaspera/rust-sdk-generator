@@ -3,15 +3,15 @@
 //! The crate is the canonical language/runtime boundary for the root generator.
 //! Concrete OpenAPI-to-Rust backends remain adapters that only produce [`Bindings`].
 
+mod compiler;
 mod contracts;
+mod emit;
 mod error;
-// These compiler-front-end primitives are introduced one review slice before lowering consumes them.
-#[allow(dead_code)]
+mod ir;
+mod lower;
 mod openapi;
 mod rust_type;
-#[allow(dead_code)]
 mod symbols;
-#[allow(dead_code, clippy::collapsible_if)]
 mod validation;
 
 pub use contracts::{
