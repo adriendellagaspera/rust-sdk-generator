@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -88,8 +89,8 @@ pub struct BindingLayout {
 pub struct SdkDefinition {
     pub schema_version: u32,
     pub client: ClientDefinition,
-    pub models: BTreeMap<String, ModelDefinition>,
-    pub resources: BTreeMap<String, ResourceDefinition>,
+    pub models: IndexMap<String, ModelDefinition>,
+    pub resources: IndexMap<String, ResourceDefinition>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -108,7 +109,7 @@ pub struct ModelDefinition {
     #[serde(default)]
     pub exclude: Option<Vec<String>>,
     #[serde(default)]
-    pub adapters: Option<BTreeMap<String, String>>,
+    pub adapters: Option<IndexMap<String, String>>,
     #[serde(default)]
     pub union: Option<UnionDefinition>,
     #[serde(default)]
@@ -124,7 +125,7 @@ pub struct ModelDefinition {
     #[serde(default)]
     pub borrowed: Option<bool>,
     #[serde(default)]
-    pub accessors: Option<BTreeMap<String, AccessorDefinition>>,
+    pub accessors: Option<IndexMap<String, AccessorDefinition>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -142,7 +143,7 @@ pub struct UnionDefinition {
 pub struct SimpleUnionDefinition {
     #[serde(default)]
     pub bidirectional: bool,
-    pub variants: BTreeMap<String, SimpleUnionVariant>,
+    pub variants: IndexMap<String, SimpleUnionVariant>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -173,7 +174,7 @@ pub struct UnionFactoryDefinition {
     #[serde(default)]
     pub leading: Vec<String>,
     #[serde(default)]
-    pub rename: BTreeMap<String, String>,
+    pub rename: IndexMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -202,7 +203,7 @@ pub struct ResourceDefinition {
     pub name: String,
     #[serde(default)]
     pub path: Option<Vec<String>>,
-    pub operations: BTreeMap<String, OperationDefinition>,
+    pub operations: IndexMap<String, OperationDefinition>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -222,7 +223,7 @@ pub struct OperationDefinition {
     #[serde(default)]
     pub stream: Option<StreamDefinition>,
     #[serde(default)]
-    pub request_overrides: Option<BTreeMap<String, Option<bool>>>,
+    pub request_overrides: Option<IndexMap<String, Option<bool>>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -322,5 +323,28 @@ mod tests {
         });
         let bindings: Bindings = serde_json::from_value(value).expect("valid bindings");
         assert_eq!(bindings.schema_version, 2);
+    }
+
+    #[test]
+    fn sdk_definition_preserves_explicit_order() {
+        let definition: SdkDefinition =
+            serde_json::from_str(include_str!("../tests/fixtures/library/policy.json"))
+                .expect("fixture definition");
+        assert_eq!(
+            definition
+                .models
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec!["NewBook", "Book", "BookCollection"]
+        );
+        assert_eq!(
+            definition.resources["catalog_books"]
+                .operations
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec!["create", "list", "delete", "download"]
+        );
     }
 }
