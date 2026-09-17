@@ -5,8 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from rust_sdk_generator import Bindings
-
+from .model import Bindings
 from .parser import ParseError, parse_bindings
 
 SIDECAR_NAME = "rust-bindings.json"
