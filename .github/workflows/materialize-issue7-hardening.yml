@@ -1,0 +1,86 @@
+name: Materialize issue 7 boundary hardening
+on:
+  push:
+    branches: [issue-7-boundary-hardening]
+permissions:
+  contents: write
+jobs:
+  materialize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: issue-7-boundary-hardening
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+      - name: Establish workspace and end-to-end boundary fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root_project = Path('pyproject.toml')
+          text = root_project.read_text()
+          workspace = '\n[tool.uv.workspace]\nmembers = ["openapi-to-rust-bindings"]\n'
+          if '[tool.uv.workspace]' not in text:
+              root_project.write_text(text.rstrip() + workspace)
+
+          bindings_project = Path('openapi-to-rust-bindings/pyproject.toml')
+          text = bindings_project.read_text()
+          old = '"rust-sdk-generator @ git+https://github.com/adriendellagaspera/rust-sdk-generator.git@fdd9901f24095761e8daf6a83ee2e5de63da8ddf",'
+          if old not in text and '"rust-sdk-generator==0.2.8",' not in text:
+              raise SystemExit('unexpected bindings generator dependency')
+          text = text.replace(old, '"rust-sdk-generator==0.2.8",')
+          if '[tool.uv.sources]' not in text:
+              text = text.rstrip() + '\n\n[tool.uv.sources]\nrust-sdk-generator = { workspace = true }\n'
+          bindings_project.write_text(text)
+
+          Path('integration').mkdir(exist_ok=True)
+          Path('integration/test_end_to_end.py').write_text('''import json\nfrom pathlib import Path\nimport unittest\n\nfrom openapi_to_rust_bindings import parse_bindings\nfrom rust_sdk_generator import Bindings, OpenApi, Policy, compile\n\nROOT = Path(__file__).resolve().parents[1]\nRAW = ROOT / "openapi-to-rust-bindings" / "tests" / "fixtures" / "menagerie"\nSDK = ROOT / "tests" / "fixtures" / "menagerie"\n\n\nclass EndToEndTests(unittest.TestCase):\n    def test_openapi_to_rust_sources_flow_through_bindings_and_generator(self):\n        bindings = parse_bindings(\n            (RAW / "types.rs").read_bytes(),\n            (RAW / "client.rs").read_bytes(),\n        )\n        expected = Bindings.from_dict(json.loads((RAW / "rust-bindings.json").read_text()))\n        self.assertEqual(expected, bindings)\n\n        openapi = OpenApi(json.loads((SDK / "openapi.json").read_text()))\n        policy = Policy.from_dict(json.loads((SDK / "policy.json").read_text()))\n        first = compile(openapi, bindings, policy)\n        second = compile(openapi, bindings, policy)\n\n        self.assertEqual(dict(first.files), dict(second.files))\n        self.assertEqual(first.ir.client_name, "Menagerie")\n        self.assertEqual(set(first.files), {"facade_types.rs", "zoo.rs", "mod.rs"})\n        self.assertIn("pub async fn adopt(&self, request: Adoption)", first.files["zoo.rs"])\n\n\nif __name__ == "__main__":\n    unittest.main()\n''')
+
+          readme = Path('README.md')
+          text = readme.read_text()
+          old = 'The sibling `openapi-to-rust-bindings/` component is imported separately and may depend on this package only through the normalized `Bindings` contract.'
+          new = 'The sibling `openapi-to-rust-bindings/` component depends on this package only through the normalized `Bindings` contract. Both distributions share a root uv workspace for reproducible development while remaining independently buildable.'
+          if old in text:
+              text = text.replace(old, new)
+          marker = 'Intentionally left in `mistralai-rs`:'
+          if 'The repository CI validates the generator, bindings adapter, and their generic end-to-end composition in separate jobs.' not in text:
+              text = text.rstrip() + '\n\nThe repository CI validates the generator, bindings adapter, and their generic end-to-end composition in separate jobs.\n'
+          readme.write_text(text)
+
+          ci = Path('.github/workflows/ci.yml')
+          ci.write_text('''name: CI\non:\n  push:\n  pull_request:\npermissions:\n  contents: read\njobs:\n  generator:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@v4\n      - uses: astral-sh/setup-uv@v6\n      - run: uv build --wheel --package rust-sdk-generator\n      - run: uv venv .test-venv --python 3.11\n      - run: uv pip install --python .test-venv/bin/python dist/*.whl\n      - run: .test-venv/bin/python -m unittest discover -s tests -p 'test_*.py'\n      - name: Enforce backend-neutral generator boundary\n        run: |\n          test -z "$(grep -R -n -E 'openapi_to_rust_bindings|openapi-to-rust-bindings|import openapi_to_rust|tree_sitter' src/rust_sdk_generator || true)"\n  bindings:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@v4\n      - uses: astral-sh/setup-uv@v6\n      - run: uv build --wheel --package rust-sdk-generator\n      - run: uv build --wheel --package openapi-to-rust-bindings\n      - run: uv venv .bindings-venv --python 3.11\n      - run: uv pip install --python .bindings-venv/bin/python dist/*.whl openapi-to-rust-bindings/dist/*.whl\n      - run: .bindings-venv/bin/python -m unittest discover -s openapi-to-rust-bindings/tests -p 'test_*.py'\n      - name: Enforce Bindings-only generator dependency\n        run: |\n          python3 - <<'PY'\n          import ast\n          from pathlib import Path\n          for path in Path('openapi-to-rust-bindings/src/openapi_to_rust_bindings').glob('*.py'):\n              tree = ast.parse(path.read_text(), filename=str(path))\n              for node in ast.walk(tree):\n                  if isinstance(node, ast.Import) and any(alias.name.startswith('rust_sdk_generator') for alias in node.names):\n                      raise SystemExit(f'backend adapter imports generator module directly: {path}')\n                  if isinstance(node, ast.ImportFrom) and (node.module or '').startswith('rust_sdk_generator'):\n                      if node.module != 'rust_sdk_generator' or {alias.name for alias in node.names} != {'Bindings'}:\n                          raise SystemExit(f'backend adapter exceeds Bindings contract: {path}:{node.lineno}')\n          PY\n  integration:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@v4\n      - uses: astral-sh/setup-uv@v6\n      - run: uv build --wheel --package rust-sdk-generator\n      - run: uv build --wheel --package openapi-to-rust-bindings\n      - run: uv venv .integration-venv --python 3.11\n      - run: uv pip install --python .integration-venv/bin/python dist/*.whl openapi-to-rust-bindings/dist/*.whl\n      - run: .integration-venv/bin/python -m unittest discover -s integration -p 'test_*.py'\n      - name: Verify workspace lock has no self-Git dependency\n        run: |\n          test -z "$(grep -n 'github.com/adriendellagaspera/rust-sdk-generator' uv.lock || true)"\n          test ! -e openapi-to-rust-bindings/uv.lock\n''')
+          PY
+          rm -f openapi-to-rust-bindings/uv.lock
+          uv lock
+      - name: Validate all three boundaries before committing
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv build --wheel --package rust-sdk-generator
+          uv build --wheel --package openapi-to-rust-bindings
+          uv venv .generator-venv --python 3.11
+          uv pip install --python .generator-venv/bin/python dist/*.whl
+          .generator-venv/bin/python -m unittest discover -s tests -p 'test_*.py'
+          uv venv .bindings-venv --python 3.11
+          uv pip install --python .bindings-venv/bin/python dist/*.whl openapi-to-rust-bindings/dist/*.whl
+          .bindings-venv/bin/python -m unittest discover -s openapi-to-rust-bindings/tests -p 'test_*.py'
+          .bindings-venv/bin/python -m unittest discover -s integration -p 'test_*.py'
+          test -z "$(grep -R -n -E 'openapi_to_rust_bindings|openapi-to-rust-bindings|import openapi_to_rust|tree_sitter' src/rust_sdk_generator || true)"
+          test -z "$(grep -n 'github.com/adriendellagaspera/rust-sdk-generator' uv.lock || true)"
+      - name: Commit hardened workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist openapi-to-rust-bindings/dist .generator-venv .bindings-venv
+          find . -type d -name '__pycache__' -prune -exec rm -rf {} +
+          find . -type d -name '*.egg-info' -prune -exec rm -rf {} +
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm -f .github/workflows/materialize-issue7-hardening.yml
+          git add pyproject.toml uv.lock openapi-to-rust-bindings/pyproject.toml openapi-to-rust-bindings/uv.lock README.md integration .github/workflows/ci.yml
+          git commit -m 'test: harden generator and bindings boundary'
+          git push origin HEAD:issue-7-boundary-hardening
