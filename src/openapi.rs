@@ -296,9 +296,7 @@ impl OpenApiIndex {
                     .and_then(Value::as_array)
                     .cloned()
                     .unwrap_or_default();
-                for method in [
-                    "get", "put", "post", "delete", "options", "head", "patch", "trace",
-                ] {
+                for method in ["get", "put", "post", "delete", "patch", "head", "options"] {
                     let Some(operation) = path_item.get(method).and_then(Value::as_object) else {
                         continue;
                     };
@@ -501,15 +499,56 @@ impl OpenApiIndex {
             .or_else(|| schema.get("anyOf"))
             .and_then(Value::as_array)
             .ok_or_else(|| error("openapi.union", format!("OpenAPI union missing at {root}")))?;
-        let discriminator = schema
+        let explicit_discriminator = schema
             .pointer("/discriminator/propertyName")
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                error(
-                    "openapi.union_discriminator",
-                    format!("OpenAPI union discriminator missing at {root}"),
-                )
-            })?;
+            .and_then(Value::as_str);
+        if explicit_discriminator.is_none() {
+            let referenced: Vec<String> = branches
+                .iter()
+                .filter_map(ref_name)
+                .map(str::to_owned)
+                .collect();
+            if !referenced.is_empty() && referenced.len() == branches.len() {
+                let mut candidates: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
+                for payload in &referenced {
+                    if let Some(properties) = self
+                        .schema(payload)?
+                        .get("properties")
+                        .and_then(Value::as_object)
+                    {
+                        for (property_name, property_schema) in properties {
+                            if let Some(value) = property_schema.get("const") {
+                                let tag = match value {
+                                    Value::String(value) => value.clone(),
+                                    Value::Bool(true) => "True".into(),
+                                    Value::Bool(false) => "False".into(),
+                                    Value::Null => "None".into(),
+                                    value => value.to_string(),
+                                };
+                                candidates
+                                    .entry(property_name.clone())
+                                    .or_default()
+                                    .insert(tag, payload.clone());
+                            }
+                        }
+                    }
+                }
+                let mut complete = candidates
+                    .into_iter()
+                    .filter(|(_, mapping)| mapping.len() == referenced.len());
+                if let Some((property_name, mapping)) = complete.next()
+                    && complete.next().is_none()
+                {
+                    return Ok((property_name, mapping));
+                }
+            }
+        }
+        let discriminator = explicit_discriminator.ok_or_else(|| {
+            error(
+                "openapi.union_discriminator",
+                format!("OpenAPI union discriminator missing at {root}"),
+            )
+        })?;
 
         if let Some(mapping) = schema
             .pointer("/discriminator/mapping")
@@ -606,5 +645,33 @@ mod tests {
             .object_schema("RecursiveA")
             .expect_err("recursive composition");
         assert_eq!(error.diagnostic.code, "openapi.recursive_object");
+    }
+
+    #[test]
+    fn infers_unique_const_discriminator_without_discriminator_object() {
+        let value = serde_json::json!({
+            "components": {"schemas": {
+                "Animal": {"oneOf": [
+                    {"$ref": "#/components/schemas/Cat"},
+                    {"$ref": "#/components/schemas/Dog"}
+                ]},
+                "Cat": {"type": "object", "properties": {"kind": {"const": "cat"}}},
+                "Dog": {"type": "object", "properties": {"kind": {"const": "dog"}}}
+            }}
+        });
+        let index = OpenApiIndex::new(&OpenApi(value)).expect("valid index");
+        let (property, mapping) = index.union("Animal", &[]).expect("inferred union");
+        assert_eq!(property, "kind");
+        assert_eq!(mapping["cat"], "Cat");
+        assert_eq!(mapping["dog"], "Dog");
+    }
+
+    #[test]
+    fn ignores_trace_operations_to_match_existing_contract() {
+        let value = serde_json::json!({
+            "paths": {"/trace": {"trace": {"operationId": "trace_only"}}}
+        });
+        let index = OpenApiIndex::new(&OpenApi(value)).expect("valid index");
+        assert!(!index.operations.contains_key("trace_only"));
     }
 }

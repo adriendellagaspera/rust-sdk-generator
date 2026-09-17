@@ -266,6 +266,19 @@ impl Default for Runtime {
     }
 }
 
+/// Complete owned input for deterministic SDK generation.
+///
+/// Semantic derivation of `SdkDefinition` remains the responsibility of issue #1.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GenerateInput {
+    pub openapi: OpenApi,
+    pub bindings: Bindings,
+    pub definition: SdkDefinition,
+    #[serde(default)]
+    pub runtime: Runtime,
+}
+
 /// Deterministic inventory of public names selected by lowering.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApiInventory {

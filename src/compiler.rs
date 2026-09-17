@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 
-use crate::contracts::{Bindings, OpenApi, Runtime, SdkDefinition};
+use crate::contracts::{
+    ApiInventory, Bindings, GenerateInput, GeneratedSdk, OpenApi, ResourceInventory, Runtime,
+    SdkDefinition,
+};
 use crate::emit;
 use crate::error::Result;
 use crate::ir::FacadeIr;
@@ -15,6 +18,35 @@ pub(crate) fn compile(
     let ir = lower::lower(openapi, bindings, definition, runtime)?;
     let files = emit::emit(&ir, &bindings.binding, runtime)?;
     Ok((ir, files))
+}
+
+pub(crate) fn generate(input: GenerateInput) -> Result<GeneratedSdk> {
+    let GenerateInput {
+        openapi,
+        bindings,
+        definition,
+        runtime,
+    } = input;
+    let (ir, files) = compile(&openapi, &bindings, &definition, &runtime)?;
+    let inventory = ApiInventory {
+        client: ir.client_name.clone(),
+        models: ir.models.iter().map(|model| model.name.clone()).collect(),
+        resources: ir
+            .resources
+            .iter()
+            .map(|resource| ResourceInventory {
+                path: resource.path.clone(),
+                module: resource.module.clone(),
+                name: resource.name.clone(),
+                operations: resource
+                    .operations
+                    .iter()
+                    .map(|operation| operation.name.clone())
+                    .collect(),
+            })
+            .collect(),
+    };
+    Ok(GeneratedSdk { files, inventory })
 }
 
 #[cfg(test)]
