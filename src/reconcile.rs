@@ -6,6 +6,7 @@ use crate::contracts::{Bindings, OpenApi, OperationBinding};
 use crate::error::{GenerationError, Result};
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::parse_type;
+use crate::structural::{ScalarFieldShape, raw_scalar_struct_shape, scalar_object_shape};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OperationMatch {
@@ -24,6 +25,7 @@ enum ResponseShape {
     Empty,
     JsonRef(String),
     JsonUnion(BTreeSet<String>),
+    JsonObject(BTreeMap<String, ScalarFieldShape>),
     Binary,
 }
 
@@ -172,6 +174,9 @@ fn response_shape(operation: &Value) -> std::result::Result<ResponseShape, &'sta
         if branches.len() >= 2 && references.len() == branches.len() {
             return Ok(ResponseShape::JsonUnion(references));
         }
+        if let Some(fields) = scalar_object_shape(schema) {
+            return Ok(ResponseShape::JsonObject(fields));
+        }
         return Err("response.inline_or_unresolved");
     }
     if schema.get("type").and_then(Value::as_str) == Some("string")
@@ -206,6 +211,10 @@ fn response_matches(
                     && variants.iter().all(|variant| variant.payload.is_some())
             })
             .unwrap_or(false),
+        ResponseShape::JsonObject(fields) => {
+            raw_scalar_struct_shape(bindings, &binding.success_type)
+                .is_some_and(|raw| raw == *fields)
+        }
         ResponseShape::Binary => {
             let Ok(success) = parse_type(&binding.success_type) else {
                 return false;

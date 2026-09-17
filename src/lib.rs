@@ -24,6 +24,8 @@ mod projection;
 mod reconcile;
 mod rust_type;
 #[allow(dead_code)]
+mod structural;
+#[allow(dead_code)]
 mod symbols;
 #[allow(clippy::collapsible_if)]
 mod validation;
