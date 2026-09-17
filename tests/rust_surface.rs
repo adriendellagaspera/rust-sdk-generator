@@ -3,7 +3,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rust_sdk_generator::{ApiInventory, GenerateInput, OpenApi, Runtime, generate};
+use rust_sdk_generator::{
+    ApiInventory, Derivation, DeriveInput, GenerateInput, OpenApi, PublicSdkSurface, Runtime,
+    SdkOverrides, derive, generate,
+};
 
 fn fixture() -> GenerateInput {
     GenerateInput {
@@ -91,4 +94,37 @@ fn cli_and_library_generate_identical_sdk_and_inventory() {
     assert_eq!(checked, expected.inventory);
 
     fs::remove_dir_all(output_dir).expect("cleanup output");
+}
+
+#[test]
+fn cli_and_library_derive_identical_contracts() {
+    let input = fixture();
+    let expected = derive(DeriveInput {
+        openapi: input.openapi,
+        bindings: input.bindings,
+        surface: PublicSdkSurface::default(),
+        overrides: SdkOverrides::default(),
+    })
+    .expect("library derivation");
+
+    let result = Command::new(env!("CARGO_BIN_EXE_rust-sdk-generator"))
+        .args([
+            "derive",
+            "--openapi",
+            fixture_path("openapi.json").to_str().expect("utf8 path"),
+            "--bindings",
+            fixture_path("rust-bindings.json")
+                .to_str()
+                .expect("utf8 path"),
+        ])
+        .output()
+        .expect("run derive CLI");
+    assert!(
+        result.status.success(),
+        "derive CLI failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let actual: Derivation =
+        serde_json::from_slice(&result.stdout).expect("machine-readable derivation");
+    assert_eq!(actual, expected);
 }
