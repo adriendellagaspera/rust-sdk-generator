@@ -88,9 +88,7 @@ fn rust_scalar(type_name: &str) -> Option<(ScalarKind, bool)> {
     Some((kind, optional))
 }
 
-pub(crate) fn scalar_object_shape(
-    schema: &Value,
-) -> Option<BTreeMap<String, ScalarFieldShape>> {
+pub(crate) fn scalar_object_shape(schema: &Value) -> Option<BTreeMap<String, ScalarFieldShape>> {
     if schema.get("type").and_then(Value::as_str) != Some("object") {
         return None;
     }
@@ -106,12 +104,11 @@ pub(crate) fn scalar_object_shape(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let required: BTreeSet<_> = required_values
-        .iter()
-        .filter_map(Value::as_str)
-        .collect();
+    let required: BTreeSet<_> = required_values.iter().filter_map(Value::as_str).collect();
     if required.len() != required_values.len()
-        || required.iter().any(|field| !properties.contains_key(*field))
+        || required
+            .iter()
+            .any(|field| !properties.contains_key(*field))
     {
         return None;
     }
