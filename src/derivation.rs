@@ -262,7 +262,8 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
         .map_err(DerivationError::from_generation)?;
     let operation_ids = operation_ids(&openapi)?;
     validate_evidence(&operation_ids, &surface, &overrides)?;
-    let reconciliation = reconcile(&openapi, &bindings).map_err(DerivationError::from_generation)?;
+    let reconciliation =
+        reconcile(&openapi, &bindings).map_err(DerivationError::from_generation)?;
 
     let mut operations = BTreeMap::new();
     for operation_id in operation_ids {
