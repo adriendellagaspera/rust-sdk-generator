@@ -6,9 +6,10 @@
 mod contracts;
 
 pub use contracts::{
-    AccessorDefinition, ApiInventory, BindingLayout, Bindings, ClientBinding, ClientDefinition,
-    GeneratedSdk, MapDefinition, ModelDefinition, OpenApi, OperationBinding, OperationDefinition,
-    ParameterBinding, ResourceDefinition, Runtime, ScalarEnumDefinition, SdkDefinition,
-    SimpleUnionDefinition, SimpleUnionVariant, StreamBinding, StreamDefinition, UnionDefinition,
-    UnionFactoryDefinition, VariantBinding,
+    AccessorDefinition, AccessorKindDefinition, ApiInventory, BindingLayout, Bindings,
+    ClientBinding, ClientDefinition, FieldBinding, GeneratedSdk, MapDefinition, ModelDefinition,
+    OpenApi, OperationBinding, OperationDefinition, ParameterBinding, ResourceDefinition,
+    ResourceInventory, Runtime, ScalarEnumDefinition, SdkDefinition, SimpleUnionDefinition,
+    SimpleUnionVariant, StreamBinding, StreamDefinition, UnionDefinition, UnionFactoryDefinition,
+    VariantBinding,
 };
