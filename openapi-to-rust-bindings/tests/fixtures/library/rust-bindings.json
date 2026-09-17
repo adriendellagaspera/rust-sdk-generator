@@ -1,0 +1,71 @@
+{
+  "schema_version": 2,
+  "structs": {
+    "CreateBookRequest": [
+      {"name": "title", "type": "String"},
+      {"name": "pages", "type": "Option<i64>"}
+    ],
+    "BookResponse": [
+      {"name": "id", "type": "String"},
+      {"name": "title", "type": "String"}
+    ],
+    "BookList": [
+      {"name": "items", "type": "Vec<BookResponse>"}
+    ]
+  },
+  "enums": {},
+  "aliases": {},
+  "operations": {
+    "create_book": {
+      "name": "create_book",
+      "parameters": [
+        {"name": "request", "type": "CreateBookRequest"}
+      ],
+      "return_type": "Result<BookResponse, Error>",
+      "success_type": "BookResponse"
+    },
+    "list_books": {
+      "name": "list_books",
+      "parameters": [
+        {"name": "limit", "type": "Option<i64>"}
+      ],
+      "return_type": "Result<BookList, Error>",
+      "success_type": "BookList"
+    },
+    "delete_book": {
+      "name": "delete_book",
+      "parameters": [
+        {"name": "book_id", "type": "impl AsRef<str>"}
+      ],
+      "return_type": "Result<(), Error>",
+      "success_type": "()"
+    },
+    "download_book": {
+      "name": "download_book",
+      "parameters": [
+        {"name": "book_id", "type": "impl AsRef<str>"}
+      ],
+      "return_type": "Result<futures_util::stream::BoxStream<'static, Result<bytes::Bytes, reqwest::Error>>, Error>",
+      "success_type": "futures_util::stream::BoxStream<'static, Result<bytes::Bytes, reqwest::Error>>",
+      "stream": {
+        "item_type": "bytes::Bytes",
+        "error_type": "reqwest::Error",
+        "lifetime": "'static"
+      }
+    }
+  },
+  "symbol_paths": {
+    "CreateBookRequest": "crate::generated::types::CreateBookRequest",
+    "BookResponse": "crate::generated::types::BookResponse",
+    "BookList": "crate::generated::types::BookList"
+  },
+  "binding": {
+    "client": {
+      "type_path": "crate::generated::client::HttpClient",
+      "constructor": "new",
+      "api_key_builder": "with_api_key",
+      "base_url_builder": "with_base_url"
+    },
+    "type_preludes": ["crate::generated::types::*"]
+  }
+}
