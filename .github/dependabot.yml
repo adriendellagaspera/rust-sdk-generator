@@ -15,14 +15,28 @@ updates:
         update-types: [minor, patch]
     open-pull-requests-limit: 5
 
-  - package-ecosystem: uv
-    directories:
-      - /
-      - /openapi-to-rust-bindings
+  - package-ecosystem: cargo
+    directory: /
     schedule:
       interval: weekly
       day: monday
       time: "06:15"
+      timezone: Europe/Paris
+    cooldown:
+      default-days: 7
+      semver-major-days: 21
+    groups:
+      cargo-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: uv
+    directory: /openapi-to-rust-bindings
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:30"
       timezone: Europe/Paris
     cooldown:
       default-days: 7
