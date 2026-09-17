@@ -17,6 +17,8 @@ const RESPONSE_VIEW_UNPROVEN: &str = "capability.response_model_derivation_requi
 const RESPONSE_UNION_REQUIRED: &str = "capability.response_union_derivation_required";
 const BINARY_RESPONSE_REQUIRED: &str = "capability.binary_response_derivation_required";
 
+type ProjectedModels = Vec<(String, ModelDefinition)>;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ScalarKind {
     String,
@@ -30,7 +32,7 @@ enum ProjectedResponse {
     Empty,
     Json {
         name: String,
-        models: Vec<(String, ModelDefinition)>,
+        models: ProjectedModels,
     },
 }
 
@@ -38,7 +40,7 @@ enum ProjectedResponse {
 pub(crate) struct ProjectedOperation {
     resource_path: Vec<String>,
     public_name: String,
-    models: Vec<(String, ModelDefinition)>,
+    models: ProjectedModels,
     operation: OperationDefinition,
 }
 
@@ -609,7 +611,7 @@ fn union_response_model(
     raw_union: &str,
     resource_path: &[String],
     public_name: &str,
-) -> Result<(String, Vec<(String, ModelDefinition)>), &'static str> {
+) -> Result<(String, ProjectedModels), &'static str> {
     let branches = schema
         .get("oneOf")
         .or_else(|| schema.get("anyOf"))
