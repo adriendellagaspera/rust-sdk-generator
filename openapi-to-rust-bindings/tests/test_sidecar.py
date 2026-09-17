@@ -3,8 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from openapi_to_rust_bindings import ParseError, read_bindings
-from rust_sdk_generator import Bindings
+from openapi_to_rust_bindings import Bindings, ParseError, read_bindings
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
