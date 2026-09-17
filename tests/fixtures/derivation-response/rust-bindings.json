@@ -1,0 +1,37 @@
+{
+  "schema_version": 2,
+  "structs": {
+    "SensorResponse": [
+      {"name": "note", "type": "Option<String>"},
+      {"name": "temperature", "type": "f64"},
+      {"name": "name", "type": "String"},
+      {"name": "count", "type": "i64"},
+      {"name": "active", "type": "bool"}
+    ]
+  },
+  "enums": {},
+  "aliases": {},
+  "operations": {
+    "opaque_read": {
+      "name": "opaque_read",
+      "parameters": [
+        {"name": "detail", "type": "Option<bool>"},
+        {"name": "sensor_id", "type": "impl AsRef<str>"}
+      ],
+      "return_type": "Result<SensorResponse, Error>",
+      "success_type": "SensorResponse"
+    }
+  },
+  "symbol_paths": {
+    "SensorResponse": "crate::generated::types::SensorResponse"
+  },
+  "binding": {
+    "client": {
+      "type_path": "crate::generated::client::HttpClient",
+      "constructor": "new",
+      "api_key_builder": "with_api_key",
+      "base_url_builder": "with_base_url"
+    },
+    "type_preludes": ["crate::generated::types::*"]
+  }
+}
