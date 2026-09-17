@@ -7,6 +7,7 @@ use crate::contracts::{Bindings, ClientDefinition, OpenApi, SdkDefinition};
 use crate::error::{Diagnostic, GenerationError};
 use crate::naming::derive_public_paths;
 use crate::openapi::OpenApiIndex;
+use crate::projection::{insert_projection, project_operation};
 use crate::reconcile::reconcile;
 
 /// Consumer-provided public resource/method naming evidence.
@@ -264,7 +265,31 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
         derive_public_paths(&openapi, &surface).map_err(DerivationError::from_generation)?;
     let reconciliation =
         reconcile(&openapi, &bindings).map_err(DerivationError::from_generation)?;
+    let index = OpenApiIndex::new(&openapi).map_err(DerivationError::from_generation)?;
 
+    let mut public_path_counts = BTreeMap::new();
+    for operation_id in &operation_ids {
+        if overrides.excluded_operations.contains_key(operation_id) {
+            continue;
+        }
+        let Some(named) = naming.get(operation_id) else {
+            continue;
+        };
+        if named.reason.is_none()
+            && let Some(path) = &named.public_path
+        {
+            *public_path_counts.entry(path.clone()).or_insert(0usize) += 1;
+        }
+    }
+
+    let mut definition = SdkDefinition {
+        schema_version: 2,
+        client: ClientDefinition {
+            name: surface.client.clone().unwrap_or_else(|| "Client".into()),
+        },
+        models: Default::default(),
+        resources: Default::default(),
+    };
     let mut operations = BTreeMap::new();
     for operation_id in operation_ids {
         let named = naming.get(&operation_id).ok_or_else(|| {
@@ -318,30 +343,53 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                     public_path: None,
                     binding: matched.binding.clone(),
                 }
-            } else {
+            } else if public_path
+                .as_ref()
+                .and_then(|path| public_path_counts.get(path))
+                .is_some_and(|count| *count > 1)
+            {
                 OperationDerivation {
                     status: DerivationStatus::Rejected,
                     reason: DerivationReason {
-                        code: "capability.projection_not_implemented".into(),
+                        code: "surface.public_path_collision".into(),
                         detail: None,
                     },
                     public_paths,
                     public_path,
                     binding: matched.binding.clone(),
                 }
+            } else {
+                let binding = matched.binding.as_deref().expect("matched binding");
+                let path = public_path.as_deref().expect("naming decision has public path");
+                match project_operation(&index, &bindings, &operation_id, binding, path)
+                    .and_then(|projected| insert_projection(&mut definition, projected))
+                {
+                    Ok(()) => OperationDerivation {
+                        status: DerivationStatus::Derived,
+                        reason: DerivationReason {
+                            code: "inference.structurally_proven".into(),
+                            detail: None,
+                        },
+                        public_paths,
+                        public_path,
+                        binding: matched.binding.clone(),
+                    },
+                    Err(reason) => OperationDerivation {
+                        status: DerivationStatus::Rejected,
+                        reason: DerivationReason {
+                            code: reason.into(),
+                            detail: None,
+                        },
+                        public_paths,
+                        public_path,
+                        binding: matched.binding.clone(),
+                    },
+                }
             }
         };
         operations.insert(operation_id, outcome);
     }
 
-    let definition = SdkDefinition {
-        schema_version: 2,
-        client: ClientDefinition {
-            name: surface.client.unwrap_or_else(|| "Client".into()),
-        },
-        models: Default::default(),
-        resources: Default::default(),
-    };
     definition
         .validate()
         .map_err(DerivationError::from_generation)?;
@@ -358,7 +406,9 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contracts::{BindingLayout, ClientBinding, OperationBinding, ParameterBinding};
+    use crate::contracts::{
+        BindingLayout, ClientBinding, GenerateInput, OperationBinding, ParameterBinding, Runtime,
+    };
 
     fn openapi() -> OpenApi {
         OpenApi(serde_json::json!({
@@ -512,7 +562,10 @@ mod tests {
             outcome.public_path.as_deref(),
             Some("weather.read_forecast")
         );
-        assert_eq!(outcome.reason.code, "capability.projection_not_implemented");
+        assert_eq!(
+            outcome.reason.code,
+            "capability.response_model_derivation_required"
+        );
     }
 
     #[test]
@@ -540,5 +593,54 @@ mod tests {
             derivation.report.operations["archive"].reason.code,
             "transport.source_operation_identity_required"
         );
+    }
+
+    #[test]
+    fn projects_reconciled_body_path_and_query_independent_of_binding_order() {
+        let api: OpenApi = serde_json::from_str(include_str!(
+            "../tests/fixtures/derivation-update/openapi.json"
+        ))
+        .expect("fixture OpenAPI");
+        let raw: Bindings = serde_json::from_str(include_str!(
+            "../tests/fixtures/derivation-update/rust-bindings.json"
+        ))
+        .expect("fixture bindings");
+        let surface: PublicSdkSurface = serde_json::from_str(include_str!(
+            "../tests/fixtures/derivation-update/surface.json"
+        ))
+        .expect("fixture surface");
+
+        let derivation = derive(DeriveInput {
+            openapi: api.clone(),
+            bindings: raw.clone(),
+            surface,
+            overrides: SdkOverrides::default(),
+        })
+        .expect("derive");
+        let outcome = &derivation.report.operations["revise_job"];
+        assert_eq!(outcome.status, DerivationStatus::Derived);
+        assert_eq!(outcome.reason.code, "inference.structurally_proven");
+        assert_eq!(outcome.binding.as_deref(), Some("call_42"));
+
+        let request = &derivation.definition.models["UpdateWorkJobsRequest"];
+        assert_eq!(request.raw.as_deref(), Some("UpdateJobRequest"));
+        assert_eq!(request.constructor.as_deref(), Some(&["title".to_owned()][..]));
+        let operation = &derivation.definition.resources["work_jobs"].operations["update"];
+        assert_eq!(operation.operation_id, "revise_job");
+        assert_eq!(operation.raw_method.as_deref(), Some("call_42"));
+        assert_eq!(operation.request.as_deref(), Some("UpdateWorkJobsRequest"));
+        assert_eq!(operation.empty_response, Some(true));
+
+        let generated = crate::generate(GenerateInput {
+            openapi: api,
+            bindings: raw,
+            definition: derivation.definition,
+            runtime: Runtime::default(),
+        })
+        .expect("derived definition generates");
+        assert_eq!(generated.inventory.client, "WorkClient");
+        assert_eq!(generated.inventory.resources.len(), 2);
+        assert_eq!(generated.inventory.resources[1].path, vec!["work", "jobs"]);
+        assert_eq!(generated.inventory.resources[1].operations, vec!["update"]);
     }
 }
