@@ -6,25 +6,30 @@ use std::path::{Component, Path, PathBuf};
 use std::process;
 
 use rust_sdk_generator::{
-    ApiInventory, Bindings, GenerateInput, GenerationError, OpenApi, Runtime, SdkDefinition,
-    generate,
+    ApiInventory, Bindings, DerivationError, DeriveInput, GenerateInput, GenerationError, OpenApi,
+    PublicSdkSurface, Runtime, SdkDefinition, SdkOverrides, derive, generate,
 };
+use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 
-const USAGE: &str = "usage:\n  rust-sdk-generator generate --openapi FILE --bindings FILE --definition FILE --output DIR [--runtime FILE] [--inventory FILE]\n  rust-sdk-generator check --openapi FILE --bindings FILE --definition FILE [--runtime FILE] [--inventory FILE]";
+const USAGE: &str = "usage:\n  rust-sdk-generator derive --openapi FILE --bindings FILE [--surface FILE] [--overrides FILE]\n  rust-sdk-generator generate --openapi FILE --bindings FILE --definition FILE --output DIR [--runtime FILE] [--inventory FILE]\n  rust-sdk-generator check --openapi FILE --bindings FILE --definition FILE [--runtime FILE] [--inventory FILE]";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CommandKind {
+    Derive,
     Generate,
     Check,
 }
 
 #[derive(Debug)]
 struct Cli {
+    command: CommandKind,
     openapi: PathBuf,
     bindings: PathBuf,
-    definition: PathBuf,
+    surface: Option<PathBuf>,
+    overrides: Option<PathBuf>,
+    definition: Option<PathBuf>,
     runtime: Option<PathBuf>,
     output: Option<PathBuf>,
     inventory: Option<PathBuf>,
@@ -65,6 +70,16 @@ impl From<GenerationError> for CliError {
     }
 }
 
+impl From<DerivationError> for CliError {
+    fn from(error: DerivationError) -> Self {
+        Self {
+            code: error.diagnostic.code,
+            message: error.diagnostic.message,
+            path: error.diagnostic.path,
+        }
+    }
+}
+
 fn parse_args<I>(args: I) -> Result<Option<Cli>, CliError>
 where
     I: IntoIterator<Item = String>,
@@ -77,6 +92,7 @@ where
         return Ok(None);
     }
     let command = match command.as_str() {
+        "derive" => CommandKind::Derive,
         "generate" => CommandKind::Generate,
         "check" => CommandKind::Check,
         _ => return Err(CliError::new("cli.usage", USAGE)),
@@ -107,14 +123,23 @@ where
             .map(PathBuf::from)
             .ok_or_else(|| CliError::new("cli.usage", format!("missing {name}\n{USAGE}")))
     };
+
+    let allowed: &[&str] = match command {
+        CommandKind::Derive => &["--openapi", "--bindings", "--surface", "--overrides"],
+        CommandKind::Generate | CommandKind::Check => &[
+            "--openapi",
+            "--bindings",
+            "--definition",
+            "--runtime",
+            "--output",
+            "--inventory",
+        ],
+    };
     for flag in options.keys() {
-        if !matches!(
-            flag.as_str(),
-            "--openapi" | "--bindings" | "--definition" | "--runtime" | "--output" | "--inventory"
-        ) {
+        if !allowed.contains(&flag.as_str()) {
             return Err(CliError::new(
                 "cli.usage",
-                format!("unknown option {flag}\n{USAGE}"),
+                format!("unknown option {flag} for command\n{USAGE}"),
             ));
         }
     }
@@ -133,10 +158,18 @@ where
         ));
     }
 
+    let definition = match command {
+        CommandKind::Derive => None,
+        CommandKind::Generate | CommandKind::Check => Some(required("--definition")?),
+    };
+
     Ok(Some(Cli {
+        command,
         openapi: required("--openapi")?,
         bindings: required("--bindings")?,
-        definition: required("--definition")?,
+        surface: options.get("--surface").map(PathBuf::from),
+        overrides: options.get("--overrides").map(PathBuf::from),
+        definition,
         runtime: options.get("--runtime").map(PathBuf::from),
         output,
         inventory: options.get("--inventory").map(PathBuf::from),
@@ -155,11 +188,15 @@ fn read_json<T: DeserializeOwned>(path: &Path, kind: &str) -> Result<T, CliError
     })
 }
 
-fn inventory_json(inventory: &ApiInventory) -> Result<Vec<u8>, CliError> {
-    let mut bytes = serde_json::to_vec_pretty(inventory)
+fn json_bytes<T: Serialize>(value: &T) -> Result<Vec<u8>, CliError> {
+    let mut bytes = serde_json::to_vec_pretty(value)
         .map_err(|error| CliError::new("cli.json", error.to_string()))?;
     bytes.push(b'\n');
     Ok(bytes)
+}
+
+fn inventory_json(inventory: &ApiInventory) -> Result<Vec<u8>, CliError> {
+    json_bytes(inventory)
 }
 
 fn safe_relative_path(name: &str) -> Result<&Path, CliError> {
@@ -203,10 +240,54 @@ fn write_generated(output: &Path, files: &BTreeMap<String, String>) -> Result<()
     Ok(())
 }
 
+fn write_inventory(path: &Path, inventory: &[u8]) -> Result<(), CliError> {
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent).map_err(|error| {
+            CliError::at(
+                "cli.io",
+                parent,
+                format!("failed to create inventory directory: {error}"),
+            )
+        })?;
+    }
+    fs::write(path, inventory).map_err(|error| {
+        CliError::at(
+            "cli.io",
+            path,
+            format!("failed to write API inventory: {error}"),
+        )
+    })
+}
+
 fn run(cli: Cli) -> Result<(), CliError> {
     let openapi: OpenApi = read_json(&cli.openapi, "OpenAPI")?;
     let bindings: Bindings = read_json(&cli.bindings, "Bindings")?;
-    let definition: SdkDefinition = read_json(&cli.definition, "SdkDefinition")?;
+
+    if cli.command == CommandKind::Derive {
+        let surface = match &cli.surface {
+            Some(path) => read_json(path, "PublicSdkSurface")?,
+            None => PublicSdkSurface::default(),
+        };
+        let overrides = match &cli.overrides {
+            Some(path) => read_json(path, "SdkOverrides")?,
+            None => SdkOverrides::default(),
+        };
+        let derivation = derive(DeriveInput {
+            openapi,
+            bindings,
+            surface,
+            overrides,
+        })?;
+        io::stdout()
+            .write_all(&json_bytes(&derivation)?)
+            .map_err(|error| CliError::new("cli.io", format!("failed to write stdout: {error}")))?;
+        return Ok(());
+    }
+
+    let definition_path = cli.definition.as_deref().expect("generation definition");
+    let definition: SdkDefinition = read_json(definition_path, "SdkDefinition")?;
     let runtime = match &cli.runtime {
         Some(path) => read_json(path, "Runtime")?,
         None => Runtime::default(),
@@ -223,24 +304,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
     }
     let inventory = inventory_json(&generated.inventory)?;
     if let Some(path) = &cli.inventory {
-        if let Some(parent) = path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            fs::create_dir_all(parent).map_err(|error| {
-                CliError::at(
-                    "cli.io",
-                    parent,
-                    format!("failed to create inventory directory: {error}"),
-                )
-            })?;
-        }
-        fs::write(path, &inventory).map_err(|error| {
-            CliError::at(
-                "cli.io",
-                path,
-                format!("failed to write API inventory: {error}"),
-            )
-        })?;
+        write_inventory(path, &inventory)?;
     }
     io::stdout()
         .write_all(&inventory)
@@ -306,6 +370,21 @@ mod tests {
             "out".into(),
         ])
         .expect_err("check output must fail");
+        assert_eq!(error.code, "cli.usage");
+    }
+
+    #[test]
+    fn derive_does_not_accept_generation_definition() {
+        let error = parse_args([
+            "derive".into(),
+            "--openapi".into(),
+            "openapi.json".into(),
+            "--bindings".into(),
+            "bindings.json".into(),
+            "--definition".into(),
+            "definition.json".into(),
+        ])
+        .expect_err("derive definition must fail");
         assert_eq!(error.code, "cli.usage");
     }
 }
