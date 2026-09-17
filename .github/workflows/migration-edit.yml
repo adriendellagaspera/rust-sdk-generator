@@ -1,0 +1,53 @@
+name: Migration edit
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  edit:
+    if: github.head_ref == 'issue-21-22-rust-lowering'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: true
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - name: Apply source fix and remove helper
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('src/lower.rs')
+          source = path.read_text()
+          pattern = re.compile(
+              r'(?P<indent>\s*)let inner = parse_type\(&raw_field\.type_name\)\?\s*'
+              r'\.unary\("Option"\)\s*'
+              r'\.map\(\|inner\| inner\.spelling\.as_str\(\)\);'
+          )
+          replacement = (
+              r'\g<indent>let raw_syntax = parse_type(&raw_field.type_name)?;'
+              r'\g<indent>let inner = raw_syntax'
+              r'\g<indent>    .unary("Option")'
+              r'\g<indent>    .map(|inner| inner.spelling.as_str());'
+          )
+          source, count = pattern.subn(replacement, source, count=1)
+          if count != 1:
+              raise SystemExit(f'expected one borrow expression, replaced {count}')
+          path.write_text(source)
+          PY
+          cargo fmt --all
+          rm .github/workflows/migration-edit.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/lower.rs .github/workflows/migration-edit.yml
+          git commit -m 'fix: retain parsed request override type'
+          git push origin "HEAD:${HEAD_REF}"
