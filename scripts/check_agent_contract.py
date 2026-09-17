@@ -43,9 +43,12 @@ def workflow_jobs() -> set[str]:
     return jobs
 
 
-def check_action_pins() -> None:
+def check_workflows() -> None:
     for workflow in sorted(WORKFLOWS.glob("*.yml")):
-        for number, line in enumerate(workflow.read_text().splitlines(), start=1):
+        text = workflow.read_text()
+        if re.search(r"^\s*pull_request_target:\s*$", text, re.MULTILINE):
+            fail(f"{workflow.relative_to(ROOT)} uses forbidden pull_request_target")
+        for number, line in enumerate(text.splitlines(), start=1):
             match = USES.match(line)
             if not match:
                 continue
@@ -82,7 +85,7 @@ def main() -> None:
         if gate not in jobs:
             fail(f"AGENTS.md:{number}: references unknown CI gate '{gate}'")
 
-    check_action_pins()
+    check_workflows()
     print(f"agent-contract: ok ({line_count}/150 instruction lines; gates={','.join(sorted(jobs))})")
 
 
