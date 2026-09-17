@@ -211,8 +211,10 @@ fn response_matches(
                     && variants.iter().all(|variant| variant.payload.is_some())
             })
             .unwrap_or(false),
-        ResponseShape::JsonObject(fields) => raw_scalar_struct_shape(bindings, &binding.success_type)
-            .is_some_and(|raw| raw == *fields),
+        ResponseShape::JsonObject(fields) => {
+            raw_scalar_struct_shape(bindings, &binding.success_type)
+                .is_some_and(|raw| raw == *fields)
+        }
         ResponseShape::Binary => {
             let Ok(success) = parse_type(&binding.success_type) else {
                 return false;
