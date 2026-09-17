@@ -12,7 +12,13 @@ fn indent(value: &str, spaces: usize) -> String {
     let prefix = " ".repeat(spaces);
     value
         .split('\n')
-        .map(|line| if line.is_empty() { String::new() } else { format!("{prefix}{line}") })
+        .map(|line| {
+            if line.is_empty() {
+                String::new()
+            } else {
+                format!("{prefix}{line}")
+            }
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -142,7 +148,10 @@ fn emit_wrapper(model: &ModelSpec, spec: &WrapperModelSpec) -> String {
         );
     }
     methods.extend([
-        format!("pub fn from_raw(raw: {}) -> Self {{ Self {{ raw }} }}", model.raw),
+        format!(
+            "pub fn from_raw(raw: {}) -> Self {{ Self {{ raw }} }}",
+            model.raw
+        ),
         format!("pub fn as_raw(&self) -> &{} {{ &self.raw }}", model.raw),
         format!("pub fn into_raw(self) -> {} {{ self.raw }}", model.raw),
     ]);
@@ -300,7 +309,12 @@ fn emit_simple_union(model: &ModelSpec, spec: &SimpleUnionModelSpec) -> String {
 }
 
 fn direct_path(path: &[String]) -> String {
-    format!("self.raw{}", path.iter().map(|field| format!(".{field}")).collect::<String>())
+    format!(
+        "self.raw{}",
+        path.iter()
+            .map(|field| format!(".{field}"))
+            .collect::<String>()
+    )
 }
 
 fn emit_accessor(accessor: &ResolvedAccessor) -> String {
@@ -345,7 +359,10 @@ fn emit_accessor(accessor: &ResolvedAccessor) -> String {
                 accessor.name,
                 accessor.return_type,
                 accessor.enum_type.as_deref().expect("resolved enum type"),
-                accessor.enum_variant.as_deref().expect("resolved enum variant")
+                accessor
+                    .enum_variant
+                    .as_deref()
+                    .expect("resolved enum variant")
             )
         }
     }
@@ -646,7 +663,8 @@ fn emit_mod(ir: &FacadeIr, binding: &BindingLayout, runtime: &Runtime) -> String
         .map(|resource| format!("pub use {}::{};", resource.module, resource.name))
         .collect::<Vec<_>>()
         .join("\n");
-    let mut exported_types: Vec<String> = ir.models.iter().map(|model| model.name.clone()).collect();
+    let mut exported_types: Vec<String> =
+        ir.models.iter().map(|model| model.name.clone()).collect();
     exported_types.extend(ir.resources.iter().flat_map(|resource| {
         resource.operations.iter().filter_map(|operation| {
             if let ResponseProjection::Sse(stream) = &operation.response_projection {

@@ -53,10 +53,9 @@ mod tests {
 
     #[test]
     fn generic_fixtures_match_frozen_python_oracle_byte_for_byte() {
-        let oracle: BTreeMap<String, BTreeMap<String, String>> = serde_json::from_str(include_str!(
-            "../tests/oracle/current-generator.json"
-        ))
-        .expect("frozen oracle");
+        let oracle: BTreeMap<String, BTreeMap<String, String>> =
+            serde_json::from_str(include_str!("../tests/oracle/current-generator.json"))
+                .expect("frozen oracle");
 
         for fixture_name in ["menagerie", "library"] {
             let (openapi, bindings, definition) = fixture(fixture_name);
@@ -84,7 +83,10 @@ mod tests {
         let (ir, _) = compile(&openapi, &bindings, &definition, &Runtime::default())
             .expect("library compiles");
         assert_eq!(
-            ir.models.iter().map(|model| model.name.as_str()).collect::<Vec<_>>(),
+            ir.models
+                .iter()
+                .map(|model| model.name.as_str())
+                .collect::<Vec<_>>(),
             vec!["NewBook", "Book", "BookCollection"]
         );
         let books = ir

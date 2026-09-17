@@ -327,12 +327,15 @@ mod tests {
 
     #[test]
     fn sdk_definition_preserves_explicit_order() {
-        let definition: SdkDefinition = serde_json::from_str(include_str!(
-            "../tests/fixtures/library/policy.json"
-        ))
-        .expect("fixture definition");
+        let definition: SdkDefinition =
+            serde_json::from_str(include_str!("../tests/fixtures/library/policy.json"))
+                .expect("fixture definition");
         assert_eq!(
-            definition.models.keys().map(String::as_str).collect::<Vec<_>>(),
+            definition
+                .models
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
             vec!["NewBook", "Book", "BookCollection"]
         );
         assert_eq!(

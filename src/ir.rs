@@ -74,11 +74,24 @@ pub(crate) struct ArgumentSpec {
 pub(crate) enum ValueSpec {
     Variable(String),
     IntoString(String),
-    IntoModel { name: String, adapter: String },
+    IntoModel {
+        name: String,
+        adapter: String,
+    },
     CollectInto(String),
-    MapInto { name: String, depth: usize },
-    Some { value: Box<ValueSpec>, depth: usize },
-    Enum { type_name: String, variant: String, value: Box<ValueSpec> },
+    MapInto {
+        name: String,
+        depth: usize,
+    },
+    Some {
+        value: Box<ValueSpec>,
+        depth: usize,
+    },
+    Enum {
+        type_name: String,
+        variant: String,
+        value: Box<ValueSpec>,
+    },
     Struct(StructValue),
     Literal(String),
 }
@@ -202,7 +215,11 @@ pub(crate) struct RawParameter {
 pub(crate) enum RequestProjection {
     None,
     Parameters,
-    Json { model: String, raw: String, overrides: Vec<(String, Option<bool>)> },
+    Json {
+        model: String,
+        raw: String,
+        overrides: Vec<(String, Option<bool>)>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
