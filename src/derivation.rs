@@ -340,9 +340,7 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contracts::{
-        BindingLayout, ClientBinding, OperationBinding, ParameterBinding, StreamBinding,
-    };
+    use crate::contracts::{BindingLayout, ClientBinding, OperationBinding, ParameterBinding};
 
     fn openapi() -> OpenApi {
         OpenApi(serde_json::json!({
@@ -520,14 +518,5 @@ mod tests {
             derivation.report.operations["archive"].reason.code,
             "transport.source_operation_identity_required"
         );
-    }
-
-    #[test]
-    fn imported_stream_types_are_not_needed_for_json_reconciliation() {
-        let _ = StreamBinding {
-            item_type: "bytes::Bytes".into(),
-            error_type: "reqwest::Error".into(),
-            lifetime: "'static".into(),
-        };
     }
 }
