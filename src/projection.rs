@@ -10,6 +10,9 @@ use crate::contracts::{
 };
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, parse_type};
+use crate::structural::{
+    ScalarKind as StructuralScalarKind, raw_scalar_struct_shape, scalar_object_shape,
+};
 use crate::symbols::field_identifier;
 
 const REQUEST_MODEL_UNPROVEN: &str = "capability.request_model_not_structurally_provable";
@@ -346,6 +349,63 @@ fn response_view(
         raw,
         response_model_name(resource_path, public_name),
     )
+}
+
+fn inline_response_view(
+    bindings: &Bindings,
+    schema: &Value,
+    raw: &str,
+    resource_path: &[String],
+    public_name: &str,
+) -> Result<(String, ModelDefinition), &'static str> {
+    let wire = scalar_object_shape(schema).ok_or(RESPONSE_VIEW_UNPROVEN)?;
+    let raw_shape = raw_scalar_struct_shape(bindings, raw).ok_or(RESPONSE_VIEW_UNPROVEN)?;
+    if wire != raw_shape {
+        return Err(RESPONSE_VIEW_UNPROVEN);
+    }
+
+    let mut accessors = IndexMap::new();
+    for (field_name, shape) in wire {
+        if !safe_accessor_name(&field_name) {
+            return Err(RESPONSE_VIEW_UNPROVEN);
+        }
+        let kind = match (shape.kind, shape.optional) {
+            (StructuralScalarKind::String, false) => AccessorKindDefinition::Ref,
+            (StructuralScalarKind::String, true) => AccessorKindDefinition::OptionalRef,
+            (_, false) => AccessorKindDefinition::Copy,
+            (_, true) => AccessorKindDefinition::OptionalCopy,
+        };
+        accessors.insert(
+            field_name.clone(),
+            AccessorDefinition {
+                kind,
+                path: vec![field_name],
+                wrapper: None,
+            },
+        );
+    }
+
+    let name = response_model_name(resource_path, public_name);
+    if !public_model_name_available(&name, bindings) {
+        return Err("capability.public_model_name_collision");
+    }
+    Ok((
+        name,
+        ModelDefinition {
+            raw: Some(raw.into()),
+            constructor: None,
+            exclude: None,
+            adapters: None,
+            union: None,
+            simple_union: None,
+            type_alias: None,
+            map: None,
+            scalar_enum: None,
+            union_factory: None,
+            borrowed: Some(false),
+            accessors: Some(accessors),
+        },
+    ))
 }
 
 fn integer_rust_type(value: &str) -> bool {
@@ -753,15 +813,31 @@ fn response_projection(
                 models: vec![(name, model)],
             });
         }
-        let (name, models) = union_response_model(
-            openapi,
-            bindings,
-            schema,
-            &raw_binding.success_type,
-            resource_path,
-            public_name,
-        )?;
-        return Ok(ProjectedResponse::Json { name, models });
+        if schema.get("oneOf").is_some() || schema.get("anyOf").is_some() {
+            let (name, models) = union_response_model(
+                openapi,
+                bindings,
+                schema,
+                &raw_binding.success_type,
+                resource_path,
+                public_name,
+            )?;
+            return Ok(ProjectedResponse::Json { name, models });
+        }
+        if schema.get("type").and_then(Value::as_str) == Some("object") {
+            let (name, model) = inline_response_view(
+                bindings,
+                schema,
+                &raw_binding.success_type,
+                resource_path,
+                public_name,
+            )?;
+            return Ok(ProjectedResponse::Json {
+                name: name.clone(),
+                models: vec![(name, model)],
+            });
+        }
+        return Err(RESPONSE_VIEW_UNPROVEN);
     }
     let binary = schema.get("type").and_then(Value::as_str) == Some("string")
         && schema.get("format").and_then(Value::as_str) == Some("binary");
