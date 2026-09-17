@@ -1,0 +1,104 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title": "Composed fixture", "version": "1.0.0"},
+  "paths": {},
+  "components": {
+    "schemas": {
+      "BaseCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {"type": "string"},
+          "metadata": {"type": "object", "additionalProperties": true}
+        },
+        "required": ["name"]
+      },
+      "Command": {
+        "allOf": [
+          {"$ref": "#/components/schemas/BaseCommand"},
+          {
+            "type": "object",
+            "properties": {
+              "dry_run": {"type": "boolean", "enum": [false]}
+            }
+          }
+        ]
+      },
+      "NestedCommand": {
+        "allOf": [
+          {"$ref": "#/components/schemas/Command"},
+          {
+            "type": "object",
+            "properties": {
+              "priority": {"type": "integer"}
+            },
+            "required": ["priority"]
+          }
+        ]
+      },
+      "StreamingCommandBase": {
+        "type": "object",
+        "properties": {
+          "stream": {"type": "boolean", "default": true}
+        }
+      },
+      "NonStreamingCommand": {
+        "allOf": [
+          {"$ref": "#/components/schemas/StreamingCommandBase"},
+          {
+            "type": "object",
+            "properties": {
+              "stream": {"type": "boolean", "enum": [false], "default": false}
+            }
+          }
+        ]
+      },
+      "NullableStreamingCommandBase": {
+        "type": "object",
+        "properties": {
+          "stream": {"anyOf": [{"type": "boolean"}, {"type": "null"}], "default": null}
+        }
+      },
+      "NonStreamingNullableCommand": {
+        "allOf": [
+          {"$ref": "#/components/schemas/NullableStreamingCommandBase"},
+          {
+            "type": "object",
+            "properties": {
+              "stream": {"type": "boolean", "enum": [false], "default": false}
+            }
+          }
+        ]
+      },
+      "InvalidNullableRefinement": {
+        "allOf": [
+          {"$ref": "#/components/schemas/NullableStreamingCommandBase"},
+          {"type": "object", "properties": {"stream": {"type": "string", "enum": ["never"]}}}
+        ]
+      },
+      "ImpossibleCommand": {
+        "allOf": [
+          {"type": "object", "properties": {"mode": {"type": "string", "enum": ["a"]}}},
+          {"type": "object", "properties": {"mode": {"type": "string", "enum": ["b"]}}}
+        ]
+      },
+      "Conflict": {
+        "allOf": [
+          {"type": "object", "properties": {"value": {"type": "string"}}},
+          {"type": "object", "properties": {"value": {"type": "integer"}}}
+        ]
+      },
+      "BrokenRequired": {
+        "type": "object",
+        "properties": {"name": {"type": "string"}},
+        "required": ["missing"]
+      },
+      "RecursiveA": {
+        "allOf": [{"$ref": "#/components/schemas/RecursiveB"}]
+      },
+      "RecursiveB": {
+        "allOf": [{"$ref": "#/components/schemas/RecursiveA"}]
+      }
+    }
+  }
+}
