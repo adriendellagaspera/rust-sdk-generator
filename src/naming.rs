@@ -306,12 +306,18 @@ fn fallback_decision(
             .split('_')
             .map(str::to_owned)
             .collect();
-        if let Some(prefix) = prefixes.get(tag)
-            && !prefix.is_empty()
-            && method.starts_with(prefix)
-            && method.len() > prefix.len()
-        {
-            method.drain(..prefix.len());
+        let tag_parts: Vec<_> = tag.split('.').map(identifier).collect();
+        let tag_prefix_len = tag_parts
+            .iter()
+            .zip(method.iter())
+            .take_while(|(tag_part, method_part)| tag_part == method_part)
+            .count();
+        let prefix_len = prefixes
+            .get(tag)
+            .filter(|prefix| !prefix.is_empty() && method.starts_with(prefix))
+            .map_or(tag_prefix_len, Vec::len);
+        if prefix_len > 0 && method.len() > prefix_len {
+            method.drain(..prefix_len);
         }
         let method = method.join("_");
         if method.is_empty() || !valid_public_identifier(&method) {
