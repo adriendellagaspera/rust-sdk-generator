@@ -1,0 +1,40 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title": "Sensor fleet", "version": "1"},
+  "paths": {
+    "/sensors/{sensor_id}": {
+      "get": {
+        "operationId": "read_sensor",
+        "parameters": [
+          {"name": "sensor_id", "in": "path", "required": true, "schema": {"type": "string"}},
+          {"name": "detail", "in": "query", "required": false, "schema": {"type": "boolean"}}
+        ],
+        "responses": {
+          "200": {
+            "description": "Sensor",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/SensorResponse"}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "SensorResponse": {
+        "type": "object",
+        "required": ["name", "active", "count", "temperature"],
+        "properties": {
+          "name": {"type": "string"},
+          "active": {"type": "boolean"},
+          "count": {"type": "integer"},
+          "temperature": {"type": "number"},
+          "note": {"type": "string"}
+        }
+      }
+    }
+  }
+}
