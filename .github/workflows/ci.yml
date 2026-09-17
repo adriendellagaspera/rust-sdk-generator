@@ -1,15 +1,76 @@
 name: CI
+
 on:
   push:
+    branches: [main]
   pull_request:
+
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate agent and action-pin contracts
+        run: python3 scripts/check_agent_contract.py
+      - name: Validate pull-request title
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: python3 scripts/check_pr_title.py "$PR_TITLE"
+      - name: Install actionlint 1.7.12
+        run: |
+          curl -fsSLo /tmp/actionlint.tar.gz \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  /tmp/actionlint.tar.gz' | sha256sum --check -
+          tar -xzf /tmp/actionlint.tar.gz -C /tmp actionlint
+          /tmp/actionlint
+      - name: Audit GitHub Actions security
+        uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
+        with:
+          version: 1.29.0
+          persona: auditor
+          online-audits: false
+          advanced-security: false
+          annotations: true
+
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
+      - name: Reject high-confidence Python defects
+        run: >-
+          uvx --from ruff==0.16.8 ruff check
+          --select E4,E7,E9,F63,F7,F82
+          src tests scripts
+          openapi-to-rust-bindings/src
+          openapi-to-rust-bindings/tests
+
   generator:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
       - run: uv build --wheel
       - run: uv venv .test-venv --python 3.11
       - run: uv pip install --python .test-venv/bin/python dist/*.whl
@@ -17,11 +78,17 @@ jobs:
       - name: Enforce backend-neutral dependency direction
         run: |
           test -z "$(grep -R -n -E 'openapi_to_rust_bindings|openapi-to-rust-bindings|import openapi_to_rust' src/rust_sdk_generator || true)"
+
   bindings:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
       - run: uv build --wheel
         working-directory: openapi-to-rust-bindings
       - run: uv venv .test-venv --python 3.11
@@ -30,11 +97,17 @@ jobs:
         working-directory: openapi-to-rust-bindings
       - run: .test-venv/bin/python -m unittest discover -s tests -p 'test_*.py'
         working-directory: openapi-to-rust-bindings
+
   integration:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
       - run: uv build --wheel
       - run: uv build --wheel
         working-directory: openapi-to-rust-bindings
@@ -43,3 +116,21 @@ jobs:
       - run: uv pip install --python .integration-venv/bin/python tree-sitter==0.25.2 tree-sitter-rust==0.24.0
       - run: uv pip install --python .integration-venv/bin/python --no-deps openapi-to-rust-bindings/dist/*.whl
       - run: .integration-venv/bin/python -m unittest tests.test_bindings_integration
+
+  gate:
+    if: always()
+    needs: [policy, lint, generator, bindings, integration]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every CI contract
+        env:
+          POLICY: ${{ needs.policy.result }}
+          LINT: ${{ needs.lint.result }}
+          GENERATOR: ${{ needs.generator.result }}
+          BINDINGS: ${{ needs.bindings.result }}
+          INTEGRATION: ${{ needs.integration.result }}
+        run: |
+          for result in "$POLICY" "$LINT" "$GENERATOR" "$BINDINGS" "$INTEGRATION"; do
+            test "$result" = success
+          done

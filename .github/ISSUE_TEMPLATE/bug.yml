@@ -1,0 +1,35 @@
+name: Bug report
+description: Report a reproducible generator or bindings defect
+title: "fix: "
+labels: ["C-bug"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is wrong, and what behavior did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproducer
+    attributes:
+      label: Minimal reproducer
+      description: Prefer a small generic OpenAPI/Bindings fixture or exact commands.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - generator
+        - openapi-to-rust-bindings
+        - integration boundary
+        - CI / repository policy
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Relevant output, traceback, generated diff, or failing assertion.
