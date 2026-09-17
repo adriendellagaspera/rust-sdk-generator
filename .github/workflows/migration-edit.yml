@@ -1,0 +1,128 @@
+name: Migration edit
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  edit:
+    if: github.head_ref == 'issue-21-22-rust-lowering'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: true
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - name: Preserve Python OpenAPI behavior and remove helper
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/openapi.rs')
+          source = path.read_text()
+          old_methods = '''                for method in [
+                    "get", "put", "post", "delete", "options", "head", "patch", "trace",
+                ] {'''
+          new_methods = '''                for method in ["get", "put", "post", "delete", "patch", "head", "options"] {'''
+          if old_methods not in source:
+              raise SystemExit('HTTP method block not found')
+          source = source.replace(old_methods, new_methods, 1)
+
+          marker = '''        let discriminator = schema
+            .pointer("/discriminator/propertyName")'''
+          if marker not in source:
+              raise SystemExit('discriminator marker not found')
+          fallback = '''        if schema
+            .pointer("/discriminator/propertyName")
+            .and_then(Value::as_str)
+            .is_none()
+        {
+            let referenced: Vec<String> = branches
+                .iter()
+                .filter_map(ref_name)
+                .map(str::to_owned)
+                .collect();
+            if referenced.len() == branches.len() {
+                let mut candidates: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
+                for payload in &referenced {
+                    if let Some(properties) = self.schema(payload)?.get("properties").and_then(Value::as_object) {
+                        for (property_name, property_schema) in properties {
+                            if let Some(value) = property_schema.get("const") {
+                                let tag = match value {
+                                    Value::String(value) => value.clone(),
+                                    Value::Bool(true) => "True".into(),
+                                    Value::Bool(false) => "False".into(),
+                                    Value::Null => "None".into(),
+                                    value => value.to_string(),
+                                };
+                                candidates
+                                    .entry(property_name.clone())
+                                    .or_default()
+                                    .insert(tag, payload.clone());
+                            }
+                        }
+                    }
+                }
+                let mut complete = candidates
+                    .into_iter()
+                    .filter(|(_, mapping)| mapping.len() == referenced.len());
+                if let Some((property_name, mapping)) = complete.next()
+                    && complete.next().is_none()
+                {
+                    return Ok((property_name, mapping));
+                }
+            }
+        }
+
+'''
+          source = source.replace(marker, fallback + marker, 1)
+
+          test_insert = r'''
+
+    #[test]
+    fn infers_unique_const_discriminator_without_discriminator_object() {
+        let value = serde_json::json!({
+            "components": {"schemas": {
+                "Animal": {"oneOf": [
+                    {"$ref": "#/components/schemas/Cat"},
+                    {"$ref": "#/components/schemas/Dog"}
+                ]},
+                "Cat": {"type": "object", "properties": {"kind": {"const": "cat"}}},
+                "Dog": {"type": "object", "properties": {"kind": {"const": "dog"}}}
+            }}
+        });
+        let index = OpenApiIndex::new(&OpenApi(value)).expect("valid index");
+        let (property, mapping) = index.union("Animal", &[]).expect("inferred union");
+        assert_eq!(property, "kind");
+        assert_eq!(mapping["cat"], "Cat");
+        assert_eq!(mapping["dog"], "Dog");
+    }
+
+    #[test]
+    fn ignores_trace_operations_to_match_existing_contract() {
+        let value = serde_json::json!({
+            "paths": {"/trace": {"trace": {"operationId": "trace_only"}}}
+        });
+        let index = OpenApiIndex::new(&OpenApi(value)).expect("valid index");
+        assert!(!index.operations.contains_key("trace_only"));
+    }
+'''
+          if 'fn infers_unique_const_discriminator_without_discriminator_object()' not in source:
+              head, tail = source.rsplit('\n}', 1)
+              source = head + test_insert + '\n}' + tail
+          path.write_text(source)
+          PY
+          cargo fmt --all
+          rm -f .migration-trigger .github/workflows/migration-edit.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/openapi.rs .migration-trigger .github/workflows/migration-edit.yml
+          git commit -m 'fix: preserve existing OpenAPI union behavior'
+          git push origin "HEAD:${HEAD_REF}"
