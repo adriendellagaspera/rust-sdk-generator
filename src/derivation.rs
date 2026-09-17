@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::contracts::{Bindings, ClientDefinition, OpenApi, SdkDefinition};
 use crate::error::{Diagnostic, GenerationError};
+use crate::naming::derive_public_paths;
 use crate::openapi::OpenApiIndex;
 use crate::reconcile::reconcile;
 
@@ -80,6 +81,8 @@ pub struct OperationDerivation {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub public_paths: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub binding: Option<String>,
 }
 
@@ -151,8 +154,6 @@ impl fmt::Display for DerivationError {
 impl std::error::Error for DerivationError {}
 
 fn operation_ids(openapi: &OpenApi) -> Result<BTreeSet<String>, DerivationError> {
-    // Reuse the canonical OpenAPI validation/indexing pass before collecting the
-    // deterministic operation set needed by the public report.
     OpenApiIndex::new(openapi).map_err(DerivationError::from_generation)?;
 
     let root = openapi.0.as_object().ok_or_else(|| {
@@ -244,11 +245,8 @@ fn validate_evidence(
 
 /// Derive a complete SDK definition and exhaustive operation report.
 ///
-/// Generic reconciliation is intentionally conservative: a binding is attached
-/// only when OpenAPI request/response structure identifies one unique operation
-/// without relying on a raw-generator method name. Later #1 slices replace the
-/// projection rejection with SDK inference; transport-sensitive ambiguity stays
-/// rejected until Bindings carries source-operation and representation identity.
+/// Public naming is selected independently from wire reconciliation. Surface
+/// evidence may refine names but never selects a generated transport variant.
 pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
     let DeriveInput {
         openapi,
@@ -262,16 +260,21 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
         .map_err(DerivationError::from_generation)?;
     let operation_ids = operation_ids(&openapi)?;
     validate_evidence(&operation_ids, &surface, &overrides)?;
+    let naming =
+        derive_public_paths(&openapi, &surface).map_err(DerivationError::from_generation)?;
     let reconciliation =
         reconcile(&openapi, &bindings).map_err(DerivationError::from_generation)?;
 
     let mut operations = BTreeMap::new();
     for operation_id in operation_ids {
-        let public_paths = surface
-            .operations
-            .get(&operation_id)
-            .cloned()
-            .unwrap_or_default();
+        let named = naming.get(&operation_id).ok_or_else(|| {
+            DerivationError::new(
+                "derivation.naming_missing",
+                format!("operation {operation_id} has no naming decision"),
+            )
+        })?;
+        let public_paths = named.evidence.clone();
+        let public_path = named.public_path.clone();
         let outcome = if let Some(reason) = overrides.excluded_operations.get(&operation_id) {
             OperationDerivation {
                 status: DerivationStatus::Excluded,
@@ -280,6 +283,7 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                     detail: Some(reason.clone()),
                 },
                 public_paths,
+                public_path,
                 binding: None,
             }
         } else {
@@ -289,17 +293,7 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                     format!("operation {operation_id} was not reconciled"),
                 )
             })?;
-            if let Some(binding) = &matched.binding {
-                OperationDerivation {
-                    status: DerivationStatus::Rejected,
-                    reason: DerivationReason {
-                        code: "capability.projection_not_implemented".into(),
-                        detail: None,
-                    },
-                    public_paths,
-                    binding: Some(binding.clone()),
-                }
-            } else {
+            if matched.binding.is_none() {
                 OperationDerivation {
                     status: DerivationStatus::Rejected,
                     reason: DerivationReason {
@@ -310,7 +304,30 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                         detail: None,
                     },
                     public_paths,
+                    public_path,
                     binding: None,
+                }
+            } else if let Some(reason) = named.reason {
+                OperationDerivation {
+                    status: DerivationStatus::Rejected,
+                    reason: DerivationReason {
+                        code: reason.into(),
+                        detail: None,
+                    },
+                    public_paths,
+                    public_path: None,
+                    binding: matched.binding.clone(),
+                }
+            } else {
+                OperationDerivation {
+                    status: DerivationStatus::Rejected,
+                    reason: DerivationReason {
+                        code: "capability.projection_not_implemented".into(),
+                        detail: None,
+                    },
+                    public_paths,
+                    public_path,
+                    binding: matched.binding.clone(),
                 }
             }
         };
@@ -491,6 +508,10 @@ mod tests {
         .expect("derive");
         let outcome = &derivation.report.operations["read_forecast"];
         assert_eq!(outcome.binding.as_deref(), Some("opaque_call"));
+        assert_eq!(
+            outcome.public_path.as_deref(),
+            Some("weather.read_forecast")
+        );
         assert_eq!(outcome.reason.code, "capability.projection_not_implemented");
     }
 

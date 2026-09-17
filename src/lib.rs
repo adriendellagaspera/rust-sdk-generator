@@ -17,6 +17,7 @@ mod ir;
     clippy::useless_format
 )]
 mod lower;
+mod naming;
 #[allow(dead_code)]
 mod openapi;
 mod reconcile;
