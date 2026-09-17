@@ -41,7 +41,10 @@ fn derives_structurally_proven_model_algebra_responses() {
 
     let mode = &derivation.definition.models["ModeCatalogMetadataResponse"];
     assert_eq!(mode.raw.as_deref(), Some("RunMode"));
-    let scalar_enum = mode.scalar_enum.as_ref().expect("scalar enum response model");
+    let scalar_enum = mode
+        .scalar_enum
+        .as_ref()
+        .expect("scalar enum response model");
     assert_eq!(scalar_enum.root, "RunMode");
     assert!(scalar_enum.path.is_empty());
 
