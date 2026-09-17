@@ -6,6 +6,7 @@ use serde_json::Value;
 use crate::contracts::{
     AccessorDefinition, AccessorKindDefinition, Bindings, MapDefinition, ModelDefinition,
     OperationDefinition, ResourceDefinition, ScalarEnumDefinition, SdkDefinition,
+    SimpleUnionDefinition, SimpleUnionVariant,
 };
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, parse_type};
@@ -27,7 +28,10 @@ enum ScalarKind {
 #[derive(Debug, Clone)]
 enum ProjectedResponse {
     Empty,
-    Json(String, Box<ModelDefinition>),
+    Json {
+        name: String,
+        models: Vec<(String, ModelDefinition)>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -50,6 +54,24 @@ fn pascal_identifier(value: &str) -> String {
                 .unwrap_or_default()
         })
         .collect()
+}
+
+fn semantic_pascal_identifier(value: &str) -> Result<String, &'static str> {
+    let name: String = value
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            chars
+                .next()
+                .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
+                .unwrap_or_default()
+        })
+        .collect();
+    if name.is_empty() || !name.chars().next().is_some_and(|first| first.is_ascii_alphabetic()) {
+        return Err(RESPONSE_UNION_REQUIRED);
+    }
+    Ok(name)
 }
 
 fn resource_name(path: &[String]) -> String {
@@ -216,12 +238,11 @@ fn safe_accessor_name(name: &str) -> bool {
     valid && field_identifier(name).is_ok_and(|public| public == name)
 }
 
-fn response_view(
+fn response_view_named(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
     raw: &str,
-    resource_path: &[String],
-    public_name: &str,
+    name: String,
 ) -> Result<(String, ModelDefinition), &'static str> {
     let schema = openapi
         .object_schema(raw)
@@ -248,22 +269,22 @@ fn response_view(
         .flatten()
         .filter_map(Value::as_str)
         .collect();
-    if !required.iter().all(|name| wire_fields.contains(name)) {
+    if !required.iter().all(|field| wire_fields.contains(field)) {
         return Err(RESPONSE_VIEW_UNPROVEN);
     }
 
     let mut accessors = IndexMap::new();
     let mut names: Vec<_> = properties.keys().collect();
     names.sort();
-    for name in names {
-        if !safe_accessor_name(name) {
+    for field_name in names {
+        if !safe_accessor_name(field_name) {
             return Err(RESPONSE_VIEW_UNPROVEN);
         }
         let (wire_kind, nullable) =
-            scalar_schema(&properties[name]).ok_or(RESPONSE_VIEW_UNPROVEN)?;
-        let field = by_name[name.as_str()];
+            scalar_schema(&properties[field_name]).ok_or(RESPONSE_VIEW_UNPROVEN)?;
+        let field = by_name[field_name.as_str()];
         let (raw_kind, optional) = rust_scalar(&field.type_name)?;
-        let expected_optional = !required.contains(name.as_str()) || nullable;
+        let expected_optional = !required.contains(field_name.as_str()) || nullable;
         if wire_kind != raw_kind || expected_optional != optional {
             return Err(RESPONSE_VIEW_UNPROVEN);
         }
@@ -274,16 +295,15 @@ fn response_view(
             (_, true) => AccessorKindDefinition::OptionalCopy,
         };
         accessors.insert(
-            name.clone(),
+            field_name.clone(),
             AccessorDefinition {
                 kind,
-                path: vec![name.clone()],
+                path: vec![field_name.clone()],
                 wrapper: None,
             },
         );
     }
 
-    let name = response_model_name(resource_path, public_name);
     if !public_model_name_available(&name, bindings) {
         return Err("capability.public_model_name_collision");
     }
@@ -304,6 +324,21 @@ fn response_view(
             accessors: Some(accessors),
         },
     ))
+}
+
+fn response_view(
+    openapi: &OpenApiIndex,
+    bindings: &Bindings,
+    raw: &str,
+    resource_path: &[String],
+    public_name: &str,
+) -> Result<(String, ModelDefinition), &'static str> {
+    response_view_named(
+        openapi,
+        bindings,
+        raw,
+        response_model_name(resource_path, public_name),
+    )
 }
 
 fn integer_rust_type(value: &str) -> bool {
@@ -562,6 +597,106 @@ fn response_model(
     Err(RESPONSE_VIEW_UNPROVEN)
 }
 
+fn union_response_model(
+    openapi: &OpenApiIndex,
+    bindings: &Bindings,
+    schema: &Value,
+    raw_union: &str,
+    resource_path: &[String],
+    public_name: &str,
+) -> Result<(String, Vec<(String, ModelDefinition)>), &'static str> {
+    let branches = schema
+        .get("oneOf")
+        .or_else(|| schema.get("anyOf"))
+        .and_then(Value::as_array)
+        .ok_or(RESPONSE_UNION_REQUIRED)?;
+    if branches.len() < 2 {
+        return Err(RESPONSE_UNION_REQUIRED);
+    }
+    let references: Vec<_> = branches
+        .iter()
+        .map(|branch| ref_name(branch).map(str::to_owned))
+        .collect::<Option<Vec<_>>>()
+        .ok_or(RESPONSE_UNION_REQUIRED)?;
+    let reference_set: BTreeSet<_> = references.iter().cloned().collect();
+    if reference_set.len() != references.len() {
+        return Err(RESPONSE_UNION_REQUIRED);
+    }
+
+    let raw_variants = bindings.enums.get(raw_union).ok_or(RESPONSE_UNION_REQUIRED)?;
+    if raw_variants.len() != references.len() || raw_variants.iter().any(|variant| variant.payload.is_none()) {
+        return Err(RESPONSE_UNION_REQUIRED);
+    }
+    let payload_to_variant: BTreeMap<_, _> = raw_variants
+        .iter()
+        .filter_map(|variant| {
+            variant
+                .payload
+                .as_ref()
+                .map(|payload| (payload.clone(), variant.name.clone()))
+        })
+        .collect();
+    if payload_to_variant.len() != raw_variants.len()
+        || payload_to_variant.keys().cloned().collect::<BTreeSet<_>>() != reference_set
+    {
+        return Err(RESPONSE_UNION_REQUIRED);
+    }
+
+    let union_name = response_model_name(resource_path, public_name);
+    if !public_model_name_available(&union_name, bindings) {
+        return Err("capability.public_model_name_collision");
+    }
+    let mut models = Vec::new();
+    let mut variants = IndexMap::new();
+    let mut public_variants = BTreeSet::new();
+    for reference in references {
+        let public_variant = semantic_pascal_identifier(&reference)?;
+        if !public_variants.insert(public_variant.clone()) {
+            return Err("capability.public_model_name_collision");
+        }
+        let branch_name = format!("{union_name}{public_variant}");
+        let (adapter, branch_model) = response_view_named(
+            openapi,
+            bindings,
+            &reference,
+            branch_name,
+        )
+        .map_err(|_| RESPONSE_UNION_REQUIRED)?;
+        models.push((adapter.clone(), branch_model));
+        let raw_variant = payload_to_variant
+            .get(&reference)
+            .ok_or(RESPONSE_UNION_REQUIRED)?;
+        variants.insert(
+            raw_variant.clone(),
+            SimpleUnionVariant::Adapted {
+                name: public_variant,
+                adapter,
+            },
+        );
+    }
+    models.push((
+        union_name.clone(),
+        ModelDefinition {
+            raw: Some(raw_union.into()),
+            constructor: None,
+            exclude: None,
+            adapters: None,
+            union: None,
+            simple_union: Some(SimpleUnionDefinition {
+                bidirectional: true,
+                variants,
+            }),
+            type_alias: None,
+            map: None,
+            scalar_enum: None,
+            union_factory: None,
+            borrowed: None,
+            accessors: None,
+        },
+    ));
+    Ok((union_name, models))
+}
+
 fn response_projection(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
@@ -600,14 +735,25 @@ fn response_projection(
         .get("schema")
         .ok_or("response.inline_or_unresolved")?;
     if media == "application/json" {
-        let Some(raw) = ref_name(schema) else {
-            return Err(RESPONSE_UNION_REQUIRED);
-        };
-        if raw_binding.success_type != raw {
-            return Err(RESPONSE_VIEW_UNPROVEN);
+        if let Some(raw) = ref_name(schema) {
+            if raw_binding.success_type != raw {
+                return Err(RESPONSE_VIEW_UNPROVEN);
+            }
+            let (name, model) = response_model(openapi, bindings, raw, resource_path, public_name)?;
+            return Ok(ProjectedResponse::Json {
+                name: name.clone(),
+                models: vec![(name, model)],
+            });
         }
-        let (name, model) = response_model(openapi, bindings, raw, resource_path, public_name)?;
-        return Ok(ProjectedResponse::Json(name, Box::new(model)));
+        let (name, models) = union_response_model(
+            openapi,
+            bindings,
+            schema,
+            &raw_binding.success_type,
+            resource_path,
+            public_name,
+        )?;
+        return Ok(ProjectedResponse::Json { name, models });
     }
     let binary = schema.get("type").and_then(Value::as_str) == Some("string")
         && schema.get("format").and_then(Value::as_str) == Some("binary");
@@ -637,17 +783,15 @@ pub(crate) fn project_operation(
     let request_model = request_model(openapi, bindings, operation_id, &path, &public_name)?;
     let request = request_model.as_ref().map(|(name, _)| name.clone());
     let response = response_projection(openapi, bindings, operation, binding, &path, &public_name)?;
-    let (response_name, empty_response, response_model) = match response {
-        ProjectedResponse::Empty => (None, Some(true), None),
-        ProjectedResponse::Json(name, model) => (Some(name.clone()), None, Some((name, *model))),
+    let (response_name, empty_response, response_models) = match response {
+        ProjectedResponse::Empty => (None, Some(true), Vec::new()),
+        ProjectedResponse::Json { name, models } => (Some(name), None, models),
     };
     let mut models = Vec::new();
     if let Some(model) = request_model {
         models.push(model);
     }
-    if let Some(model) = response_model {
-        models.push(model);
-    }
+    models.extend(response_models);
 
     Ok(ProjectedOperation {
         resource_path: path,
