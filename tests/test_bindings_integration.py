@@ -1,8 +1,8 @@
+import importlib.util
 import json
 from pathlib import Path
 import unittest
 
-from openapi_to_rust_bindings import parse_bindings
 from rust_sdk_generator import Bindings, OpenApi, Policy, compile
 
 
@@ -11,10 +11,14 @@ GENERATOR_FIXTURE = ROOT / "tests" / "fixtures" / "menagerie"
 BINDINGS_FIXTURE = (
     ROOT / "openapi-to-rust-bindings" / "tests" / "fixtures" / "menagerie"
 )
+HAS_BINDINGS_PACKAGE = importlib.util.find_spec("openapi_to_rust_bindings") is not None
 
 
+@unittest.skipUnless(HAS_BINDINGS_PACKAGE, "bindings component not installed")
 class BindingsIntegrationTests(unittest.TestCase):
     def test_generated_rust_normalizes_into_generator_contract(self):
+        from openapi_to_rust_bindings import parse_bindings
+
         parsed = parse_bindings(
             (BINDINGS_FIXTURE / "types.rs").read_bytes(),
             (BINDINGS_FIXTURE / "client.rs").read_bytes(),
