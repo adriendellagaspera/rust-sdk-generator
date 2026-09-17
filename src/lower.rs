@@ -1642,7 +1642,8 @@ pub(crate) fn lower(
                                 format!("unknown request override for {raw_method}: {field}"),
                             )
                         })?;
-                        let inner = parse_type(&raw_field.type_name)?
+                        let raw_syntax = parse_type(&raw_field.type_name)?;
+                        let inner = raw_syntax
                             .unary("Option")
                             .map(|inner| inner.spelling.as_str());
                         let wire_schema = index.object_schema(&model.raw)?;
