@@ -32,6 +32,7 @@ integration checks.
 - [policy] `CLAUDE.md` MUST contain only `@AGENTS.md`, and root agent instruction files MUST stay within the combined 150-line budget.
 - [policy] Nested `AGENTS.md` or `CLAUDE.md` files MUST NOT be added; repository-specific detail belongs in code, tests, README material, or an executable gate.
 - [policy] Third-party GitHub Actions MUST use immutable full commit SHAs.
+- [policy] Workflows MUST NOT use `pull_request_target`.
 - [policy] Pull-request titles MUST follow the repository's conventional title grammar.
 - [generator] The root generator MUST remain independent of `openapi-to-rust` and `openapi-to-rust-bindings` implementation details.
 - [generator] Generic generator behavior MUST be demonstrated with non-Mistral fixtures.
