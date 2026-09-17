@@ -6,7 +6,9 @@ use crate::contracts::{Bindings, OpenApi, OperationBinding};
 use crate::error::{GenerationError, Result};
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::parse_type;
-use crate::structural::{ScalarFieldShape, raw_scalar_struct_shape, scalar_object_shape};
+use crate::structural::{
+    ScalarFieldShape, raw_scalar_struct_shape, rust_type_matches_schema, scalar_object_shape,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OperationMatch {
@@ -26,6 +28,7 @@ enum ResponseShape {
     JsonRef(String),
     JsonUnion(BTreeSet<String>),
     JsonObject(BTreeMap<String, ScalarFieldShape>),
+    JsonArray(Value),
     Binary,
 }
 
@@ -177,6 +180,9 @@ fn response_shape(operation: &Value) -> std::result::Result<ResponseShape, &'sta
         if let Some(fields) = scalar_object_shape(schema) {
             return Ok(ResponseShape::JsonObject(fields));
         }
+        if schema.get("type").and_then(Value::as_str) == Some("array") {
+            return Ok(ResponseShape::JsonArray(schema.clone()));
+        }
         return Err("response.inline_or_unresolved");
     }
     if schema.get("type").and_then(Value::as_str) == Some("string")
@@ -214,6 +220,10 @@ fn response_matches(
         ResponseShape::JsonObject(fields) => {
             raw_scalar_struct_shape(bindings, &binding.success_type)
                 .is_some_and(|raw| raw == *fields)
+        }
+        ResponseShape::JsonArray(schema) => {
+            bindings.aliases.contains_key(&binding.success_type)
+                && rust_type_matches_schema(schema, &binding.success_type, bindings)
         }
         ResponseShape::Binary => {
             let Ok(success) = parse_type(&binding.success_type) else {
