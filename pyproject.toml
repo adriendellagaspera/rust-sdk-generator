@@ -21,3 +21,5 @@ include-package-data = true
 
 [tool.setuptools.package-data]
 rust_sdk_generator = ["*.json"]
+[tool.uv.workspace]
+members = ["openapi-to-rust-bindings"]

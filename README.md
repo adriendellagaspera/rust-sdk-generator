@@ -51,3 +51,5 @@ Moved to `openapi-to-rust-bindings/`: generated-source parsing, sidecar-first lo
 Intentionally left in `mistralai-rs`: Mistral OpenAPI/source tracking and overlays, official SDK surface extraction, Mistral taxonomy/naming evidence, the current auto-projection orchestration until issue #1 replaces it, Mistral runtime integration, consumer generation/compatibility/release gates, and all Mistral-specific coverage decisions.
 
 A consumer should pin immutable standalone commits. `mistralai-rs#71` performs the first behavior-neutral consumer migration after issue #7 is complete; no historical package branch in `mistralai-rs` is a canonical package home after that migration.
+
+The repository CI validates the generator, bindings adapter, and their generic end-to-end composition in separate jobs.
