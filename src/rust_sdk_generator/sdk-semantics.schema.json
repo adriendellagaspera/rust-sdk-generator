@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SDK semantics v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "client", "models", "resources"],
+  "properties": {
+    "schema_version": {"const": 2},
+    "client": {"type": "object", "additionalProperties": false, "required": ["name"], "properties": {"name": {"$ref": "#/$defs/identifier"}}},
+    "models": {"type": "object", "propertyNames": {"$ref": "#/$defs/identifier"}, "additionalProperties": {"$ref": "#/$defs/model"}},
+    "resources": {"type": "object", "propertyNames": {"$ref": "#/$defs/identifier"}, "additionalProperties": {"$ref": "#/$defs/resource"}}
+  },
+  "$defs": {
+    "identifier": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "minLength": 1},
+    "names": {"type": "array", "items": {"$ref": "#/$defs/identifier"}, "uniqueItems": true},
+    "path": {"type": "array", "items": {"$ref": "#/$defs/identifier"}, "minItems": 1},
+    "schema_path": {"type": "array", "items": {"$ref": "#/$defs/identifier"}},
+    "mapping": {"type": "object", "propertyNames": {"$ref": "#/$defs/identifier"}, "additionalProperties": {"$ref": "#/$defs/identifier"}},
+    "union": {"type": "object", "additionalProperties": false, "required": ["root", "path", "payload"], "properties": {
+      "root": {"$ref": "#/$defs/identifier"}, "path": {"$ref": "#/$defs/path"}, "payload": {"$ref": "#/$defs/identifier"}, "targets": {"$ref": "#/$defs/names"}
+    }},
+    "simple_union": {"type": "object", "additionalProperties": false, "required": ["variants"], "properties": {
+      "bidirectional": {"type": "boolean"},
+      "variants": {"type": "object", "minProperties": 1, "propertyNames": {"$ref": "#/$defs/identifier"}, "additionalProperties": {"oneOf": [
+        {"$ref": "#/$defs/identifier"},
+        {"type": "object", "additionalProperties": false, "required": ["name", "adapter"], "properties": {"name": {"$ref": "#/$defs/identifier"}, "adapter": {"$ref": "#/$defs/identifier"}}}
+      ]}}
+    }},
+    "map": {"type": "object", "additionalProperties": false, "required": ["root", "path"], "properties": {
+      "root": {"$ref": "#/$defs/identifier"}, "path": {"$ref": "#/$defs/schema_path"}
+    }},
+    "scalar_enum": {"type": "object", "additionalProperties": false, "required": ["root", "path"], "properties": {
+      "root": {"$ref": "#/$defs/identifier"}, "path": {"$ref": "#/$defs/schema_path"}
+    }},
+    "factory": {"type": "object", "additionalProperties": false, "required": ["field"], "properties": {
+      "field": {"$ref": "#/$defs/identifier"}, "leading": {"$ref": "#/$defs/names"}, "rename": {"$ref": "#/$defs/mapping"}
+    }},
+    "accessor": {"type": "object", "additionalProperties": false, "required": ["kind", "path"], "properties": {
+      "kind": {"enum": ["copy", "ref", "optional_copy", "optional_ref", "iter", "first_string_variant"]}, "path": {"$ref": "#/$defs/path"}, "wrapper": {"$ref": "#/$defs/identifier"}
+    }, "if": {"properties": {"kind": {"const": "iter"}}}, "then": {"required": ["wrapper"]}},
+    "model": {"type": "object", "additionalProperties": false, "properties": {
+      "raw": {"$ref": "#/$defs/identifier"}, "constructor": {"$ref": "#/$defs/names"}, "exclude": {"$ref": "#/$defs/names"},
+      "adapters": {"$ref": "#/$defs/mapping"}, "union": {"$ref": "#/$defs/union"}, "simple_union": {"$ref": "#/$defs/simple_union"}, "type_alias": {"const": true}, "map": {"$ref": "#/$defs/map"}, "scalar_enum": {"$ref": "#/$defs/scalar_enum"}, "union_factory": {"$ref": "#/$defs/factory"},
+      "borrowed": {"type": "boolean"}, "accessors": {"type": "object", "propertyNames": {"$ref": "#/$defs/identifier"}, "additionalProperties": {"$ref": "#/$defs/accessor"}}
+    }, "oneOf": [
+      {"required": ["union"], "not": {"anyOf": [{"required": ["scalar_enum"]}, {"required": ["map"]}, {"required": ["constructor"]}, {"required": ["union_factory"]}, {"required": ["accessors"]}]}},
+      {"required": ["simple_union"], "not": {"anyOf": [{"required": ["scalar_enum"]}, {"required": ["union"]}, {"required": ["type_alias"]}, {"required": ["map"]}, {"required": ["constructor"]}, {"required": ["union_factory"]}, {"required": ["accessors"]}]}},
+      {"required": ["type_alias"], "not": {"anyOf": [{"required": ["scalar_enum"]}, {"required": ["union"]}, {"required": ["simple_union"]}, {"required": ["map"]}, {"required": ["constructor"]}, {"required": ["union_factory"]}, {"required": ["accessors"]}]}},
+      {"required": ["map"], "not": {"anyOf": [{"required": ["scalar_enum"]}, {"required": ["union"]}, {"required": ["simple_union"]}, {"required": ["type_alias"]}, {"required": ["constructor"]}, {"required": ["union_factory"]}, {"required": ["accessors"]}]}},
+      {"required": ["scalar_enum"], "not": {"anyOf": [{"required": ["union"]}, {"required": ["simple_union"]}, {"required": ["type_alias"]}, {"required": ["map"]}, {"required": ["constructor"]}, {"required": ["union_factory"]}, {"required": ["accessors"]}]}},
+      {"required": ["constructor"], "not": {"anyOf": [{"required": ["scalar_enum"]}, {"required": ["union"]}, {"required": ["simple_union"]}, {"required": ["type_alias"]}, {"required": ["map"]}, {"required": ["union_factory"]}, {"required": ["accessors"]}]}},
+      {"required": ["union_factory"], "not": {"anyOf": [{"required": ["scalar_enum"]}, {"required": ["union"]}, {"required": ["map"]}, {"required": ["constructor"]}, {"required": ["accessors"]}]}},
+      {"required": ["accessors"], "not": {"anyOf": [{"required": ["scalar_enum"]}, {"required": ["union"]}, {"required": ["map"]}, {"required": ["constructor"]}, {"required": ["union_factory"]}]}}
+    ]},
+    "stream": {"type": "object", "additionalProperties": false, "required": ["item", "type"], "properties": {
+      "item": {"$ref": "#/$defs/identifier"}, "wrapper": {"$ref": "#/$defs/identifier"}, "type": {"$ref": "#/$defs/identifier"}
+    }},
+    "operation": {"type": "object", "additionalProperties": false, "required": ["operation_id"], "properties": {
+      "operation_id": {"type": "string", "minLength": 1}, "raw_method": {"$ref": "#/$defs/identifier"},
+      "request": {"$ref": "#/$defs/identifier"}, "response": {"$ref": "#/$defs/identifier"}, "empty_response": {"const": true}, "binary_response": {"const": true}, "stream": {"$ref": "#/$defs/stream"},
+      "request_overrides": {"type": "object", "propertyNames": {"$ref": "#/$defs/identifier"}, "additionalProperties": {"type": ["boolean", "null"]}}
+    }},
+    "resource": {"type": "object", "additionalProperties": false, "required": ["name", "operations"], "properties": {
+      "name": {"$ref": "#/$defs/identifier"}, "path": {"$ref": "#/$defs/path"},
+      "operations": {"type": "object", "propertyNames": {"$ref": "#/$defs/identifier"}, "additionalProperties": {"$ref": "#/$defs/operation"}}
+    }}
+  }
+}

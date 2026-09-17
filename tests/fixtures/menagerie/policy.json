@@ -1,0 +1,36 @@
+{
+  "schema_version": 2,
+  "client": {"name": "Menagerie"},
+  "models": {
+    "Animal": {
+      "raw": "AnimalUnion",
+      "union": {
+        "root": "AnimalRequest",
+        "path": ["animals", "items"],
+        "payload": "content"
+      }
+    },
+    "Adoption": {
+      "raw": "AnimalRequest",
+      "constructor": ["model", "animals"],
+      "adapters": {"animals": "Animal"}
+    },
+    "Receipt": {
+      "raw": "AnimalResponse",
+      "borrowed": false,
+      "accessors": {}
+    }
+  },
+  "resources": {
+    "zoo": {
+      "name": "Zoo",
+      "operations": {
+        "adopt": {
+          "operation_id": "adopt",
+          "request": "Adoption",
+          "response": "Receipt"
+        }
+      }
+    }
+  }
+}
