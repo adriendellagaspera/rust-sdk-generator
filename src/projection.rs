@@ -36,7 +36,9 @@ fn pascal_identifier(value: &str) -> String {
 }
 
 fn resource_name(path: &[String]) -> String {
-    path.iter().map(|segment| pascal_identifier(segment)).collect()
+    path.iter()
+        .map(|segment| pascal_identifier(segment))
+        .collect()
 }
 
 fn request_model_name(resource_path: &[String], public_name: &str) -> String {
@@ -148,12 +150,10 @@ fn empty_response(operation: &Value) -> Result<bool, &'static str> {
     if media == "application/json" {
         return Err(RESPONSE_MODEL_REQUIRED);
     }
-    let binary = payload
-        .get("schema")
-        .is_some_and(|schema| {
-            schema.get("type").and_then(Value::as_str) == Some("string")
-                && schema.get("format").and_then(Value::as_str) == Some("binary")
-        });
+    let binary = payload.get("schema").is_some_and(|schema| {
+        schema.get("type").and_then(Value::as_str) == Some("string")
+            && schema.get("format").and_then(Value::as_str) == Some("binary")
+    });
     if binary {
         Err(BINARY_RESPONSE_REQUIRED)
     } else {
