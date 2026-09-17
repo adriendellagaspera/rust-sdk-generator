@@ -41,7 +41,7 @@ fn normalized_operations(openapi: &OpenApi) -> Result<BTreeMap<String, Value>> {
     let Some(paths) = root.get("paths").and_then(Value::as_object) else {
         return Ok(operations);
     };
-    for (path, path_item) in paths {
+    for path_item in paths.values() {
         let Some(path_item) = path_item.as_object() else {
             continue;
         };
@@ -50,7 +50,9 @@ fn normalized_operations(openapi: &OpenApi) -> Result<BTreeMap<String, Value>> {
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
-        for method in ["get", "put", "post", "delete", "patch", "head", "options"] {
+        for method in [
+            "get", "put", "post", "delete", "patch", "head", "options", "trace",
+        ] {
             let Some(operation) = path_item.get(method).and_then(Value::as_object) else {
                 continue;
             };
@@ -67,8 +69,6 @@ fn normalized_operations(openapi: &OpenApi) -> Result<BTreeMap<String, Value>> {
                     .unwrap_or_default(),
             );
             normalized.insert("parameters".into(), Value::Array(parameters));
-            normalized.insert("x-sdk-path".into(), Value::String(path.clone()));
-            normalized.insert("x-sdk-method".into(), Value::String(method.into()));
             operations.insert(operation_id.into(), Value::Object(normalized));
         }
     }
