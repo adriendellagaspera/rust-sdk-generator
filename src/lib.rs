@@ -2,6 +2,7 @@
 //!
 //! The crate is the canonical language/runtime boundary for the root generator.
 //! Concrete OpenAPI-to-Rust backends remain adapters that only produce [`Bindings`].
+//! Validation and lowering close over those contracts before deterministic emission.
 
 mod compiler;
 mod contracts;
