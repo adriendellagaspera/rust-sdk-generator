@@ -71,8 +71,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Check Rust formatting
-        run: cargo fmt --all -- --check
+      - name: Format Rust migration source
+        run: cargo fmt --all
+      - name: Upload formatted Rust migration source
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: formatted-rust-source
+          path: src
       - name: Lint Rust generator
         run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Test Rust generator
