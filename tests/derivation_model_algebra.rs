@@ -3,18 +3,21 @@ use rust_sdk_generator::{
     SdkOverrides, derive, generate,
 };
 
-#[test]
-fn derives_structurally_proven_alias_and_map_responses() {
-    let openapi: OpenApi =
-        serde_json::from_str(include_str!("fixtures/derivation-models/openapi.json"))
-            .expect("fixture OpenAPI");
-    let bindings: Bindings = serde_json::from_str(include_str!(
+fn fixture() -> (OpenApi, Bindings, PublicSdkSurface) {
+    let openapi = serde_json::from_str(include_str!("fixtures/derivation-models/openapi.json"))
+        .expect("fixture OpenAPI");
+    let bindings = serde_json::from_str(include_str!(
         "fixtures/derivation-models/rust-bindings.json"
     ))
     .expect("fixture bindings");
-    let surface: PublicSdkSurface =
-        serde_json::from_str(include_str!("fixtures/derivation-models/surface.json"))
-            .expect("fixture surface");
+    let surface = serde_json::from_str(include_str!("fixtures/derivation-models/surface.json"))
+        .expect("fixture surface");
+    (openapi, bindings, surface)
+}
+
+#[test]
+fn derives_structurally_proven_alias_and_map_responses() {
+    let (openapi, bindings, surface) = fixture();
 
     let derivation = derive(DeriveInput {
         openapi: openapi.clone(),
@@ -81,5 +84,46 @@ fn derives_structurally_proven_alias_and_map_responses() {
     assert_eq!(
         generated.inventory.resources[1].operations,
         vec!["labels", "tags"]
+    );
+}
+
+#[test]
+fn rejects_alias_response_type_drift() {
+    let (openapi, mut bindings, surface) = fixture();
+    bindings.aliases.insert("TagList".into(), "Vec<i64>".into());
+
+    let derivation = derive(DeriveInput {
+        openapi,
+        bindings,
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive");
+    let outcome = &derivation.report.operations["read_tags"];
+    assert_eq!(outcome.status, DerivationStatus::Rejected);
+    assert_eq!(
+        outcome.reason.code,
+        "capability.response_model_derivation_required"
+    );
+}
+
+#[test]
+fn rejects_map_response_value_drift() {
+    let (openapi, mut bindings, surface) = fixture();
+    bindings.structs.get_mut("LabelMap").expect("map binding")[0].type_name =
+        "std::collections::BTreeMap<String, i64>".into();
+
+    let derivation = derive(DeriveInput {
+        openapi,
+        bindings,
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive");
+    let outcome = &derivation.report.operations["read_labels"];
+    assert_eq!(outcome.status, DerivationStatus::Rejected);
+    assert_eq!(
+        outcome.reason.code,
+        "capability.response_model_derivation_required"
     );
 }
