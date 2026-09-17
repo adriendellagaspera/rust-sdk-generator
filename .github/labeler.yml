@@ -3,8 +3,8 @@ A-generator:
       - any-glob-to-any-file:
           - "src/**"
           - "tests/**"
-          - "pyproject.toml"
-          - "uv.lock"
+          - "Cargo.toml"
+          - "Cargo.lock"
 
 A-bindings:
   - changed-files:
