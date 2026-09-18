@@ -285,7 +285,9 @@ fn request_union_collection<'a>(
     }
     let reference = ref_name(items)?;
     let referenced = openapi.schema(reference).ok()?;
-    union_branches(referenced).is_some().then_some((referenced, inner.spelling.as_str()))
+    union_branches(referenced)
+        .is_some()
+        .then_some((referenced, inner.spelling.as_str()))
 }
 
 fn request_object_value_matches(
