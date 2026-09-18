@@ -154,9 +154,8 @@ fn request_union_models(
     let Some((union_schema, raw_union)) = request_union_raw(schema, raw) else {
         return Ok(None);
     };
-    let mapping =
-        request_union_mapping(context.openapi, union_schema, raw_union, context.bindings)
-            .ok_or(REQUEST_MODEL_UNPROVEN)?;
+    let mapping = request_union_mapping(context.openapi, union_schema, raw_union, context.bindings)
+        .ok_or(REQUEST_MODEL_UNPROVEN)?;
 
     if !public_model_name_available(&public_name, context.bindings) {
         return Err("capability.public_model_name_collision");
