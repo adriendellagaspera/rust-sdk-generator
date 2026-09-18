@@ -36,6 +36,7 @@ enum ProjectedResponse {
     },
     Text,
     BinaryBuffered,
+    BinaryStream,
     Sse {
         stream: StreamDefinition,
         models: ProjectedModels,
@@ -1287,6 +1288,38 @@ fn project_json_response_schema(
     Err(RESPONSE_VIEW_UNPROVEN)
 }
 
+fn binary_stream_projection(
+    operation: &Value,
+    raw_binding: &crate::contracts::OperationBinding,
+) -> Result<ProjectedResponse, &'static str> {
+    let metadata = raw_binding
+        .metadata
+        .as_ref()
+        .ok_or("capability.binary_stream_abi_required")?;
+    let ResponseRepresentationBinding::BinaryStream { media_type, .. } = &metadata.representation
+    else {
+        return Err("capability.binary_stream_abi_required");
+    };
+    let abi = metadata
+        .stream_abi
+        .as_ref()
+        .ok_or("capability.binary_stream_abi_required")?;
+    if raw_binding.success_type != abi.alias
+        || abi.item_type != "bytes::Bytes"
+        || abi.lifetime != "'static"
+        || raw_binding.stream.is_none()
+    {
+        return Err("capability.binary_stream_abi_required");
+    }
+
+    let schemas =
+        selected_success_response_schemas(operation, &metadata.success_statuses, media_type)?;
+    if schemas.is_empty() || schemas.iter().any(|schema| !binary_response_schema(schema)) {
+        return Err("capability.binary_stream_not_structurally_provable");
+    }
+    Ok(ProjectedResponse::BinaryStream)
+}
+
 fn event_stream_projection(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
@@ -1516,7 +1549,7 @@ fn response_projection(
                 public_name,
             ),
             ResponseRepresentationBinding::BinaryStream { .. } => {
-                Err("capability.response_projection_not_implemented")
+                binary_stream_projection(operation, raw_binding)
             }
         };
     }
@@ -1629,14 +1662,22 @@ pub(crate) fn project_operation(
                 ResponseRepresentationDefinition::BinaryStream
             }
         });
-    let (response_name, empty_response, stream, response_models) = match response {
-        ProjectedResponse::Empty => (None, Some(true), None, Vec::new()),
-        ProjectedResponse::Json { name, models } => (Some(name), None, None, models),
-        ProjectedResponse::Text | ProjectedResponse::BinaryBuffered => {
-            (None, None, None, Vec::new())
-        }
-        ProjectedResponse::Sse { stream, models } => (None, None, Some(stream), models),
-    };
+    let (response_name, empty_response, binary_response, stream, response_models) =
+        match response {
+            ProjectedResponse::Empty => (None, Some(true), None, None, Vec::new()),
+            ProjectedResponse::Json { name, models } => {
+                (Some(name), None, None, None, models)
+            }
+            ProjectedResponse::Text | ProjectedResponse::BinaryBuffered => {
+                (None, None, None, None, Vec::new())
+            }
+            ProjectedResponse::BinaryStream => {
+                (None, None, Some(true), None, Vec::new())
+            }
+            ProjectedResponse::Sse { stream, models } => {
+                (None, None, None, Some(stream), models)
+            }
+        };
     let mut models = Vec::new();
     if let Some((_, request_models, _)) = request_model {
         models.extend(request_models);
@@ -1655,7 +1696,7 @@ pub(crate) fn project_operation(
             response: response_name,
             response_representation: canonical_response,
             empty_response,
-            binary_response: None,
+            binary_response,
             stream,
             request_overrides,
             multipart_filenames,
