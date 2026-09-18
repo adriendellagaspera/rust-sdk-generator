@@ -2,9 +2,97 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
-use crate::contracts::Bindings;
+use crate::contracts::{Bindings, OperationBinding, OperationBindingKind};
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, TypeKind, parse_type};
+
+pub(crate) fn multipart_filenames_binding<'a>(
+    bindings: &'a Bindings,
+    primary_name: &str,
+) -> std::result::Result<Option<(&'a str, &'a OperationBinding)>, &'static str> {
+    let primary = bindings
+        .operations
+        .get(primary_name)
+        .ok_or("bindings.no_structural_match")?;
+    let Some(primary_metadata) = &primary.metadata else {
+        return Ok(None);
+    };
+    if primary_metadata.kind != OperationBindingKind::CallShape {
+        return Err("bindings.multipart_filenames_identity_mismatch");
+    }
+
+    let source_helpers: Vec<_> = bindings
+        .operations
+        .iter()
+        .filter(|(_, candidate)| {
+            candidate.metadata.as_ref().is_some_and(|metadata| {
+                metadata.kind == OperationBindingKind::MultipartFilenames
+                    && metadata.source_operation == primary_metadata.source_operation
+            })
+        })
+        .collect();
+    if source_helpers.is_empty() {
+        return Ok(None);
+    }
+
+    let primary_parameters: BTreeSet<_> = primary
+        .parameters
+        .iter()
+        .map(|parameter| (parameter.name.as_str(), parameter.type_name.as_str()))
+        .collect();
+    if primary_parameters.len() != primary.parameters.len()
+        || primary_parameters
+            .iter()
+            .any(|(name, _)| *name == "multipart_filenames")
+    {
+        return Err("bindings.multipart_filenames_signature_mismatch");
+    }
+
+    let matching: Vec<_> = source_helpers
+        .into_iter()
+        .filter(|(_, helper)| {
+            let Some(metadata) = &helper.metadata else {
+                return false;
+            };
+            if metadata.emitted_operation_id != primary_metadata.emitted_operation_id
+                || metadata.representation != primary_metadata.representation
+                || metadata.success_statuses != primary_metadata.success_statuses
+                || metadata.request_discriminators != primary_metadata.request_discriminators
+                || metadata.stream_abi != primary_metadata.stream_abi
+                || helper.return_type != primary.return_type
+                || helper.success_type != primary.success_type
+                || helper.stream != primary.stream
+            {
+                return false;
+            }
+
+            let filename_parameters: Vec<_> = helper
+                .parameters
+                .iter()
+                .filter(|parameter| parameter.name == "multipart_filenames")
+                .collect();
+            if filename_parameters.len() != 1
+                || filename_parameters[0].type_name != "&[(&str, &str)]"
+            {
+                return false;
+            }
+
+            let helper_parameters: BTreeSet<_> = helper
+                .parameters
+                .iter()
+                .filter(|parameter| parameter.name != "multipart_filenames")
+                .map(|parameter| (parameter.name.as_str(), parameter.type_name.as_str()))
+                .collect();
+            helper_parameters.len() + 1 == helper.parameters.len()
+                && helper_parameters == primary_parameters
+        })
+        .collect();
+
+    if matching.len() != 1 {
+        return Err("bindings.multipart_filenames_signature_mismatch");
+    }
+    Ok(Some((matching[0].0.as_str(), matching[0].1)))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ScalarKind {
