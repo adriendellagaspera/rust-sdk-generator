@@ -173,20 +173,29 @@ fn operation_ids(openapi: &OpenApi) -> Result<BTreeSet<String>, DerivationError>
     })?;
     let mut result = BTreeSet::new();
     if let Some(paths) = root.get("paths").and_then(serde_json::Value::as_object) {
-        for path_item in paths.values().filter_map(serde_json::Value::as_object) {
-            for method in [
-                "get", "put", "post", "delete", "patch", "head", "options", "trace",
-            ] {
+        for (route, path_item) in paths {
+            let Some(path_item) = path_item.as_object() else {
+                continue;
+            };
+            for method in ["get", "put", "post", "delete", "patch", "head", "options"] {
                 let Some(operation) = path_item.get(method).and_then(serde_json::Value::as_object)
                 else {
                     continue;
                 };
-                if let Some(operation_id) = operation
+                let operation_id = operation
                     .get("operationId")
                     .and_then(serde_json::Value::as_str)
-                {
-                    result.insert(operation_id.to_owned());
-                }
+                    .filter(|operation_id| !operation_id.trim().is_empty())
+                    .ok_or_else(|| {
+                        DerivationError::at(
+                            "openapi.operation_id_required",
+                            format!("openapi.paths.{route}.{method}.operationId"),
+                            format!(
+                                "closed-world SDK derivation requires operationId for {method} {route}"
+                            ),
+                        )
+                    })?;
+                result.insert(operation_id.to_owned());
             }
         }
     }
@@ -638,6 +647,48 @@ mod tests {
                 .values()
                 .all(|item| item.status == DerivationStatus::Rejected)
         );
+    }
+
+    #[test]
+    fn missing_operation_id_fails_closed_before_classification() {
+        let mut api = openapi();
+        api.0
+            .pointer_mut("/paths/~1widgets/get")
+            .and_then(serde_json::Value::as_object_mut)
+            .expect("GET operation")
+            .remove("operationId");
+
+        let error = derive(DeriveInput {
+            openapi: api,
+            bindings: bindings(),
+            surface: PublicSdkSurface::default(),
+            overrides: SdkOverrides::default(),
+        })
+        .expect_err("missing operationId must fail closed");
+
+        assert_eq!(error.diagnostic.code, "openapi.operation_id_required");
+        assert_eq!(
+            error.diagnostic.path.as_deref(),
+            Some("openapi.paths./widgets.get.operationId")
+        );
+    }
+
+    #[test]
+    fn empty_operation_id_fails_closed_before_classification() {
+        let mut api = openapi();
+        *api.0
+            .pointer_mut("/paths/~1widgets/get/operationId")
+            .expect("GET operationId") = serde_json::json!("  ");
+
+        let error = derive(DeriveInput {
+            openapi: api,
+            bindings: bindings(),
+            surface: PublicSdkSurface::default(),
+            overrides: SdkOverrides::default(),
+        })
+        .expect_err("empty operationId must fail closed");
+
+        assert_eq!(error.diagnostic.code, "openapi.operation_id_required");
     }
 
     #[test]
