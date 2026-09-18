@@ -10,7 +10,7 @@
     "repository": "adriendellagaspera/openapi-to-rust",
     "baseline": {
       "version": "0.17.0",
-      "commit": "addb1a6c69d63cc83178dca1c9f749b03711bc54"
+      "commit": "d19e5a4cba2589475dc157e50fe624576f129368"
     }
   }
 }
