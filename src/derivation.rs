@@ -652,6 +652,80 @@ mod tests {
     }
 
     #[test]
+    fn missing_operation_id_fails_closed_before_classification() {
+        let mut api = openapi();
+        api.0
+            .pointer_mut("/paths/~1widgets/get")
+            .and_then(serde_json::Value::as_object_mut)
+            .expect("GET operation")
+            .remove("operationId");
+
+        let error = derive(DeriveInput {
+            openapi: api,
+            bindings: bindings(),
+            surface: PublicSdkSurface::default(),
+            overrides: SdkOverrides::default(),
+        })
+        .expect_err("missing operationId must fail closed");
+
+        assert_eq!(error.diagnostic.code, "openapi.operation_id_required");
+        assert_eq!(
+            error.diagnostic.path.as_deref(),
+            Some("openapi.paths./widgets.get.operationId")
+        );
+    }
+
+    #[test]
+    fn empty_operation_id_fails_closed_before_classification() {
+        let mut api = openapi();
+        *api.0
+            .pointer_mut("/paths/~1widgets/get/operationId")
+            .expect("GET operationId") = serde_json::json!("  ");
+
+        let error = derive(DeriveInput {
+            openapi: api,
+            bindings: bindings(),
+            surface: PublicSdkSurface::default(),
+            overrides: SdkOverrides::default(),
+        })
+        .expect_err("empty operationId must fail closed");
+
+        assert_eq!(error.diagnostic.code, "openapi.operation_id_required");
+    }
+
+    #[test]
+    fn trace_operation_is_indexed_and_classified() {
+        let mut api = openapi();
+        api.0
+            .pointer_mut("/paths/~1widgets")
+            .and_then(serde_json::Value::as_object_mut)
+            .expect("widgets path")
+            .insert(
+                "trace".into(),
+                serde_json::json!({
+                    "operationId": "trace_widgets",
+                    "responses": {"204": {"description": "traced"}}
+                }),
+            );
+
+        let derivation = derive(DeriveInput {
+            openapi: api,
+            bindings: bindings(),
+            surface: PublicSdkSurface::default(),
+            overrides: SdkOverrides::default(),
+        })
+        .expect("derive");
+
+        let outcome = &derivation.report.operations["trace_widgets"];
+        assert_eq!(outcome.status, DerivationStatus::Rejected);
+        assert_eq!(outcome.reason.code, "bindings.no_structural_match");
+        assert_eq!(
+            outcome.public_path.as_deref(),
+            Some("widgets.trace_widgets")
+        );
+    }
+
+    #[test]
     fn explicit_exclusion_is_observable() {
         let mut overrides = SdkOverrides::default();
         overrides.excluded_operations.insert(
