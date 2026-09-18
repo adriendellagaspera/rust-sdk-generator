@@ -157,7 +157,11 @@ fn request_object_models_value(
         .get("properties")
         .and_then(Value::as_object)
         .ok_or(REQUEST_MODEL_UNPROVEN)?;
-    let fields = context.bindings.structs.get(raw).ok_or(REQUEST_MODEL_UNPROVEN)?;
+    let fields = context
+        .bindings
+        .structs
+        .get(raw)
+        .ok_or(REQUEST_MODEL_UNPROVEN)?;
     let by_name: BTreeMap<_, _> = fields
         .iter()
         .map(|field| (field.name.strip_prefix("r#").unwrap_or(&field.name), field))
