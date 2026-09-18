@@ -577,8 +577,7 @@ fn response_view_named(
     raw: &str,
     name: String,
 ) -> Result<(String, ModelDefinition), &'static str> {
-    let (name, mut model) =
-        response_view_for_schema_named(openapi, bindings, raw, raw, name)?;
+    let (name, mut model) = response_view_for_schema_named(openapi, bindings, raw, raw, name)?;
     model.schema = None;
     Ok((name, model))
 }
@@ -1338,13 +1337,8 @@ fn event_stream_projection(
     }
     let raw_item = &raw_candidates[0];
     let wrapper = stream_item_model_name(resource_path, public_name);
-    let (_, wrapper_model) = response_view_for_schema_named(
-        openapi,
-        bindings,
-        first,
-        raw_item,
-        wrapper.clone(),
-    )?;
+    let (_, wrapper_model) =
+        response_view_for_schema_named(openapi, bindings, first, raw_item, wrapper.clone())?;
 
     Ok(ProjectedResponse::Sse {
         stream: StreamDefinition {
@@ -1376,17 +1370,18 @@ fn canonical_request_discriminators(
         .find(|(name, _)| name == root_name)
         .map(|(_, model)| model)
         .ok_or("capability.request_discriminator_projection_required")?;
-    if root.schema_path.as_ref().is_some_and(|path| !path.is_empty()) {
+    if root
+        .schema_path
+        .as_ref()
+        .is_some_and(|path| !path.is_empty())
+    {
         return Err("capability.request_discriminator_projection_required");
     }
     let raw = root
         .raw
         .as_deref()
         .ok_or("capability.request_discriminator_projection_required")?;
-    let schema = root
-        .schema
-        .as_deref()
-        .unwrap_or(raw);
+    let schema = root.schema.as_deref().unwrap_or(raw);
 
     let mut overrides = IndexMap::new();
     let mut excluded = root.exclude.clone().unwrap_or_default();
@@ -1411,7 +1406,10 @@ fn canonical_request_discriminators(
         if !request_optional_boolean_field(openapi, schema, raw, raw_field, bindings) {
             return Err("capability.request_discriminator_projection_required");
         }
-        if overrides.insert(raw_field.to_owned(), Some(value)).is_some() {
+        if overrides
+            .insert(raw_field.to_owned(), Some(value))
+            .is_some()
+        {
             return Err("capability.request_discriminator_projection_required");
         }
         if !excluded.iter().any(|field| field == raw_field) {
