@@ -234,10 +234,7 @@ mod tests {
         );
         assert_eq!(parsed.arguments.len(), 2);
         assert_eq!(parsed.arguments[0].spelling, "String");
-        assert_eq!(
-            parsed.arguments[1].spelling,
-            "Option<serde_json::Value>"
-        );
+        assert_eq!(parsed.arguments[1].spelling, "Option<serde_json::Value>");
     }
 
     #[test]
