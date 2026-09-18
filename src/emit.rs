@@ -535,11 +535,7 @@ fn emit_operation_call(
     Ok(match response {
         ResponseProjection::Sse(stream) => format!(
             "pub async fn {public_name}(&self{separator}{arguments}) -> Result<{}, {error_type}> {{\n    let bytes = self.raw.{raw_method}({call}).await.map_err({error_type}::from)?;\n    let events = {}::{}::<_, _, {}>(bytes)\n        .map(|event| event.map(|event| {}::from(event.data)).map_err(Into::into));\n    Ok(Box::pin(events))\n}}",
-            stream.type_name,
-            runtime.sse_module,
-            runtime.sse_function,
-            stream.item,
-            stream.wrapper
+            stream.type_name, runtime.sse_module, runtime.sse_function, stream.item, stream.wrapper
         ),
         ResponseProjection::Empty => format!(
             "pub async fn {public_name}(&self{separator}{arguments}) -> Result<(), {error_type}> {{\n    self.raw.{raw_method}({call}).await.map_err(Into::into)\n}}"
