@@ -1662,22 +1662,15 @@ pub(crate) fn project_operation(
                 ResponseRepresentationDefinition::BinaryStream
             }
         });
-    let (response_name, empty_response, binary_response, stream, response_models) =
-        match response {
-            ProjectedResponse::Empty => (None, Some(true), None, None, Vec::new()),
-            ProjectedResponse::Json { name, models } => {
-                (Some(name), None, None, None, models)
-            }
-            ProjectedResponse::Text | ProjectedResponse::BinaryBuffered => {
-                (None, None, None, None, Vec::new())
-            }
-            ProjectedResponse::BinaryStream => {
-                (None, None, Some(true), None, Vec::new())
-            }
-            ProjectedResponse::Sse { stream, models } => {
-                (None, None, None, Some(stream), models)
-            }
-        };
+    let (response_name, empty_response, binary_response, stream, response_models) = match response {
+        ProjectedResponse::Empty => (None, Some(true), None, None, Vec::new()),
+        ProjectedResponse::Json { name, models } => (Some(name), None, None, None, models),
+        ProjectedResponse::Text | ProjectedResponse::BinaryBuffered => {
+            (None, None, None, None, Vec::new())
+        }
+        ProjectedResponse::BinaryStream => (None, None, Some(true), None, Vec::new()),
+        ProjectedResponse::Sse { stream, models } => (None, None, None, Some(stream), models),
+    };
     let mut models = Vec::new();
     if let Some((_, request_models, _)) = request_model {
         models.extend(request_models);
