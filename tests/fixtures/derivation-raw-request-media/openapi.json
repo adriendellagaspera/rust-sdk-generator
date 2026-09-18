@@ -1,0 +1,58 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title": "Raw request media fixture", "version": "1"},
+  "paths": {
+    "/projects/{project_id}/blob": {
+      "put": {
+        "operationId": "put_blob",
+        "parameters": [
+          {"name": "project_id", "in": "path", "required": true, "schema": {"type": "string"}},
+          {"name": "body", "in": "query", "required": false, "schema": {"type": "boolean"}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {"type": "string", "format": "binary"}
+            }
+          }
+        },
+        "responses": {"204": {"description": "Stored"}}
+      }
+    },
+    "/notes/{note_id}": {
+      "put": {
+        "operationId": "replace_note",
+        "parameters": [
+          {"name": "note_id", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "text/plain": {
+              "schema": {"type": "string"}
+            }
+          }
+        },
+        "responses": {"204": {"description": "Updated"}}
+      }
+    },
+    "/images/{image_id}": {
+      "post": {
+        "operationId": "upload_image",
+        "parameters": [
+          {"name": "image_id", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "image/png": {
+              "schema": {"type": "string", "format": "binary"}
+            }
+          }
+        },
+        "responses": {"204": {"description": "Uploaded"}}
+      }
+    }
+  }
+}
