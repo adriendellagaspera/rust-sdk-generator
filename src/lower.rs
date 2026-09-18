@@ -1136,8 +1136,10 @@ fn parameter_request(
     operation: &OperationSpec,
     bindings: &Bindings,
 ) -> Result<Option<ParameterRequestSpec>> {
-    if matches!(operation.request_projection, RequestProjection::Model { .. })
-        || operation.raw_signature.parameters.is_empty()
+    if matches!(
+        operation.request_projection,
+        RequestProjection::Model { .. }
+    ) || operation.raw_signature.parameters.is_empty()
         || !operation
             .raw_signature
             .parameters
@@ -1361,8 +1363,10 @@ fn validate_symbols(ir: &FacadeIr, bindings: &Bindings) -> Result<()> {
         }
         for operation in &resource.operations {
             symbols.claim(&operation.name, &resource.name, &operation.operation_id, "")?;
-            if !matches!(operation.request_projection, RequestProjection::Model { .. })
-                && !operation.raw_signature.parameters.is_empty()
+            if !matches!(
+                operation.request_projection,
+                RequestProjection::Model { .. }
+            ) && !operation.raw_signature.parameters.is_empty()
                 && operation
                     .raw_signature
                     .parameters
@@ -1697,9 +1701,7 @@ pub(crate) fn lower(
                     .schema
                     .as_deref()
                     .unwrap_or(model.raw.as_str());
-                let configured_media = item
-                    .request_media
-                    .unwrap_or(RequestMediaDefinition::Json);
+                let configured_media = item.request_media.unwrap_or(RequestMediaDefinition::Json);
                 let body = index
                     .structured_request_body(operation_id)?
                     .ok_or_else(|| {
