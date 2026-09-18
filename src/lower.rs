@@ -1485,12 +1485,13 @@ pub(crate) fn lower(
             if let Some(root) = config.schema.as_deref() {
                 let path = config.schema_path.as_deref().unwrap_or(&[]);
                 let schema = schema_at(&index, root, path)?;
-                let mapping = request_union_mapping(&index, schema, &raw, bindings).ok_or_else(|| {
-                    error(
-                        "lower.request_union_drift",
-                        format!("OpenAPI/raw request union drift for {raw}"),
-                    )
-                })?;
+                let mapping =
+                    request_union_mapping(&index, schema, &raw, bindings).ok_or_else(|| {
+                        error(
+                            "lower.request_union_drift",
+                            format!("OpenAPI/raw request union drift for {raw}"),
+                        )
+                    })?;
                 let proven: BTreeSet<_> =
                     mapping.iter().map(|branch| &branch.raw_variant).collect();
                 if configured != proven {
