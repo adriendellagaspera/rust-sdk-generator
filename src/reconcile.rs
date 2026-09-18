@@ -137,11 +137,15 @@ fn request_shape(operation: &Value) -> std::result::Result<RequestShape, &'stati
                 .get("schema")
                 .ok_or("request.inline_or_unresolved")?;
             match media_type.as_str() {
-                "application/json" | "multipart/form-data" | "application/x-www-form-urlencoded" => {
+                "application/json"
+                | "multipart/form-data"
+                | "application/x-www-form-urlencoded" => {
                     let media = match media_type.as_str() {
                         "application/json" => RequestMediaDefinition::Json,
                         "multipart/form-data" => RequestMediaDefinition::MultipartFormData,
-                        "application/x-www-form-urlencoded" => RequestMediaDefinition::FormUrlencoded,
+                        "application/x-www-form-urlencoded" => {
+                            RequestMediaDefinition::FormUrlencoded
+                        }
                         _ => unreachable!(),
                     };
                     let schema = ref_name(schema)
@@ -158,7 +162,10 @@ fn request_shape(operation: &Value) -> std::result::Result<RequestShape, &'stati
                     } else {
                         "Option<Vec<u8>>".to_owned()
                     };
-                    Some(RequestBodyShape::Raw(RequestMediaDefinition::OctetStream, raw))
+                    Some(RequestBodyShape::Raw(
+                        RequestMediaDefinition::OctetStream,
+                        raw,
+                    ))
                 }
                 "text/plain"
                     if schema.get("type").and_then(Value::as_str) == Some("string")
@@ -169,7 +176,10 @@ fn request_shape(operation: &Value) -> std::result::Result<RequestShape, &'stati
                     } else {
                         "Option<String>".to_owned()
                     };
-                    Some(RequestBodyShape::Raw(RequestMediaDefinition::TextPlain, raw))
+                    Some(RequestBodyShape::Raw(
+                        RequestMediaDefinition::TextPlain,
+                        raw,
+                    ))
                 }
                 _ if schema.get("type").and_then(Value::as_str) == Some("string")
                     && schema.get("format").and_then(Value::as_str) == Some("binary") =>
