@@ -1147,8 +1147,7 @@ fn empty_response_matches(operation: &Value, binding: &OperationBinding) -> Resu
 }
 
 fn text_response_schema(schema: &Value) -> bool {
-    schema.get("type").and_then(Value::as_str) == Some("string")
-        && schema.get("format").is_none()
+    schema.get("type").and_then(Value::as_str) == Some("string") && schema.get("format").is_none()
 }
 
 fn buffered_binary_response_schema(schema: &Value) -> bool {
@@ -2097,7 +2096,8 @@ pub(crate) fn lower(
                 buffered_scalar_response_projection(
                     wire_operation,
                     raw_operation,
-                    item.response_representation.expect("matched representation"),
+                    item.response_representation
+                        .expect("matched representation"),
                     bindings,
                 )?
             } else if item.empty_response == Some(true) {
