@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value};
 
-use crate::OpenApi;
+use crate::{OpenApi, RequestMediaDefinition};
 use crate::error::{GenerationError, Result};
 
 const SCHEMA_ANNOTATIONS: &[&str] = &[
@@ -260,6 +260,12 @@ fn merge_object_shapes(parts: &[Map<String, Value>], context: &str) -> Result<Va
     Ok(Value::Object(result))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StructuredRequestBody {
+    pub media: RequestMediaDefinition,
+    pub schema: String,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct OpenApiIndex {
     schemas: BTreeMap<String, Value>,
@@ -352,12 +358,43 @@ impl OpenApiIndex {
         })
     }
 
-    pub fn request_schema(&self, operation_id: &str) -> Result<Option<String>> {
+    pub fn structured_request_body(
+        &self,
+        operation_id: &str,
+    ) -> Result<Option<StructuredRequestBody>> {
         let operation = self.operation(operation_id)?;
-        Ok(operation
-            .pointer("/requestBody/content/application~1json/schema")
-            .and_then(ref_name)
-            .map(str::to_owned))
+        let Some(content) = operation
+            .get("requestBody")
+            .and_then(|body| body.get("content"))
+            .and_then(Value::as_object)
+            .filter(|content| !content.is_empty())
+        else {
+            return Ok(None);
+        };
+        if content.len() != 1 {
+            return Ok(None);
+        }
+        let (media_type, payload) = content.iter().next().expect("one request media");
+        let media = match media_type.as_str() {
+            "application/json" => RequestMediaDefinition::Json,
+            "multipart/form-data" => RequestMediaDefinition::MultipartFormData,
+            "application/x-www-form-urlencoded" => RequestMediaDefinition::FormUrlencoded,
+            _ => return Ok(None),
+        };
+        let Some(schema) = payload.get("schema").and_then(ref_name) else {
+            return Ok(None);
+        };
+        Ok(Some(StructuredRequestBody {
+            media,
+            schema: schema.into(),
+        }))
+    }
+
+    pub fn request_schema(&self, operation_id: &str) -> Result<Option<String>> {
+        Ok(self
+            .structured_request_body(operation_id)?
+            .filter(|body| body.media == RequestMediaDefinition::Json)
+            .map(|body| body.schema))
     }
 
     pub fn object_schema(&self, name: &str) -> Result<Value> {
