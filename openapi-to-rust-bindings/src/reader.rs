@@ -1,14 +1,23 @@
-use crate::{Bindings, Error, parse_bindings};
+use crate::{Bindings, Error, MANIFEST_NAME, parse_binding_manifest, parse_bindings};
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
 
-/// Generator-owned sidecar name preferred over generated-source reconstruction.
+/// Historical canonical sidecar name retained during migration.
 pub const SIDECAR_NAME: &str = "rust-bindings.json";
 
-/// Read normalized bindings, preferring a generator-owned sidecar when present.
+/// Read normalized bindings, preferring generator-owned binding metadata when present.
 pub fn read_bindings(path: impl AsRef<Path>) -> Result<Bindings, Error> {
     let path = path.as_ref();
+
+    let manifest = path.join(MANIFEST_NAME);
+    if manifest.is_file() {
+        let source = fs::read_to_string(&manifest).map_err(|error| {
+            Error::new(format!("failed to read {}: {error}", manifest.display()))
+        })?;
+        return parse_binding_manifest(&source);
+    }
+
     let sidecar = path.join(SIDECAR_NAME);
     if sidecar.is_file() {
         let value = fs::read_to_string(&sidecar)

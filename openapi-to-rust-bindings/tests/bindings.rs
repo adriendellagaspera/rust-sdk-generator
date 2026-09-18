@@ -1,4 +1,6 @@
-use openapi_to_rust_bindings::{Bindings, parse_bindings, read_bindings};
+use openapi_to_rust_bindings::{
+    Bindings, MANIFEST_NAME, parse_binding_manifest, parse_bindings, read_bindings,
+};
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -43,8 +45,26 @@ fn expected(name: &str) -> Bindings {
     Bindings::from_value(value).expect("validate fixture bindings")
 }
 
+fn historical_common_contract(bindings: &Bindings) -> Value {
+    let mut value = bindings.to_value();
+    value["schema_version"] = Value::from(2);
+    if let Some(structs) = value.get_mut("structs").and_then(Value::as_object_mut) {
+        for fields in structs.values_mut().filter_map(Value::as_array_mut) {
+            for field in fields.iter_mut().filter_map(Value::as_object_mut) {
+                field.remove("wire_name");
+            }
+        }
+    }
+    if let Some(operations) = value.get_mut("operations").and_then(Value::as_object_mut) {
+        for operation in operations.values_mut().filter_map(Value::as_object_mut) {
+            operation.remove("metadata");
+        }
+    }
+    value
+}
+
 #[test]
-fn fixtures_match_checked_in_bindings_contract() {
+fn legacy_fixtures_match_checked_in_bindings_contract() {
     for name in ["menagerie", "library"] {
         let root = fixtures().join(name);
         let actual = parse_bindings(
@@ -53,11 +73,143 @@ fn fixtures_match_checked_in_bindings_contract() {
         )
         .expect("parse generated bindings");
         assert_eq!(actual, expected(name));
-        assert_eq!(
-            read_bindings(&root).expect("read generated bindings"),
-            expected(name)
-        );
     }
+}
+
+#[test]
+fn menagerie_manifest_preserves_the_historical_common_contract() {
+    let root = fixtures().join("menagerie");
+    let manifest = parse_binding_manifest(
+        &fs::read_to_string(root.join(MANIFEST_NAME)).expect("read manifest fixture"),
+    )
+    .expect("normalize manifest");
+    assert_eq!(manifest.as_value()["schema_version"], Value::from(3));
+    assert_eq!(
+        historical_common_contract(&manifest),
+        expected("menagerie").to_value()
+    );
+
+    let read = read_bindings(&root).expect("prefer manifest metadata");
+    assert_eq!(read, manifest);
+    assert_eq!(
+        read.as_value()["operations"]["adopt"]["metadata"]["source_operation"],
+        serde_json::json!({
+            "operation_id": "adopt",
+            "method": "POST",
+            "path": "/animals"
+        })
+    );
+    assert_eq!(
+        read.as_value()["operations"]["adopt"]["metadata"]["representation"]["kind"],
+        "json"
+    );
+}
+
+#[test]
+fn library_legacy_sidecar_remains_first_class_during_migration() {
+    let root = fixtures().join("library");
+    assert_eq!(
+        read_bindings(&root).expect("read library sidecar"),
+        expected("library")
+    );
+}
+
+#[test]
+fn transport_manifest_preserves_generator_owned_semantics() {
+    let source = fs::read_to_string(fixtures().join("transport").join(MANIFEST_NAME))
+        .expect("read transport manifest");
+    let bindings = parse_binding_manifest(&source).expect("normalize transport manifest");
+    let value = bindings.as_value();
+
+    assert_eq!(value["schema_version"], 3);
+    assert_eq!(value["structs"]["CreateRequest"][0]["name"], "r#type");
+    assert_eq!(value["structs"]["CreateRequest"][0]["wire_name"], "type");
+    assert_eq!(value["enums"]["Mode"][0]["wire_name"], "fast-mode");
+    assert_eq!(value["enums"]["Mode"][1]["payload"], "String");
+    assert_eq!(value["aliases"]["Identifier"], "String");
+    assert_eq!(
+        value["symbol_paths"]["Identifier"],
+        "crate::generated::types::Identifier"
+    );
+    assert_eq!(
+        value["binding"]["client"]["type_path"],
+        "crate::generated::client::HttpClient"
+    );
+    assert_eq!(
+        value["binding"]["type_preludes"][0],
+        "crate::generated::types::*"
+    );
+
+    let render = &value["operations"]["render"];
+    let stream = &value["operations"]["render_stream_2"];
+    assert_eq!(
+        render["metadata"]["source_operation"],
+        stream["metadata"]["source_operation"]
+    );
+    assert_eq!(render["metadata"]["representation"]["kind"], "json");
+    assert_eq!(stream["metadata"]["representation"]["kind"], "event_stream");
+    assert_eq!(
+        stream["metadata"]["request_discriminators"][0]["wire_name"],
+        "stream"
+    );
+    assert_eq!(
+        stream["metadata"]["stream_abi"]["native_type"],
+        "futures_util::stream::BoxStream<'static, Result<bytes::Bytes, reqwest::Error>>"
+    );
+    assert_eq!(
+        stream["metadata"]["stream_abi"]["wasm_type"],
+        "futures_util::stream::LocalBoxStream<'static, Result<bytes::Bytes, reqwest::Error>>"
+    );
+    assert_eq!(
+        value["operations"]["download"]["metadata"]["representation"]["kind"],
+        "binary_buffered"
+    );
+    assert_eq!(
+        value["operations"]["download_live"]["metadata"]["representation"]["kind"],
+        "binary_stream"
+    );
+    assert_eq!(
+        value["operations"]["delete_item"]["metadata"]["representation"]["kind"],
+        "empty"
+    );
+    assert_eq!(
+        value["operations"]["read_text"]["metadata"]["success_statuses"],
+        serde_json::json!([])
+    );
+    assert_eq!(
+        value["operations"]["create_item_with_multipart_filenames"]["metadata"]["kind"],
+        "multipart_filenames"
+    );
+}
+
+#[test]
+fn manifest_rejects_unknown_representation_and_canonical_collisions() {
+    let source = fs::read_to_string(fixtures().join("transport").join(MANIFEST_NAME))
+        .expect("read transport manifest");
+    let value: Value = serde_json::from_str(&source).expect("parse manifest");
+
+    let mut unknown = value.clone();
+    unknown["operations"][0]["representation"]["kind"] = Value::String("telepathy".into());
+    let error =
+        parse_binding_manifest(&serde_json::to_string(&unknown).expect("serialize manifest"))
+            .expect_err("unknown representation must fail");
+    assert!(error.to_string().contains("schema decode failed"));
+
+    let mut duplicate = value;
+    let mut operation = duplicate["operations"][0].clone();
+    operation["rust_method_name"] = Value::String("create_item_duplicate".into());
+    duplicate["operations"]
+        .as_array_mut()
+        .expect("operations")
+        .push(operation);
+    let error =
+        parse_binding_manifest(&serde_json::to_string(&duplicate).expect("serialize manifest"))
+            .expect_err("canonical collision must fail");
+    assert!(
+        error
+            .to_string()
+            .contains("duplicate canonical source-operation/representation identity")
+    );
 }
 
 #[test]
@@ -90,6 +242,61 @@ fn sidecar_does_not_require_generated_sources() {
         read_bindings(root.path()).expect("read sidecar"),
         expected("menagerie")
     );
+}
+
+#[test]
+fn invalid_manifest_fails_closed_without_sidecar_or_source_fallback() {
+    let root = TestDir::new();
+    let fixture = fixtures().join("menagerie");
+    fs::copy(
+        fixture.join("rust-bindings.json"),
+        root.path().join("rust-bindings.json"),
+    )
+    .expect("copy sidecar");
+    fs::copy(fixture.join("types.rs"), root.path().join("types.rs")).expect("copy types");
+    fs::copy(fixture.join("client.rs"), root.path().join("client.rs")).expect("copy client");
+    fs::write(root.path().join(MANIFEST_NAME), "{not json").expect("write manifest");
+
+    let error = read_bindings(root.path()).expect_err("invalid manifest must fail");
+    assert!(
+        error
+            .to_string()
+            .starts_with("invalid binding-manifest.json:")
+    );
+}
+
+#[test]
+fn manifest_schema_identifier_version_and_required_fields_fail_closed() {
+    let source = fs::read_to_string(fixtures().join("menagerie").join(MANIFEST_NAME))
+        .expect("read manifest");
+    let value: Value = serde_json::from_str(&source).expect("parse fixture");
+
+    for (path, replacement, message) in [
+        (
+            "/schema",
+            Value::String("other.schema".into()),
+            "schema identifier",
+        ),
+        ("/schema_version", Value::from(99), "schema version"),
+    ] {
+        let mut invalid = value.clone();
+        *invalid.pointer_mut(path).expect("manifest path") = replacement;
+        let error =
+            parse_binding_manifest(&serde_json::to_string(&invalid).expect("serialize manifest"))
+                .expect_err("unsupported manifest contract must fail");
+        assert!(error.to_string().contains(message));
+    }
+
+    let mut missing = value.clone();
+    missing["structs"]["AnimalRequest"][0]
+        .as_object_mut()
+        .expect("field")
+        .remove("wire_name");
+    let error = parse_binding_manifest(
+        &serde_json::to_string(&missing).expect("serialize missing field manifest"),
+    )
+    .expect_err("missing nullable field must still fail");
+    assert!(error.to_string().contains("wire_name"));
 }
 
 #[test]

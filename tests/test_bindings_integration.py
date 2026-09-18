@@ -35,10 +35,24 @@ class BindingsIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(parsed_process.returncode, 0, parsed_process.stderr)
         parsed = json.loads(parsed_process.stdout)
+        self.assertEqual(parsed["schema_version"], 3)
+        self.assertEqual(
+            parsed["operations"]["adopt"]["metadata"]["source_operation"],
+            {"operation_id": "adopt", "method": "POST", "path": "/animals"},
+        )
+
+        common = json.loads(json.dumps(parsed))
+        common["schema_version"] = 2
+        for fields in common["structs"].values():
+            for field in fields:
+                field.pop("wire_name", None)
+        for operation in common["operations"].values():
+            operation.pop("metadata", None)
+
         expected = json.loads((GENERATOR_FIXTURE / "rust-bindings.json").read_text())
         for operation in expected["operations"].values():
             operation.setdefault("stream", None)
-        self.assertEqual(parsed, expected)
+        self.assertEqual(common, expected)
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

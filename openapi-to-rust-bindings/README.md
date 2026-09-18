@@ -5,9 +5,10 @@
 The library API is deliberately small:
 
 ```rust
-use openapi_to_rust_bindings::{parse_bindings, read_bindings};
+use openapi_to_rust_bindings::{parse_binding_manifest, parse_bindings, read_bindings};
 
 let bindings = read_bindings("generated")?;
+let manifest = parse_binding_manifest(manifest_source)?;
 let fallback = parse_bindings(types_source, client_source)?;
 # Ok::<(), openapi_to_rust_bindings::Error>(())
 ```
@@ -18,8 +19,8 @@ The CLI writes the same canonical value as JSON:
 openapi-to-rust-bindings generated > rust-bindings.json
 ```
 
-`read_bindings()` prefers a versioned `rust-bindings.json` sidecar when present and fails closed if that sidecar is invalid. For older generator output without a sidecar, it falls back to normalizing `types.rs` and `client.rs`.
+`read_bindings()` first consumes `binding-manifest.json` when present and fails closed if that generator-owned metadata is invalid. During the bounded migration it next accepts a canonical `rust-bindings.json` sidecar, then falls back to normalizing `types.rs` and `client.rs` only when neither metadata file exists. A broken manifest never falls through to source parsing.
 
-The crate validates the same version-2 JSON shape that the root Rust generator consumes, but it does not depend on the generator crate. The generated-source fallback owns all knowledge of `openapi-to-rust` source layout and conventions; the sidecar path needs only the versioned contract.
+The crate validates canonical Bindings v3 as well as legacy v2 without depending on the root generator crate. V3 carries source-operation identity, response representation, success statuses, request discriminators, full stream ABI, and field wire names. The manifest adapter owns `openapi-to-rust` schema/layout knowledge and normalizes generated-root-relative paths into canonical `crate::generated::...` paths.
 
-The exact `openapi-to-rust` backend revision validated by the compatibility fixtures remains recorded in `COMPATIBILITY.json`. The Rust migration does not repin that backend. Issue #8 will move the steady-state boundary to generator-owned binding metadata and retire this source parser once equivalence has been proved.
+The generated-source parser is migration-only. Remove it once all four proofs hold: generic fixtures use the manifest path; the historical common-contract equivalence matrix is green; a real Mistral consumer completes its full gate from the manifest path; and at least one real `openapi-to-rust` upgrade passes the standalone canonical-Bindings compatibility tracker. Until then, parser fallback remains supported only when generator-owned metadata is absent.
