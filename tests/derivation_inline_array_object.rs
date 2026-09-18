@@ -135,3 +135,38 @@ fn rejects_ambiguous_inline_array_object_bindings_without_name_identity() {
         "bindings.source_operation_identity_required"
     );
 }
+
+
+#[test]
+fn rejects_collection_iter_wrapper_with_wrong_raw_item() {
+    let (openapi, bindings, surface) = fixture();
+    let mut derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive");
+
+    derivation
+        .definition
+        .models
+        .get_mut("RowsReportsResponse")
+        .expect("collection response")
+        .accessors
+        .as_mut()
+        .expect("collection accessors")
+        .get_mut("iter")
+        .expect("iter accessor")
+        .wrapper = Some("RowsReportsResponse".into());
+
+    let error = generate(GenerateInput {
+        openapi,
+        bindings,
+        definition: derivation.definition,
+        runtime: Runtime::default(),
+    })
+    .expect_err("invalid iter wrapper must fail closed");
+
+    assert_eq!(error.diagnostic.code, "lower.iter_wrapper");
+}
