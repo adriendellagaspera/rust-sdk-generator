@@ -89,20 +89,14 @@ fn derives_inline_array_of_objects_as_collection_and_item_views() {
         "pub fn iter(&self) -> impl ExactSizeIterator<Item = RowsReportsResponseItem<'_>>"
     ));
     assert!(types.contains("self.raw.iter().map(RowsReportsResponseItem::new)"));
-    assert!(types.contains(
-        "pub struct RowsReportsResponseItem<'a> { raw: &'a OpaqueRow9 }"
-    ));
+    assert!(types.contains("pub struct RowsReportsResponseItem<'a> { raw: &'a OpaqueRow9 }"));
     assert!(types.contains("impl From<OpaqueRows4> for RowsReportsResponse"));
 }
 
 #[test]
 fn rejects_inline_array_object_field_drift_during_reconciliation() {
     let (openapi, mut bindings, surface) = fixture();
-    bindings
-        .structs
-        .get_mut("OpaqueRow9")
-        .expect("row binding")[1]
-        .type_name = "String".into();
+    bindings.structs.get_mut("OpaqueRow9").expect("row binding")[1].type_name = "String".into();
 
     let derivation = derive(DeriveInput {
         openapi,
