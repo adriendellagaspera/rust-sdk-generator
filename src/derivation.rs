@@ -420,20 +420,25 @@ fn apply_operation_override(
         }
     }
 
-    definition
+    let operation = definition
         .resources
         .get_mut(&resource_name)
         .expect("located resource")
         .operations
         .get_mut(&public_name)
-        .expect("located operation")
-        .request_overrides = Some(
-        operation_override
-            .request_overrides
-            .iter()
-            .map(|(field, value)| (field.clone(), *value))
-            .collect(),
-    );
+        .expect("located operation");
+    let mut merged = operation.request_overrides.clone().unwrap_or_default();
+    for (field, value) in &operation_override.request_overrides {
+        if merged.contains_key(field) {
+            return Err(DerivationError::at(
+                "overrides.conflict",
+                format!("overrides.operations.{operation_id}.request_overrides.{field}"),
+                "consumer override conflicts with generator-owned request discriminator",
+            ));
+        }
+        merged.insert(field.clone(), *value);
+    }
+    operation.request_overrides = (!merged.is_empty()).then_some(merged);
     Ok(())
 }
 
