@@ -263,13 +263,7 @@ pub(crate) fn request_union_mapping(
     raw_union: &str,
     bindings: &Bindings,
 ) -> Option<Vec<RequestUnionBranch>> {
-    request_union_mapping_inner(
-        openapi,
-        schema,
-        raw_union,
-        bindings,
-        &mut BTreeSet::new(),
-    )
+    request_union_mapping_inner(openapi, schema, raw_union, bindings, &mut BTreeSet::new())
 }
 
 fn request_object_value_matches(
@@ -331,14 +325,8 @@ fn request_object_value_matches(
                 return false;
             };
             let matches = if union_branches(referenced).is_some() {
-                request_union_mapping_inner(
-                    openapi,
-                    referenced,
-                    &core.spelling,
-                    bindings,
-                    seen,
-                )
-                .is_some()
+                request_union_mapping_inner(openapi, referenced, &core.spelling, bindings, seen)
+                    .is_some()
             } else {
                 core.kind == TypeKind::Opaque
                     && request_object_matches_inner(
