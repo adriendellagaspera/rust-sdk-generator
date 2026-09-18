@@ -954,8 +954,88 @@ fn resolve_scalar_enum(
     })
 }
 
-fn validate_owned_byte_stream(raw_method: &str, success_type: &str) -> Result<()> {
-    let transport = parse_type(success_type)?;
+fn validate_stream_type(
+    raw_method: &str,
+    spelling: &str,
+    constructor: &str,
+    item_type: &str,
+    error_type: &str,
+    lifetime: &str,
+) -> Result<()> {
+    let transport = parse_type(spelling)?;
+    if transport.constructor.as_deref() != Some(constructor) || transport.arguments.len() != 2 {
+        return Err(error(
+            "lower.stream_transport",
+            format!("raw stream ABI has unexpected transport type: {raw_method}"),
+        ));
+    }
+    let actual_lifetime = &transport.arguments[0];
+    let event = &transport.arguments[1];
+    if actual_lifetime.spelling != lifetime
+        || event.constructor.as_deref() != Some("Result")
+        || event.arguments.len() != 2
+        || event.arguments[1].spelling != error_type
+    {
+        return Err(error(
+            "lower.stream_ownership",
+            format!("raw stream response ownership/item drift: {raw_method}"),
+        ));
+    }
+    if event.arguments[0].spelling != item_type {
+        return Err(error(
+            "lower.stream_bytes",
+            format!("raw stream response does not yield declared bytes: {raw_method}"),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_owned_byte_stream(raw_method: &str, binding: &OperationBinding) -> Result<()> {
+    if let Some(metadata) = &binding.metadata {
+        let abi = metadata.stream_abi.as_ref().ok_or_else(|| {
+            error(
+                "lower.stream_transport",
+                format!("raw stream binding lacks canonical stream ABI: {raw_method}"),
+            )
+        })?;
+        if binding.success_type != abi.alias {
+            return Err(error(
+                "lower.stream_transport",
+                format!("raw stream success type disagrees with canonical alias: {raw_method}"),
+            ));
+        }
+        if abi.item_type != "bytes::Bytes" {
+            return Err(error(
+                "lower.stream_bytes",
+                format!("raw stream response does not yield bytes: {raw_method}"),
+            ));
+        }
+        if abi.lifetime != "'static" {
+            return Err(error(
+                "lower.stream_ownership",
+                format!("raw stream response is not owned: {raw_method}"),
+            ));
+        }
+        validate_stream_type(
+            raw_method,
+            &abi.native_type,
+            "futures_util::stream::BoxStream",
+            &abi.item_type,
+            &abi.error_type,
+            &abi.lifetime,
+        )?;
+        validate_stream_type(
+            raw_method,
+            &abi.wasm_type,
+            "futures_util::stream::LocalBoxStream",
+            &abi.item_type,
+            &abi.error_type,
+            &abi.lifetime,
+        )?;
+        return Ok(());
+    }
+
+    let transport = parse_type(&binding.success_type)?;
     if transport.constructor.as_deref() != Some("futures_util::stream::BoxStream")
         || transport.arguments.len() != 2
     {
@@ -2062,7 +2142,7 @@ pub(crate) fn lower(
                         format!("binary response drift for {operation_id}"),
                     ));
                 }
-                validate_owned_byte_stream(raw_method, &raw_operation.success_type)?;
+                validate_owned_byte_stream(raw_method, raw_operation)?;
                 ResponseProjection::Binary
             } else if let Some(stream) = &item.stream {
                 if request.is_none() && request_raw_parameter.is_none() {
@@ -2124,7 +2204,7 @@ pub(crate) fn lower(
                         format!("stream wrapper must own the configured item: {wrapper}"),
                     ));
                 }
-                validate_owned_byte_stream(raw_method, &raw_operation.success_type)?;
+                validate_owned_byte_stream(raw_method, raw_operation)?;
                 ResponseProjection::Sse(StreamPolicy {
                     item: stream.item.clone(),
                     wrapper,
