@@ -423,7 +423,7 @@ fn apply_operation_override(
         }
     }
 
-    let configured = operation_override
+    let configured: indexmap::IndexMap<String, Option<bool>> = operation_override
         .request_overrides
         .iter()
         .map(|(field, value)| (field.clone(), *value))
