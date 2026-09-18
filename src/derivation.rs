@@ -177,9 +177,7 @@ fn operation_ids(openapi: &OpenApi) -> Result<BTreeSet<String>, DerivationError>
             let Some(path_item) = path_item.as_object() else {
                 continue;
             };
-            for method in [
-                "get", "put", "post", "delete", "patch", "head", "options", "trace",
-            ] {
+            for method in ["get", "put", "post", "delete", "patch", "head", "options"] {
                 let Some(operation) = path_item.get(method).and_then(serde_json::Value::as_object)
                 else {
                     continue;
@@ -691,38 +689,6 @@ mod tests {
         .expect_err("empty operationId must fail closed");
 
         assert_eq!(error.diagnostic.code, "openapi.operation_id_required");
-    }
-
-    #[test]
-    fn trace_operation_is_indexed_and_classified() {
-        let mut api = openapi();
-        api.0
-            .pointer_mut("/paths/~1widgets")
-            .and_then(serde_json::Value::as_object_mut)
-            .expect("widgets path")
-            .insert(
-                "trace".into(),
-                serde_json::json!({
-                    "operationId": "trace_widgets",
-                    "responses": {"204": {"description": "traced"}}
-                }),
-            );
-
-        let derivation = derive(DeriveInput {
-            openapi: api,
-            bindings: bindings(),
-            surface: PublicSdkSurface::default(),
-            overrides: SdkOverrides::default(),
-        })
-        .expect("derive");
-
-        let outcome = &derivation.report.operations["trace_widgets"];
-        assert_eq!(outcome.status, DerivationStatus::Rejected);
-        assert_eq!(outcome.reason.code, "bindings.no_structural_match");
-        assert_eq!(
-            outcome.public_path.as_deref(),
-            Some("widgets.trace_widgets")
-        );
     }
 
     #[test]
