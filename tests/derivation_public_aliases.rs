@@ -84,11 +84,15 @@ fn missing_surface_uses_deterministic_route_fallback_end_to_end() {
     .expect("derive");
 
     assert_eq!(
-        derivation.report.operations["read_alpha"].public_path.as_deref(),
+        derivation.report.operations["read_alpha"]
+            .public_path
+            .as_deref(),
         Some("things.a.read_alpha")
     );
     assert_eq!(
-        derivation.report.operations["read_beta"].public_path.as_deref(),
+        derivation.report.operations["read_beta"]
+            .public_path
+            .as_deref(),
         Some("things.b.read_beta")
     );
 
