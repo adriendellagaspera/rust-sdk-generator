@@ -49,8 +49,7 @@ fn derives_named_and_inline_nested_request_unions_structurally() {
     );
     assert_eq!(adapters["fallback"], "CreateDeliveryTargetsRequestFallback");
 
-    let destination =
-        &derivation.definition.models["CreateDeliveryTargetsRequestDestination"];
+    let destination = &derivation.definition.models["CreateDeliveryTargetsRequestDestination"];
     assert_eq!(destination.schema.as_deref(), Some("DeliveryDestination"));
     assert_eq!(destination.schema_path, None);
     assert_eq!(destination.raw.as_deref(), Some("OpaqueDestination3"));
@@ -78,22 +77,22 @@ fn derives_named_and_inline_nested_request_unions_structurally() {
         Some(&["fallback".to_owned()][..])
     );
     assert_eq!(fallback.raw.as_deref(), Some("OpaqueFallback6"));
-    assert!(!fallback
-        .simple_union
-        .as_ref()
-        .expect("inline union")
-        .bidirectional);
+    assert!(
+        !fallback
+            .simple_union
+            .as_ref()
+            .expect("inline union")
+            .bidirectional
+    );
 
     assert_eq!(
-        derivation.definition.models
-            ["CreateDeliveryTargetsRequestDestinationEmailTarget"]
+        derivation.definition.models["CreateDeliveryTargetsRequestDestinationEmailTarget"]
             .raw
             .as_deref(),
         Some("OpaqueEmail4")
     );
     assert_eq!(
-        derivation.definition.models
-            ["CreateDeliveryTargetsRequestDestinationWebhookTarget"]
+        derivation.definition.models["CreateDeliveryTargetsRequestDestinationWebhookTarget"]
             .raw
             .as_deref(),
         Some("OpaqueHook8")
@@ -109,18 +108,15 @@ fn derives_named_and_inline_nested_request_unions_structurally() {
 
     let types = &generated.files["facade_types.rs"];
     assert!(types.contains("pub enum CreateDeliveryTargetsRequestDestination"));
-    assert!(types.contains(
-        "EmailTarget(CreateDeliveryTargetsRequestDestinationEmailTarget)"
-    ));
-    assert!(types.contains(
-        "WebhookTarget(CreateDeliveryTargetsRequestDestinationWebhookTarget)"
-    ));
-    assert!(types.contains(
-        "impl From<CreateDeliveryTargetsRequestDestination> for OpaqueDestination3"
-    ));
-    assert!(!types.contains(
-        "impl From<OpaqueDestination3> for CreateDeliveryTargetsRequestDestination"
-    ));
+    assert!(types.contains("EmailTarget(CreateDeliveryTargetsRequestDestinationEmailTarget)"));
+    assert!(types.contains("WebhookTarget(CreateDeliveryTargetsRequestDestinationWebhookTarget)"));
+    assert!(
+        types.contains("impl From<CreateDeliveryTargetsRequestDestination> for OpaqueDestination3")
+    );
+    assert!(
+        !types
+            .contains("impl From<OpaqueDestination3> for CreateDeliveryTargetsRequestDestination")
+    );
     assert!(types.contains(
         "pub fn fallback(mut self, fallback: impl Into<CreateDeliveryTargetsRequestFallback>)"
     ));
