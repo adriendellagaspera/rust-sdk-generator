@@ -415,6 +415,7 @@ mod tests {
             return_type: format!("Result<{success_type}, Error>"),
             success_type: success_type.into(),
             stream: None,
+            metadata: None,
         }
     }
 

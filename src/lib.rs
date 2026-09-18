@@ -33,10 +33,12 @@ mod validation;
 pub use contracts::{
     AccessorDefinition, AccessorKindDefinition, ApiInventory, BindingLayout, Bindings,
     ClientBinding, ClientDefinition, FieldBinding, GenerateInput, GeneratedSdk, MapDefinition,
-    ModelDefinition, OpenApi, OperationBinding, OperationDefinition, ParameterBinding,
-    RequestMediaDefinition, ResourceDefinition, ResourceInventory, Runtime, ScalarEnumDefinition,
-    SdkDefinition, SimpleUnionDefinition, SimpleUnionVariant, StreamBinding, StreamDefinition,
-    UnionDefinition, UnionFactoryDefinition, VariantBinding,
+    ModelDefinition, OpenApi, OperationBinding, OperationBindingKind, OperationDefinition,
+    OperationMetadataBinding, ParameterBinding, RequestDiscriminatorBinding,
+    RequestDiscriminatorValue, RequestMediaDefinition, ResourceDefinition, ResourceInventory,
+    ResponseRepresentationBinding, Runtime, ScalarEnumDefinition, SdkDefinition,
+    SimpleUnionDefinition, SimpleUnionVariant, SourceOperationBinding, StreamAbiBinding,
+    StreamBinding, StreamDefinition, UnionDefinition, UnionFactoryDefinition, VariantBinding,
 };
 pub use derivation::{
     Derivation, DerivationError, DerivationReason, DerivationReport, DerivationStatus, DeriveInput,
