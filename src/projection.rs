@@ -196,10 +196,8 @@ fn request_object_models_value(
             continue;
         }
 
-        let inline_object = matches!(
-            wire.get("type").and_then(Value::as_str),
-            Some("object")
-        ) || wire.get("properties").is_some();
+        let inline_object = matches!(wire.get("type").and_then(Value::as_str), Some("object"))
+            || wire.get("properties").is_some();
         if inline_object {
             let mut child_path = source_path.to_vec();
             child_path.push(field_name.clone());
