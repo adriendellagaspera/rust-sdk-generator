@@ -150,12 +150,7 @@ fn type_matches_schema(
                 syntax.constructor.as_deref() == Some("std::collections::BTreeMap")
                     && syntax.arguments.len() == 2
                     && syntax.arguments[0].spelling == "String"
-                    && type_matches_schema(
-                        additional,
-                        &syntax.arguments[1],
-                        bindings,
-                        seen_aliases,
-                    )
+                    && type_matches_schema(additional, &syntax.arguments[1], bindings, seen_aliases)
             }),
         _ => false,
     }
@@ -166,9 +161,9 @@ pub(crate) fn rust_type_matches_schema(
     type_name: &str,
     bindings: &Bindings,
 ) -> bool {
-    parse_type(type_name).ok().is_some_and(|syntax| {
-        type_matches_schema(schema, &syntax, bindings, &mut BTreeSet::new())
-    })
+    parse_type(type_name)
+        .ok()
+        .is_some_and(|syntax| type_matches_schema(schema, &syntax, bindings, &mut BTreeSet::new()))
 }
 
 pub(crate) fn scalar_object_shape(schema: &Value) -> Option<BTreeMap<String, ScalarFieldShape>> {
