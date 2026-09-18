@@ -67,14 +67,12 @@ fn derives_and_generates_text_and_buffered_binary_responses() {
     .expect("derived definition generates");
 
     assert!(generated.files.values().any(|source| {
-        source.contains(
-            "pub async fn message(&self) -> Result<String, SdkError>"
-        ) && source.contains("self.raw.raw_read_message(")
+        source.contains("pub async fn message(&self) -> Result<String, SdkError>")
+            && source.contains("self.raw.raw_read_message(")
     }));
     assert!(generated.files.values().any(|source| {
-        source.contains(
-            "pub async fn blob(&self) -> Result<bytes::Bytes, SdkError>"
-        ) && source.contains("self.raw.raw_read_blob(")
+        source.contains("pub async fn blob(&self) -> Result<bytes::Bytes, SdkError>")
+            && source.contains("self.raw.raw_read_blob(")
     }));
 }
 
@@ -105,10 +103,7 @@ fn lowering_revalidates_text_response_shape() {
     })
     .expect_err("text response drift must fail lowering");
 
-    assert_eq!(
-        error.diagnostic.code,
-        "lower.response_representation_drift"
-    );
+    assert_eq!(error.diagnostic.code, "lower.response_representation_drift");
 }
 
 #[test]
@@ -137,8 +132,5 @@ fn lowering_revalidates_buffered_binary_response_shape() {
     })
     .expect_err("buffered binary drift must fail lowering");
 
-    assert_eq!(
-        error.diagnostic.code,
-        "lower.response_representation_drift"
-    );
+    assert_eq!(error.diagnostic.code, "lower.response_representation_drift");
 }
