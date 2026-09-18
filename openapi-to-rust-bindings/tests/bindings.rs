@@ -115,6 +115,104 @@ fn library_legacy_sidecar_remains_first_class_during_migration() {
 }
 
 #[test]
+fn transport_manifest_preserves_generator_owned_semantics() {
+    let source = fs::read_to_string(fixtures().join("transport").join(MANIFEST_NAME))
+        .expect("read transport manifest");
+    let bindings = parse_binding_manifest(&source).expect("normalize transport manifest");
+    let value = bindings.as_value();
+
+    assert_eq!(value["schema_version"], 3);
+    assert_eq!(value["structs"]["CreateRequest"][0]["name"], "r#type");
+    assert_eq!(value["structs"]["CreateRequest"][0]["wire_name"], "type");
+    assert_eq!(value["enums"]["Mode"][0]["wire_name"], "fast-mode");
+    assert_eq!(value["enums"]["Mode"][1]["payload"], "String");
+    assert_eq!(value["aliases"]["Identifier"], "String");
+    assert_eq!(
+        value["symbol_paths"]["Identifier"],
+        "crate::generated::types::Identifier"
+    );
+    assert_eq!(
+        value["binding"]["client"]["type_path"],
+        "crate::generated::client::HttpClient"
+    );
+    assert_eq!(
+        value["binding"]["type_preludes"][0],
+        "crate::generated::types::*"
+    );
+
+    let render = &value["operations"]["render"];
+    let stream = &value["operations"]["render_stream_2"];
+    assert_eq!(
+        render["metadata"]["source_operation"],
+        stream["metadata"]["source_operation"]
+    );
+    assert_eq!(render["metadata"]["representation"]["kind"], "json");
+    assert_eq!(stream["metadata"]["representation"]["kind"], "event_stream");
+    assert_eq!(
+        stream["metadata"]["request_discriminators"][0]["wire_name"],
+        "stream"
+    );
+    assert_eq!(
+        stream["metadata"]["stream_abi"]["native_type"],
+        "futures_util::stream::BoxStream<'static, Result<bytes::Bytes, reqwest::Error>>"
+    );
+    assert_eq!(
+        stream["metadata"]["stream_abi"]["wasm_type"],
+        "futures_util::stream::LocalBoxStream<'static, Result<bytes::Bytes, reqwest::Error>>"
+    );
+    assert_eq!(
+        value["operations"]["download"]["metadata"]["representation"]["kind"],
+        "binary_buffered"
+    );
+    assert_eq!(
+        value["operations"]["download_live"]["metadata"]["representation"]["kind"],
+        "binary_stream"
+    );
+    assert_eq!(
+        value["operations"]["delete_item"]["metadata"]["representation"]["kind"],
+        "empty"
+    );
+    assert_eq!(
+        value["operations"]["read_text"]["metadata"]["success_statuses"],
+        serde_json::json!([])
+    );
+    assert_eq!(
+        value["operations"]["create_item_with_multipart_filenames"]["metadata"]["kind"],
+        "multipart_filenames"
+    );
+}
+
+#[test]
+fn manifest_rejects_unknown_representation_and_canonical_collisions() {
+    let source = fs::read_to_string(fixtures().join("transport").join(MANIFEST_NAME))
+        .expect("read transport manifest");
+    let value: Value = serde_json::from_str(&source).expect("parse manifest");
+
+    let mut unknown = value.clone();
+    unknown["operations"][0]["representation"]["kind"] = Value::String("telepathy".into());
+    let error =
+        parse_binding_manifest(&serde_json::to_string(&unknown).expect("serialize manifest"))
+            .expect_err("unknown representation must fail");
+    assert!(error.to_string().contains("schema decode failed"));
+
+    let mut duplicate = value;
+    let mut operation = duplicate["operations"][0].clone();
+    operation["rust_method_name"] = Value::String("create_item_duplicate".into());
+    duplicate["operations"]
+        .as_array_mut()
+        .expect("operations")
+        .push(operation);
+    let error =
+        parse_binding_manifest(&serde_json::to_string(&duplicate).expect("serialize manifest"))
+            .expect_err("canonical collision must fail");
+    assert!(
+        error
+            .to_string()
+            .contains("duplicate canonical source-operation/representation identity")
+    );
+}
+
+#[test]
 fn generated_serde_rename_is_preserved() {
     let bindings = parse_bindings(
         r#"
