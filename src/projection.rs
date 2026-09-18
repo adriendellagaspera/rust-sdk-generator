@@ -137,6 +137,12 @@ fn request_model(
         .filter_map(Value::as_str)
         .map(str::to_owned)
         .collect();
+    if required
+        .iter()
+        .any(|field| wire.get(field).is_some_and(|shape| shape.option_depth != 0))
+    {
+        return Err(REQUEST_MODEL_UNPROVEN);
+    }
 
     let name = request_model_name(resource_path, public_name);
     if !public_model_name_available(&name, bindings) {
