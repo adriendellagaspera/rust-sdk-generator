@@ -15,7 +15,7 @@ use crate::rust_type::{Type, TypeKind, parse_type};
 use crate::structural::{
     inline_object_union_mapping, raw_scalar_struct_shape, request_object_matches,
     request_optional_boolean_field, request_union_mapping, rust_type_matches_schema,
-    scalar_object_shape,
+    scalar_named_object_matches, scalar_object_shape, sse_payload_schema_name,
 };
 use crate::symbols::{SymbolProvider, field_identifier};
 
@@ -2226,42 +2226,69 @@ pub(crate) fn lower(
                 validate_owned_byte_stream(raw_method, raw_operation)?;
                 ResponseProjection::Binary
             } else if let Some(stream) = &item.stream {
-                if request.is_none() && request_raw_parameter.is_none() {
-                    return Err(error(
-                        "lower.stream_request",
-                        format!("stream requires a request projection: {raw_method}"),
-                    ));
-                }
-                let schema = success_schema(wire_operation, "text/event-stream")?;
-                let mut wire_item = ref_name(schema).map(str::to_owned);
-                if wire_item.as_deref() != Some(stream.item.as_str()) {
-                    if let Some(envelope_name) = wire_item.clone() {
-                        let envelope = index.schema(&envelope_name)?;
-                        wire_item = envelope
-                            .get("properties")
-                            .and_then(|properties| properties.get("data"))
-                            .and_then(ref_name)
-                            .map(str::to_owned);
-                        let required = envelope
-                            .get("required")
-                            .and_then(Value::as_array)
-                            .into_iter()
-                            .flatten()
-                            .filter_map(Value::as_str)
-                            .any(|field| field == "data");
-                        if !required {
-                            return Err(error(
-                                "lower.stream_envelope",
-                                format!("stream envelope has no required data: {raw_method}"),
-                            ));
-                        }
+                if item.response_representation
+                    == Some(ResponseRepresentationDefinition::EventStream)
+                {
+                    let metadata = raw_operation.metadata.as_ref().ok_or_else(|| {
+                        error(
+                            "lower.response_representation_drift",
+                            "canonical event stream requires binding metadata",
+                        )
+                    })?;
+                    let ResponseRepresentationBinding::EventStream { media_type } =
+                        &metadata.representation
+                    else {
+                        return Err(error(
+                            "lower.response_representation_drift",
+                            "configured event stream disagrees with binding representation",
+                        ));
+                    };
+                    let schemas = selected_response_schemas(
+                        wire_operation,
+                        &metadata.success_statuses,
+                        media_type,
+                    )?;
+                    let payloads = schemas
+                        .iter()
+                        .map(|schema| {
+                            sse_payload_schema_name(&index, schema).ok_or_else(|| {
+                                error(
+                                    "lower.stream_drift",
+                                    format!(
+                                        "event stream payload is not structurally provable for {raw_method}"
+                                    ),
+                                )
+                            })
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+                    let payload = payloads.first().ok_or_else(|| {
+                        error(
+                            "lower.stream_drift",
+                            format!("event stream has no selected payload for {raw_method}"),
+                        )
+                    })?;
+                    if payloads.iter().any(|candidate| candidate != payload)
+                        || !scalar_named_object_matches(
+                            &index,
+                            payload,
+                            &stream.item,
+                            bindings,
+                        )
+                    {
+                        return Err(error(
+                            "lower.stream_drift",
+                            format!("stream payload drift for {raw_method}"),
+                        ));
                     }
-                }
-                if wire_item.as_deref() != Some(stream.item.as_str()) {
-                    return Err(error(
-                        "lower.stream_drift",
-                        format!("stream payload drift for {raw_method}"),
-                    ));
+                } else {
+                    let schema = success_schema(wire_operation, "text/event-stream")?;
+                    let wire_item = sse_payload_schema_name(&index, schema);
+                    if wire_item.as_deref() != Some(stream.item.as_str()) {
+                        return Err(error(
+                            "lower.stream_drift",
+                            format!("stream payload drift for {raw_method}"),
+                        ));
+                    }
                 }
                 let _ = bindings.fields(&stream.item)?;
                 let wrapper = stream
