@@ -42,10 +42,7 @@ fn derives_inline_array_alias_without_schema_name_identity() {
 
     let operation = &derivation.definition.resources["reports"].operations["tags"];
     assert_eq!(operation.raw_method.as_deref(), Some("call_list_13"));
-    assert_eq!(
-        operation.response.as_deref(),
-        Some("TagsReportsResponse")
-    );
+    assert_eq!(operation.response.as_deref(), Some("TagsReportsResponse"));
 
     let generated = generate(GenerateInput {
         openapi,
