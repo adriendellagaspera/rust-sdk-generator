@@ -672,11 +672,14 @@ mod tests {
         method: &str,
         path: &str,
         kind: OperationBindingKind,
-        success_type: &str,
-        representation: ResponseRepresentationBinding,
-        success_statuses: Vec<&str>,
-        stream: Option<StreamBinding>,
+        response: (
+            &str,
+            ResponseRepresentationBinding,
+            Vec<&str>,
+            Option<StreamBinding>,
+        ),
     ) -> OperationBinding {
+        let (success_type, representation, success_statuses, stream) = response;
         OperationBinding {
             name: key.into(),
             parameters: Vec::new(),
@@ -712,10 +715,12 @@ mod tests {
             method,
             path,
             kind,
-            "()",
-            ResponseRepresentationBinding::Empty,
-            vec!["204"],
-            None,
+            (
+                "()",
+                ResponseRepresentationBinding::Empty,
+                vec!["204"],
+                None,
+            ),
         )
     }
 
@@ -928,13 +933,15 @@ mod tests {
                 "GET",
                 "/item",
                 OperationBindingKind::CallShape,
-                "Item",
-                ResponseRepresentationBinding::Json {
-                    schema_name: "Item".into(),
-                    media_type: "application/json".into(),
-                },
-                vec!["200", "206"],
-                None,
+                (
+                    "Item",
+                    ResponseRepresentationBinding::Json {
+                        schema_name: "Item".into(),
+                        media_type: "application/json".into(),
+                    },
+                    vec!["200", "206"],
+                    None,
+                ),
             ),
         )]));
 
@@ -969,13 +976,15 @@ mod tests {
                 "GET",
                 "/export",
                 OperationBindingKind::CallShape,
-                "Export",
-                ResponseRepresentationBinding::Json {
-                    schema_name: "Export".into(),
-                    media_type: "application/json".into(),
-                },
-                vec!["200"],
-                None,
+                (
+                    "Export",
+                    ResponseRepresentationBinding::Json {
+                        schema_name: "Export".into(),
+                        media_type: "application/json".into(),
+                    },
+                    vec!["200"],
+                    None,
+                ),
             ),
         )]));
 
@@ -1008,12 +1017,14 @@ mod tests {
                 "GET",
                 "/text",
                 OperationBindingKind::CallShape,
-                "String",
-                ResponseRepresentationBinding::Text {
-                    media_type: "text/plain".into(),
-                },
-                vec!["200"],
-                None,
+                (
+                    "String",
+                    ResponseRepresentationBinding::Text {
+                        media_type: "text/plain".into(),
+                    },
+                    vec!["200"],
+                    None,
+                ),
             ),
         )]));
 
@@ -1045,16 +1056,18 @@ mod tests {
                 "GET",
                 "/events",
                 OperationBindingKind::CallShape,
-                "HttpResponseByteStream",
-                ResponseRepresentationBinding::EventStream {
-                    media_type: "text/event-stream".into(),
-                },
-                vec!["200"],
-                Some(StreamBinding {
-                    item_type: "bytes::Bytes".into(),
-                    error_type: "reqwest::Error".into(),
-                    lifetime: "'static".into(),
-                }),
+                (
+                    "HttpResponseByteStream",
+                    ResponseRepresentationBinding::EventStream {
+                        media_type: "text/event-stream".into(),
+                    },
+                    vec!["200"],
+                    Some(StreamBinding {
+                        item_type: "bytes::Bytes".into(),
+                        error_type: "reqwest::Error".into(),
+                        lifetime: "'static".into(),
+                    }),
+                ),
             ),
         )]));
 
