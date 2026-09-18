@@ -5,16 +5,18 @@ use serde_json::Value;
 
 use crate::contracts::{
     AccessorDefinition, AccessorKindDefinition, Bindings, MapDefinition, ModelDefinition,
-    OperationDefinition, RequestMediaDefinition, ResourceDefinition, ResponseRepresentationBinding,
-    ResponseRepresentationDefinition, ScalarEnumDefinition, SdkDefinition, SimpleUnionDefinition,
-    SimpleUnionVariant,
+    OperationDefinition, RequestDiscriminatorValue, RequestMediaDefinition, ResourceDefinition,
+    ResponseRepresentationBinding, ResponseRepresentationDefinition, ScalarEnumDefinition,
+    SdkDefinition, SimpleUnionDefinition, SimpleUnionVariant, StreamDefinition,
 };
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, parse_type};
 use crate::structural::{
     ScalarFieldShape, ScalarKind as StructuralScalarKind, inline_array_object_item,
     inline_object_union_mapping, multipart_filenames_binding, raw_scalar_struct_shape,
-    request_object_matches, request_union_mapping, rust_type_matches_schema, scalar_object_shape,
+    request_object_matches, request_optional_boolean_field, request_union_mapping,
+    rust_type_matches_schema, scalar_named_object_matches, scalar_object_shape,
+    sse_payload_schema_name,
 };
 use crate::symbols::field_identifier;
 
@@ -34,6 +36,10 @@ enum ProjectedResponse {
     },
     Text,
     BinaryBuffered,
+    Sse {
+        stream: StreamDefinition,
+        models: ProjectedModels,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -98,6 +104,22 @@ fn request_model_name(resource_path: &[String], public_name: &str) -> String {
 fn response_model_name(resource_path: &[String], public_name: &str) -> String {
     format!(
         "{}{}Response",
+        pascal_identifier(public_name),
+        resource_name(resource_path)
+    )
+}
+
+fn stream_item_model_name(resource_path: &[String], public_name: &str) -> String {
+    format!(
+        "{}{}StreamItem",
+        pascal_identifier(public_name),
+        resource_name(resource_path)
+    )
+}
+
+fn stream_type_name(resource_path: &[String], public_name: &str) -> String {
+    format!(
+        "{}{}Stream",
         pascal_identifier(public_name),
         resource_name(resource_path)
     )
@@ -509,14 +531,15 @@ fn scalar_view_accessors(
     Ok(accessors)
 }
 
-fn response_view_named(
+fn response_view_for_schema_named(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
+    schema_name: &str,
     raw: &str,
     name: String,
 ) -> Result<(String, ModelDefinition), &'static str> {
     let schema = openapi
-        .object_schema(raw)
+        .object_schema(schema_name)
         .map_err(|_| RESPONSE_VIEW_UNPROVEN)?;
     let wire = scalar_object_shape(&schema).ok_or(RESPONSE_VIEW_UNPROVEN)?;
     let raw_shape = raw_scalar_struct_shape(bindings, raw).ok_or(RESPONSE_VIEW_UNPROVEN)?;
@@ -531,7 +554,7 @@ fn response_view_named(
     Ok((
         name,
         ModelDefinition {
-            schema: None,
+            schema: Some(schema_name.into()),
             schema_path: None,
             raw: Some(raw.into()),
             constructor: None,
@@ -547,6 +570,17 @@ fn response_view_named(
             accessors: Some(accessors),
         },
     ))
+}
+
+fn response_view_named(
+    openapi: &OpenApiIndex,
+    bindings: &Bindings,
+    raw: &str,
+    name: String,
+) -> Result<(String, ModelDefinition), &'static str> {
+    let (name, mut model) = response_view_for_schema_named(openapi, bindings, raw, raw, name)?;
+    model.schema = None;
+    Ok((name, model))
 }
 
 fn response_view(
@@ -1253,6 +1287,146 @@ fn project_json_response_schema(
     Err(RESPONSE_VIEW_UNPROVEN)
 }
 
+fn event_stream_projection(
+    openapi: &OpenApiIndex,
+    bindings: &Bindings,
+    operation: &Value,
+    raw_binding: &crate::contracts::OperationBinding,
+    resource_path: &[String],
+    public_name: &str,
+) -> Result<ProjectedResponse, &'static str> {
+    let metadata = raw_binding
+        .metadata
+        .as_ref()
+        .ok_or("capability.event_stream_abi_required")?;
+    let ResponseRepresentationBinding::EventStream { media_type } = &metadata.representation else {
+        return Err("capability.event_stream_abi_required");
+    };
+    let abi = metadata
+        .stream_abi
+        .as_ref()
+        .ok_or("capability.event_stream_abi_required")?;
+    if raw_binding.success_type != abi.alias
+        || abi.item_type != "bytes::Bytes"
+        || abi.lifetime != "'static"
+    {
+        return Err("capability.event_stream_abi_required");
+    }
+
+    let schemas =
+        selected_success_response_schemas(operation, &metadata.success_statuses, media_type)?;
+    if schemas.is_empty() {
+        return Err("capability.event_stream_payload_not_structurally_provable");
+    }
+    let payloads = schemas
+        .iter()
+        .map(|schema| {
+            sse_payload_schema_name(openapi, schema)
+                .ok_or("capability.event_stream_payload_not_structurally_provable")
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let first = payloads
+        .first()
+        .ok_or("capability.event_stream_payload_not_structurally_provable")?;
+    if payloads.iter().any(|payload| payload != first) {
+        return Err("capability.event_stream_payload_not_structurally_provable");
+    }
+
+    let raw_candidates = bindings
+        .structs
+        .keys()
+        .filter(|raw| scalar_named_object_matches(openapi, first, raw, bindings))
+        .cloned()
+        .collect::<Vec<_>>();
+    if raw_candidates.len() != 1 {
+        return Err("capability.event_stream_payload_not_structurally_provable");
+    }
+    let raw_item = &raw_candidates[0];
+    let wrapper = stream_item_model_name(resource_path, public_name);
+    let (_, wrapper_model) =
+        response_view_for_schema_named(openapi, bindings, first, raw_item, wrapper.clone())?;
+
+    Ok(ProjectedResponse::Sse {
+        stream: StreamDefinition {
+            item: raw_item.clone(),
+            wrapper: Some(wrapper.clone()),
+            type_name: stream_type_name(resource_path, public_name),
+        },
+        models: vec![(wrapper, wrapper_model)],
+    })
+}
+
+fn canonical_request_discriminators(
+    openapi: &OpenApiIndex,
+    bindings: &Bindings,
+    raw_binding: &crate::contracts::OperationBinding,
+    request_model: &mut Option<(String, ProjectedModels, RequestMediaDefinition)>,
+) -> Result<Option<IndexMap<String, Option<bool>>>, &'static str> {
+    let Some(metadata) = raw_binding.metadata.as_ref() else {
+        return Ok(None);
+    };
+    if metadata.request_discriminators.is_empty() {
+        return Ok(None);
+    }
+    let Some((root_name, models, _)) = request_model.as_mut() else {
+        return Err("capability.request_discriminator_projection_required");
+    };
+    let root = models
+        .iter_mut()
+        .find(|(name, _)| name == root_name)
+        .map(|(_, model)| model)
+        .ok_or("capability.request_discriminator_projection_required")?;
+    if root
+        .schema_path
+        .as_ref()
+        .is_some_and(|path| !path.is_empty())
+    {
+        return Err("capability.request_discriminator_projection_required");
+    }
+    let raw = root
+        .raw
+        .as_deref()
+        .ok_or("capability.request_discriminator_projection_required")?;
+    let schema = root.schema.as_deref().unwrap_or(raw);
+
+    let mut overrides = IndexMap::new();
+    let mut excluded = root.exclude.clone().unwrap_or_default();
+    for discriminator in &metadata.request_discriminators {
+        if discriminator.rust_access_path.len() != 1
+            || discriminator.field_required
+            || discriminator.field_nullable
+            || discriminator.field_tri_state
+            || discriminator.rust_value_type != "Option<bool>"
+        {
+            return Err("capability.request_discriminator_projection_required");
+        }
+        let raw_field = discriminator.rust_access_path[0]
+            .strip_prefix("r#")
+            .unwrap_or(&discriminator.rust_access_path[0]);
+        if raw_field != discriminator.wire_name {
+            return Err("capability.request_discriminator_projection_required");
+        }
+        let RequestDiscriminatorValue::Bool(value) = discriminator.value else {
+            return Err("capability.request_discriminator_projection_required");
+        };
+        if !request_optional_boolean_field(openapi, schema, raw, raw_field, bindings) {
+            return Err("capability.request_discriminator_projection_required");
+        }
+        if overrides
+            .insert(raw_field.to_owned(), Some(value))
+            .is_some()
+        {
+            return Err("capability.request_discriminator_projection_required");
+        }
+        if !excluded.iter().any(|field| field == raw_field) {
+            excluded.push(raw_field.to_owned());
+        }
+    }
+    excluded.sort();
+    root.exclude = Some(excluded);
+    Ok(Some(overrides))
+}
+
 fn response_projection(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
@@ -1333,8 +1507,15 @@ fn response_projection(
                     Err("capability.buffered_binary_response_not_structurally_provable")
                 }
             }
-            ResponseRepresentationBinding::EventStream { .. }
-            | ResponseRepresentationBinding::BinaryStream { .. } => {
+            ResponseRepresentationBinding::EventStream { .. } => event_stream_projection(
+                openapi,
+                bindings,
+                operation,
+                raw_binding,
+                resource_path,
+                public_name,
+            ),
+            ResponseRepresentationBinding::BinaryStream { .. } => {
                 Err("capability.response_projection_not_implemented")
             }
         };
@@ -1400,7 +1581,7 @@ pub(crate) fn project_operation(
     let operation = openapi
         .operation(operation_id)
         .map_err(|_| "openapi.unknown_operation")?;
-    let request_model = request_model(
+    let mut request_model = request_model(
         openapi,
         bindings,
         operation_id,
@@ -1408,6 +1589,12 @@ pub(crate) fn project_operation(
         &path,
         &public_name,
     )?;
+    let raw_binding = bindings
+        .operations
+        .get(binding)
+        .ok_or("bindings.no_structural_match")?;
+    let request_overrides =
+        canonical_request_discriminators(openapi, bindings, raw_binding, &mut request_model)?;
     let request = request_model.as_ref().map(|(name, _, _)| name.clone());
     let request_media = request_model
         .as_ref()
@@ -1442,10 +1629,13 @@ pub(crate) fn project_operation(
                 ResponseRepresentationDefinition::BinaryStream
             }
         });
-    let (response_name, empty_response, response_models) = match response {
-        ProjectedResponse::Empty => (None, Some(true), Vec::new()),
-        ProjectedResponse::Json { name, models } => (Some(name), None, models),
-        ProjectedResponse::Text | ProjectedResponse::BinaryBuffered => (None, None, Vec::new()),
+    let (response_name, empty_response, stream, response_models) = match response {
+        ProjectedResponse::Empty => (None, Some(true), None, Vec::new()),
+        ProjectedResponse::Json { name, models } => (Some(name), None, None, models),
+        ProjectedResponse::Text | ProjectedResponse::BinaryBuffered => {
+            (None, None, None, Vec::new())
+        }
+        ProjectedResponse::Sse { stream, models } => (None, None, Some(stream), models),
     };
     let mut models = Vec::new();
     if let Some((_, request_models, _)) = request_model {
@@ -1466,8 +1656,8 @@ pub(crate) fn project_operation(
             response_representation: canonical_response,
             empty_response,
             binary_response: None,
-            stream: None,
-            request_overrides: None,
+            stream,
+            request_overrides,
             multipart_filenames,
         },
     })
