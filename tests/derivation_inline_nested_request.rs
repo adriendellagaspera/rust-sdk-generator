@@ -65,8 +65,7 @@ fn derives_nested_inline_request_models_with_schema_paths() {
         "CreateAccountsProfilesRequestSettingsTuning"
     );
 
-    let tuning =
-        &derivation.definition.models["CreateAccountsProfilesRequestSettingsTuning"];
+    let tuning = &derivation.definition.models["CreateAccountsProfilesRequestSettingsTuning"];
     assert_eq!(tuning.schema.as_deref(), Some("CreateProfileRequest"));
     assert_eq!(
         tuning.schema_path.as_deref(),
@@ -84,18 +83,18 @@ fn derives_nested_inline_request_models_with_schema_paths() {
     .expect("derived definition generates");
 
     let types = &generated.files["facade_types.rs"];
-    assert!(types.contains(
-        "settings: impl Into<CreateAccountsProfilesRequestSettings>"
-    ));
+    assert!(types.contains("settings: impl Into<CreateAccountsProfilesRequestSettings>"));
     assert!(types.contains(
         "pub fn tuning(mut self, tuning: impl Into<CreateAccountsProfilesRequestSettingsTuning>)"
     ));
     assert!(types.contains("self.raw.tuning = Some(Some("));
     assert!(types.contains("pub fn tuning_null(mut self) -> Self"));
     assert!(types.contains("self.raw.tuning = Some(None);"));
-    assert!(types.contains(
-        "pub struct CreateAccountsProfilesRequestSettingsTuning { raw: OpaqueTuning2 }"
-    ));
+    assert!(
+        types.contains(
+            "pub struct CreateAccountsProfilesRequestSettingsTuning { raw: OpaqueTuning2 }"
+        )
+    );
 }
 
 #[test]
