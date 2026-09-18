@@ -188,6 +188,7 @@ fn preserves_optional_request_union_branch_evolution() {
         .expect("email binding")
         .push(rust_sdk_generator::FieldBinding {
             name: "tracking".into(),
+            wire_name: None,
             type_name: "Option<String>".into(),
         });
 
