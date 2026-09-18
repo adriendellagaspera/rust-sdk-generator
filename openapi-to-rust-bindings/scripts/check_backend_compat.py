@@ -8,6 +8,7 @@ import difflib
 import json
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import tempfile
 from typing import Any
@@ -81,30 +82,38 @@ def prepared_spec(source: Path, destination: Path) -> None:
 
 def generate_fixture(binary: Path, fixture: Path, destination: Path) -> None:
     destination.mkdir(parents=True, exist_ok=True)
-    spec = destination.parent / "openapi.json"
+    work = destination.parent
+    spec = work / "openapi.json"
     prepared_spec(fixture / "openapi.json", spec)
-    config = destination.parent / "openapi-to-rust.toml"
-    config.write_text(
-        "\n".join(
-            [
-                "[generator]",
-                f'spec_path = "{spec.as_posix()}"',
-                f'output_dir = "{destination.as_posix()}"',
-                'module_name = "fixture"',
-                "binding_manifest = true",
-                "",
-                "[features]",
-                "enable_async_client = true",
-                "",
-                "[http_client]",
-                'base_url = "https://example.invalid"',
-                "",
-                "[http_client.retry]",
-                "max_retries = 0",
-                "",
-            ]
+    config = work / "openapi-to-rust.toml"
+    fixture_config = fixture / "compat.toml"
+    if fixture_config.is_file():
+        for asset in fixture.glob("compat.*"):
+            if asset.name != fixture_config.name:
+                shutil.copy2(asset, work / asset.name)
+        config.write_text(fixture_config.read_text())
+    else:
+        config.write_text(
+            "\n".join(
+                [
+                    "[generator]",
+                    f'spec_path = "{spec.as_posix()}"',
+                    f'output_dir = "{destination.as_posix()}"',
+                    'module_name = "fixture"',
+                    "binding_manifest = true",
+                    "",
+                    "[features]",
+                    "enable_async_client = true",
+                    "",
+                    "[http_client]",
+                    'base_url = "https://example.invalid"',
+                    "",
+                    "[http_client.retry]",
+                    "max_retries = 0",
+                    "",
+                ]
+            )
         )
-    )
     run(binary, "generate", "--config", config)
     manifest = destination / "binding-manifest.json"
     if not manifest.is_file():
