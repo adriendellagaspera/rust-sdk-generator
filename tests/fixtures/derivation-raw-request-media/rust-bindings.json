@@ -1,0 +1,46 @@
+{
+  "schema_version": 2,
+  "structs": {},
+  "enums": {},
+  "aliases": {},
+  "operations": {
+    "opaque_blob_call": {
+      "name": "completely_unrelated_blob_method",
+      "parameters": [
+        {"name": "body", "type": "Option<bool>"},
+        {"name": "opaque_payload9", "type": "Vec<u8>"},
+        {"name": "project_id", "type": "impl AsRef<str>"}
+      ],
+      "return_type": "Result<(), Error>",
+      "success_type": "()"
+    },
+    "opaque_note_call": {
+      "name": "completely_unrelated_note_method",
+      "parameters": [
+        {"name": "strange_text", "type": "Option<String>"},
+        {"name": "note_id", "type": "impl AsRef<str>"}
+      ],
+      "return_type": "Result<(), Error>",
+      "success_type": "()"
+    },
+    "opaque_image_call": {
+      "name": "completely_unrelated_image_method",
+      "parameters": [
+        {"name": "image_id", "type": "impl AsRef<str>"},
+        {"name": "bytes_77", "type": "Vec<u8>"}
+      ],
+      "return_type": "Result<(), Error>",
+      "success_type": "()"
+    }
+  },
+  "symbol_paths": {},
+  "binding": {
+    "client": {
+      "type_path": "crate::generated::client::HttpClient",
+      "constructor": "new",
+      "api_key_builder": "with_api_key",
+      "base_url_builder": "with_base_url"
+    },
+    "type_preludes": ["crate::generated::types::*"]
+  }
+}
