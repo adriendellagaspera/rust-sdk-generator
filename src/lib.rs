@@ -1,7 +1,8 @@
 //! Backend-neutral Rust SDK derivation and generation.
 //!
-//! The root crate owns complete-definition validation, lowering and deterministic emission.
-//! Concrete OpenAPI-to-Rust backends remain adapters that only produce [`Bindings`].
+//! The root crate owns closed-world SDK derivation, complete-definition validation, lowering and
+//! deterministic emission. Concrete OpenAPI-to-Rust backends remain adapters that only produce
+//! [`Bindings`].
 
 mod compiler;
 mod contracts;
@@ -47,7 +48,7 @@ pub use derivation::{
 pub use error::{Diagnostic, GenerationError};
 pub use rust_type::{Type, TypeKind, parse_type};
 
-/// Validate and generate an SDK from an explicit complete definition.
+/// Validate and generate an SDK from a complete explicit or derived definition.
 pub fn generate(input: GenerateInput) -> Result<GeneratedSdk, GenerationError> {
     compiler::generate(input)
 }
