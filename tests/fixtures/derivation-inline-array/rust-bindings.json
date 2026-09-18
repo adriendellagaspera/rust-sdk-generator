@@ -1,0 +1,28 @@
+{
+  "schema_version": 2,
+  "structs": {},
+  "enums": {},
+  "aliases": {
+    "OpaqueList7": "Vec<String>"
+  },
+  "operations": {
+    "call_list_13": {
+      "name": "unrelated_list_method",
+      "parameters": [],
+      "return_type": "Result<OpaqueList7, Error>",
+      "success_type": "OpaqueList7"
+    }
+  },
+  "symbol_paths": {
+    "OpaqueList7": "crate::generated::types::OpaqueList7"
+  },
+  "binding": {
+    "client": {
+      "type_path": "crate::generated::client::HttpClient",
+      "constructor": "new",
+      "api_key_builder": "with_api_key",
+      "base_url_builder": "with_base_url"
+    },
+    "type_preludes": ["crate::generated::types::*"]
+  }
+}
