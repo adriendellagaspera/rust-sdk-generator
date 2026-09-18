@@ -1,18 +1,30 @@
 {
   "openapi": "3.1.0",
-  "info": {"title": "Canonical SSE fixture", "version": "1"},
+  "info": {
+    "title": "Canonical SSE fixture",
+    "version": "1"
+  },
   "paths": {
     "/jobs/{job_id}/watch": {
       "post": {
         "operationId": "watch_job",
         "parameters": [
-          {"name": "job_id", "in": "path", "required": true, "schema": {"type": "string"}}
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": {"$ref": "#/components/schemas/WatchRequest"}
+              "schema": {
+                "$ref": "#/components/schemas/WatchRequest"
+              }
             }
           }
         },
@@ -21,7 +33,9 @@
             "description": "job events",
             "content": {
               "text/event-stream": {
-                "schema": {"$ref": "#/components/schemas/JobChunk"}
+                "schema": {
+                  "$ref": "#/components/schemas/JobChunk"
+                }
               }
             }
           }
@@ -36,7 +50,9 @@
             "description": "notifications",
             "content": {
               "text/event-stream": {
-                "schema": {"$ref": "#/components/schemas/NotificationEnvelope"}
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationEnvelope"
+                }
               }
             }
           },
@@ -44,7 +60,9 @@
             "description": "partial notifications",
             "content": {
               "text/event-stream": {
-                "schema": {"$ref": "#/components/schemas/NotificationEnvelope"}
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationEnvelope"
+                }
               }
             }
           }
@@ -56,35 +74,56 @@
     "schemas": {
       "WatchRequest": {
         "type": "object",
-        "required": ["prompt"],
+        "required": [
+          "prompt"
+        ],
         "properties": {
-          "prompt": {"type": "string"},
-          "stream": {"type": "boolean"}
+          "prompt": {
+            "type": "string"
+          },
+          "stream": {
+            "type": "boolean"
+          }
         }
       },
       "JobChunk": {
         "type": "object",
-        "required": ["message", "sequence"],
+        "required": [
+          "message",
+          "sequence"
+        ],
         "properties": {
-          "message": {"type": "string"},
-          "sequence": {"type": "integer"}
+          "message": {
+            "type": "string"
+          },
+          "sequence": {
+            "type": "integer"
+          }
         }
       },
       "NotificationEnvelope": {
         "type": "object",
-        "required": ["data"],
+        "required": [
+          "data"
+        ],
         "properties": {
-          "event": {"type": "string"},
-          "data": {"$ref": "#/components/schemas/NotificationChunk"},
-          "id": {"type": "string"}
+          "data": {
+            "$ref": "#/components/schemas/NotificationChunk"
+          }
         }
       },
       "NotificationChunk": {
         "type": "object",
-        "required": ["code"],
+        "required": [
+          "code"
+        ],
         "properties": {
-          "code": {"type": "string"},
-          "retryable": {"type": "boolean"}
+          "code": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean"
+          }
         }
       }
     }
