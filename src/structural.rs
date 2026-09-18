@@ -423,6 +423,51 @@ fn request_object_matches_inner(
     matched
 }
 
+pub(crate) fn request_optional_boolean_field(
+    openapi: &OpenApiIndex,
+    schema_name: &str,
+    raw: &str,
+    field_name: &str,
+    bindings: &Bindings,
+) -> bool {
+    let Ok(schema) = openapi.object_schema(schema_name) else {
+        return false;
+    };
+    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
+        return false;
+    };
+    let Some(property) = properties.get(field_name) else {
+        return false;
+    };
+    if property.get("type").and_then(Value::as_str) != Some("boolean") {
+        return false;
+    }
+    if schema
+        .get("required")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .any(|required| required == field_name)
+    {
+        return false;
+    }
+
+    let Some(raw_field) = bindings.structs.get(raw).and_then(|fields| {
+        fields
+            .iter()
+            .find(|field| field.name.strip_prefix("r#").unwrap_or(&field.name) == field_name)
+    }) else {
+        return false;
+    };
+    let Ok(syntax) = parse_type(&raw_field.type_name) else {
+        return false;
+    };
+    syntax
+        .unary("Option")
+        .is_some_and(|inner| inner.spelling == "bool" && inner.unary("Option").is_none())
+}
+
 pub(crate) fn request_object_matches(
     openapi: &OpenApiIndex,
     schema_name: &str,

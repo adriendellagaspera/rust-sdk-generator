@@ -40,7 +40,7 @@ pub use contracts::{
 };
 pub use derivation::{
     Derivation, DerivationError, DerivationReason, DerivationReport, DerivationStatus, DeriveInput,
-    OperationDerivation, PublicSdkSurface, SdkOverrides, derive,
+    OperationDerivation, OperationOverride, PublicSdkSurface, SdkOverrides, derive,
 };
 pub use error::{Diagnostic, GenerationError};
 pub use rust_type::{Type, TypeKind, parse_type};
