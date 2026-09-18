@@ -302,7 +302,9 @@ impl OpenApiIndex {
                     .and_then(Value::as_array)
                     .cloned()
                     .unwrap_or_default();
-                for method in ["get", "put", "post", "delete", "patch", "head", "options"] {
+                for method in [
+                    "get", "put", "post", "delete", "patch", "head", "options", "trace",
+                ] {
                     let Some(operation) = path_item.get(method).and_then(Value::as_object) else {
                         continue;
                     };
