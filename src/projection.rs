@@ -139,6 +139,114 @@ fn request_raw_core(type_name: &str) -> Result<(Type, usize), &'static str> {
     Ok((syntax, depth))
 }
 
+struct RequestModelContext<'a> {
+    openapi: &'a OpenApiIndex,
+    bindings: &'a Bindings,
+}
+
+fn request_object_models_value(
+    context: &RequestModelContext<'_>,
+    schema: &Value,
+    source_root: &str,
+    source_path: &[String],
+    raw: &str,
+    public_name: String,
+    seen: &mut BTreeSet<(String, String)>,
+) -> Result<ProjectedModels, &'static str> {
+    let properties = schema
+        .get("properties")
+        .and_then(Value::as_object)
+        .ok_or(REQUEST_MODEL_UNPROVEN)?;
+    let fields = context
+        .bindings
+        .structs
+        .get(raw)
+        .ok_or(REQUEST_MODEL_UNPROVEN)?;
+    let by_name: BTreeMap<_, _> = fields
+        .iter()
+        .map(|field| (field.name.strip_prefix("r#").unwrap_or(&field.name), field))
+        .collect();
+    let required: Vec<String> = schema
+        .get("required")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect();
+    let required_set: BTreeSet<_> = required.iter().map(String::as_str).collect();
+
+    let mut models = Vec::new();
+    let mut adapters = IndexMap::new();
+    for (field_name, property) in properties {
+        let (wire, nullable) = request_non_null_schema(property);
+        if required_set.contains(field_name.as_str()) && nullable {
+            return Err(REQUEST_MODEL_UNPROVEN);
+        }
+
+        let field = by_name
+            .get(field_name.as_str())
+            .ok_or(REQUEST_MODEL_UNPROVEN)?;
+        let (core, _) = request_raw_core(&field.type_name)?;
+        let segment = semantic_pascal_identifier(field_name).map_err(|_| REQUEST_MODEL_UNPROVEN)?;
+        let child_name = format!("{public_name}{segment}");
+
+        if let Some(reference) = ref_name(wire) {
+            models.extend(request_object_models(
+                context.openapi,
+                context.bindings,
+                reference,
+                &core.spelling,
+                child_name.clone(),
+                seen,
+            )?);
+            adapters.insert(field_name.clone(), child_name);
+            continue;
+        }
+
+        let inline_object = matches!(wire.get("type").and_then(Value::as_str), Some("object"))
+            || wire.get("properties").is_some();
+        if inline_object {
+            let mut child_path = source_path.to_vec();
+            child_path.push(field_name.clone());
+            models.extend(request_object_models_value(
+                context,
+                wire,
+                source_root,
+                &child_path,
+                &core.spelling,
+                child_name.clone(),
+                seen,
+            )?);
+            adapters.insert(field_name.clone(), child_name);
+        }
+    }
+
+    if !public_model_name_available(&public_name, context.bindings) {
+        return Err("capability.public_model_name_collision");
+    }
+    models.push((
+        public_name,
+        ModelDefinition {
+            schema: Some(source_root.into()),
+            schema_path: (!source_path.is_empty()).then(|| source_path.to_vec()),
+            raw: Some(raw.into()),
+            constructor: Some(required),
+            exclude: None,
+            adapters: (!adapters.is_empty()).then_some(adapters),
+            union: None,
+            simple_union: None,
+            type_alias: None,
+            map: None,
+            scalar_enum: None,
+            union_factory: None,
+            borrowed: None,
+            accessors: None,
+        },
+    ));
+    Ok(models)
+}
+
 fn request_object_models(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
@@ -156,80 +264,20 @@ fn request_object_models(
         return Err(REQUEST_MODEL_UNPROVEN);
     }
 
-    let result = (|| {
-        let schema = openapi
-            .object_schema(schema_name)
-            .map_err(|_| REQUEST_MODEL_UNPROVEN)?;
-        let properties = schema
-            .get("properties")
-            .and_then(Value::as_object)
-            .ok_or(REQUEST_MODEL_UNPROVEN)?;
-        let fields = bindings.structs.get(raw).ok_or(REQUEST_MODEL_UNPROVEN)?;
-        let by_name: BTreeMap<_, _> = fields
-            .iter()
-            .map(|field| (field.name.strip_prefix("r#").unwrap_or(&field.name), field))
-            .collect();
-        let required: Vec<String> = schema
-            .get("required")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .map(str::to_owned)
-            .collect();
-        let required_set: BTreeSet<_> = required.iter().map(String::as_str).collect();
-
-        let mut models = Vec::new();
-        let mut adapters = IndexMap::new();
-        for (field_name, property) in properties {
-            let (wire, nullable) = request_non_null_schema(property);
-            if required_set.contains(field_name.as_str()) && nullable {
-                return Err(REQUEST_MODEL_UNPROVEN);
-            }
-            let Some(reference) = ref_name(wire) else {
-                continue;
-            };
-            let field = by_name
-                .get(field_name.as_str())
-                .ok_or(REQUEST_MODEL_UNPROVEN)?;
-            let (core, _) = request_raw_core(&field.type_name)?;
-            let segment =
-                semantic_pascal_identifier(field_name).map_err(|_| REQUEST_MODEL_UNPROVEN)?;
-            let child_name = format!("{public_name}{segment}");
-            models.extend(request_object_models(
-                openapi,
-                bindings,
-                reference,
-                &core.spelling,
-                child_name.clone(),
+    let result = openapi
+        .object_schema(schema_name)
+        .map_err(|_| REQUEST_MODEL_UNPROVEN)
+        .and_then(|schema| {
+            request_object_models_value(
+                &RequestModelContext { openapi, bindings },
+                &schema,
+                schema_name,
+                &[],
+                raw,
+                public_name,
                 seen,
-            )?);
-            adapters.insert(field_name.clone(), child_name);
-        }
-
-        if !public_model_name_available(&public_name, bindings) {
-            return Err("capability.public_model_name_collision");
-        }
-        models.push((
-            public_name,
-            ModelDefinition {
-                schema: Some(schema_name.into()),
-                raw: Some(raw.into()),
-                constructor: Some(required),
-                exclude: None,
-                adapters: (!adapters.is_empty()).then_some(adapters),
-                union: None,
-                simple_union: None,
-                type_alias: None,
-                map: None,
-                scalar_enum: None,
-                union_factory: None,
-                borrowed: None,
-                accessors: None,
-            },
-        ));
-        Ok(models)
-    })();
+            )
+        });
 
     seen.remove(&pair);
     result
@@ -333,6 +381,7 @@ fn response_view_named(
         name,
         ModelDefinition {
             schema: None,
+            schema_path: None,
             raw: Some(raw.into()),
             constructor: None,
             exclude: None,
@@ -385,6 +434,7 @@ fn inline_response_view_named(
         name,
         ModelDefinition {
             schema: None,
+            schema_path: None,
             raw: Some(raw.into()),
             constructor: None,
             exclude: None,
@@ -450,6 +500,7 @@ fn inline_array_response_model(
         );
         let root_model = ModelDefinition {
             schema: None,
+            schema_path: None,
             raw: Some(raw.into()),
             constructor: None,
             exclude: None,
@@ -475,6 +526,7 @@ fn inline_array_response_model(
             name,
             ModelDefinition {
                 schema: None,
+                schema_path: None,
                 raw: Some(raw.into()),
                 constructor: None,
                 exclude: None,
@@ -575,6 +627,7 @@ fn alias_response_model(
         name,
         ModelDefinition {
             schema: None,
+            schema_path: None,
             raw: Some(raw.into()),
             constructor: None,
             exclude: None,
@@ -641,6 +694,7 @@ fn map_response_model(
         name,
         ModelDefinition {
             schema: None,
+            schema_path: None,
             raw: Some(raw.into()),
             constructor: None,
             exclude: None,
@@ -703,6 +757,7 @@ fn scalar_enum_response_model(
         name,
         ModelDefinition {
             schema: None,
+            schema_path: None,
             raw: Some(raw.into()),
             constructor: None,
             exclude: None,
@@ -798,6 +853,7 @@ fn inline_union_response_model(
         union_name.clone(),
         ModelDefinition {
             schema: None,
+            schema_path: None,
             raw: Some(raw_union.into()),
             constructor: None,
             exclude: None,
@@ -908,6 +964,7 @@ fn union_response_model(
         union_name.clone(),
         ModelDefinition {
             schema: None,
+            schema_path: None,
             raw: Some(raw_union.into()),
             constructor: None,
             exclude: None,

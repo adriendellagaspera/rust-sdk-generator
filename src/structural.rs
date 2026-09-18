@@ -192,6 +192,85 @@ fn rust_option_core(type_name: &str) -> Option<(Type, usize)> {
     Some((syntax, depth))
 }
 
+fn request_object_value_matches(
+    openapi: &OpenApiIndex,
+    schema: &Value,
+    raw: &str,
+    bindings: &Bindings,
+    seen: &mut BTreeSet<(String, String)>,
+) -> bool {
+    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
+        return false;
+    };
+    let required_values = schema
+        .get("required")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let required: BTreeSet<_> = required_values.iter().filter_map(Value::as_str).collect();
+    if required.len() != required_values.len()
+        || required
+            .iter()
+            .any(|field| !properties.contains_key(*field))
+    {
+        return false;
+    }
+
+    let Some(fields) = bindings.structs.get(raw) else {
+        return false;
+    };
+    let by_name: BTreeMap<_, _> = fields
+        .iter()
+        .map(|field| (field.name.strip_prefix("r#").unwrap_or(&field.name), field))
+        .collect();
+    if by_name.len() != fields.len()
+        || by_name.keys().copied().collect::<BTreeSet<_>>()
+            != properties
+                .keys()
+                .map(String::as_str)
+                .collect::<BTreeSet<_>>()
+    {
+        return false;
+    }
+
+    for (name, property) in properties {
+        let field = by_name[name.as_str()];
+        let Some((core, option_depth)) = rust_option_core(&field.type_name) else {
+            return false;
+        };
+        let (wire, nullable) = nullable_schema(property)
+            .map(|schema| (schema, true))
+            .unwrap_or((property, false));
+        let expected_depth = usize::from(!required.contains(name.as_str())) + usize::from(nullable);
+        if option_depth != expected_depth {
+            return false;
+        }
+
+        if let Some(reference) = ref_name(wire) {
+            if core.kind != TypeKind::Opaque
+                || !request_object_matches_inner(openapi, reference, &core.spelling, bindings, seen)
+            {
+                return false;
+            }
+            continue;
+        }
+
+        let inline_object = matches!(wire.get("type").and_then(Value::as_str), Some("object"))
+            || wire.get("properties").is_some();
+        if inline_object {
+            if core.kind != TypeKind::Opaque
+                || !request_object_value_matches(openapi, wire, &core.spelling, bindings, seen)
+            {
+                return false;
+            }
+        } else if !type_matches_schema(wire, &core, bindings, &mut BTreeSet::new()) {
+            return false;
+        }
+    }
+
+    true
+}
+
 fn request_object_matches_inner(
     openapi: &OpenApiIndex,
     schema_name: &str,
@@ -204,69 +283,10 @@ fn request_object_matches_inner(
         return false;
     }
 
-    let matched = (|| {
-        let schema = openapi.object_schema(schema_name).ok()?;
-        let properties = schema.get("properties").and_then(Value::as_object)?;
-        let required_values = schema
-            .get("required")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        let required: BTreeSet<_> = required_values.iter().filter_map(Value::as_str).collect();
-        if required.len() != required_values.len()
-            || required
-                .iter()
-                .any(|field| !properties.contains_key(*field))
-        {
-            return None;
-        }
-
-        let fields = bindings.structs.get(raw)?;
-        let by_name: BTreeMap<_, _> = fields
-            .iter()
-            .map(|field| (field.name.strip_prefix("r#").unwrap_or(&field.name), field))
-            .collect();
-        if by_name.len() != fields.len()
-            || by_name.keys().copied().collect::<BTreeSet<_>>()
-                != properties
-                    .keys()
-                    .map(String::as_str)
-                    .collect::<BTreeSet<_>>()
-        {
-            return None;
-        }
-
-        for (name, property) in properties {
-            let field = by_name[name.as_str()];
-            let (core, option_depth) = rust_option_core(&field.type_name)?;
-            let (wire, nullable) = nullable_schema(property)
-                .map(|schema| (schema, true))
-                .unwrap_or((property, false));
-            let expected_depth =
-                usize::from(!required.contains(name.as_str())) + usize::from(nullable);
-            if option_depth != expected_depth {
-                return None;
-            }
-
-            if let Some(reference) = ref_name(wire) {
-                if core.kind != TypeKind::Opaque
-                    || !request_object_matches_inner(
-                        openapi,
-                        reference,
-                        &core.spelling,
-                        bindings,
-                        seen,
-                    )
-                {
-                    return None;
-                }
-            } else if !type_matches_schema(wire, &core, bindings, &mut BTreeSet::new()) {
-                return None;
-            }
-        }
-        Some(())
-    })()
-    .is_some();
+    let matched = openapi
+        .object_schema(schema_name)
+        .ok()
+        .is_some_and(|schema| request_object_value_matches(openapi, &schema, raw, bindings, seen));
 
     seen.remove(&pair);
     matched

@@ -466,6 +466,60 @@ impl OpenApiIndex {
         resolve(self, name, self.schema(name)?, &mut stack)
     }
 
+    pub fn object_schema_path(&self, root: &str, path: &[String]) -> Result<Value> {
+        let mut schema = self.object_schema(root)?;
+        let mut context = root.to_owned();
+
+        for segment in path {
+            context.push('.');
+            context.push_str(segment);
+            let property = schema
+                .get("properties")
+                .and_then(Value::as_object)
+                .and_then(|properties| properties.get(segment))
+                .cloned()
+                .ok_or_else(|| {
+                    error(
+                        "openapi.object_path",
+                        format!("invalid OpenAPI object path {context}"),
+                    )
+                })?;
+            let property = property
+                .as_object()
+                .and_then(nullable_property_inner)
+                .map(Value::Object)
+                .unwrap_or(property);
+
+            if let Some(reference) = ref_name(&property) {
+                schema = self.object_schema(reference)?;
+                continue;
+            }
+
+            let object = property.as_object().ok_or_else(|| {
+                error(
+                    "openapi.not_object",
+                    format!("OpenAPI schema at {context} is not an object"),
+                )
+            })?;
+            if object.contains_key("allOf") {
+                return Err(error(
+                    "openapi.object_path_unsupported",
+                    format!("inline allOf object is unsupported at {context}"),
+                ));
+            }
+            let kind = object.get("type").and_then(Value::as_str);
+            if !matches!(kind, None | Some("object")) {
+                return Err(error(
+                    "openapi.not_object",
+                    format!("OpenAPI schema at {context} is not an object: {kind:?}"),
+                ));
+            }
+            schema = merge_object_shapes(std::slice::from_ref(object), &context)?;
+        }
+
+        Ok(schema)
+    }
+
     pub fn union(&self, root: &str, path: &[String]) -> Result<(String, BTreeMap<String, String>)> {
         let mut schema = self.schema(root)?;
         for segment in path {
