@@ -570,11 +570,25 @@ impl SdkDefinition {
                         "operation must select exactly one response projection",
                     ));
                 }
-                if operation.request.is_none() && operation.request_media.is_some() {
-                    return Err(invalid(
-                        format!("definition.resources.{module}.operations.{name}.request_media"),
-                        "request media requires a request model",
-                    ));
+                if let Some(media) = operation.request_media {
+                    let structured = matches!(
+                        media,
+                        crate::RequestMediaDefinition::Json
+                            | crate::RequestMediaDefinition::MultipartFormData
+                            | crate::RequestMediaDefinition::FormUrlencoded
+                    );
+                    if structured != operation.request.is_some() {
+                        return Err(invalid(
+                            format!(
+                                "definition.resources.{module}.operations.{name}.request_media"
+                            ),
+                            if structured {
+                                "structured request media requires a request model"
+                            } else {
+                                "raw request media must not use a facade request model"
+                            },
+                        ));
+                    }
                 }
                 if operation.request.is_none() && operation.request_overrides.is_some() {
                     return Err(invalid(
