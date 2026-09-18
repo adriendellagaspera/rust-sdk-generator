@@ -46,7 +46,7 @@ fn require_unique(path: &str, values: &[String]) -> Result<()> {
 impl Bindings {
     /// Validate the versioned backend-neutral sidecar independently of any SDK definition.
     pub fn validate(&self) -> Result<()> {
-        if self.schema_version != 2 {
+        if !matches!(self.schema_version, 2 | 3) {
             return Err(invalid(
                 "bindings.schema_version",
                 format!(
@@ -112,6 +112,8 @@ impl Bindings {
             parse_type(alias)
                 .map_err(|error| invalid(format!("bindings.aliases.{name}"), error.to_string()))?;
         }
+
+        let mut canonical_operations = BTreeSet::new();
         for (key, operation) in &self.operations {
             require_nonempty(&format!("bindings.operations.{key}.name"), &operation.name)?;
             for (index, parameter) in operation.parameters.iter().enumerate() {
@@ -146,6 +148,143 @@ impl Bindings {
                         error.to_string(),
                     )
                 })?;
+            }
+
+            match (self.schema_version, &operation.metadata) {
+                (2, None) => {}
+                (2, Some(_)) => {
+                    return Err(invalid(
+                        format!("bindings.operations.{key}.metadata"),
+                        "operation metadata requires Bindings schema version 3",
+                    ));
+                }
+                (3, None) => {
+                    return Err(invalid(
+                        format!("bindings.operations.{key}.metadata"),
+                        "Bindings v3 operation is missing canonical identity metadata",
+                    ));
+                }
+                (3, Some(metadata)) => {
+                    if operation.name != *key {
+                        return Err(invalid(
+                            format!("bindings.operations.{key}.name"),
+                            "Bindings v3 operation name must equal its raw Rust method key",
+                        ));
+                    }
+                    require_nonempty(
+                        &format!(
+                            "bindings.operations.{key}.metadata.source_operation.operation_id"
+                        ),
+                        &metadata.source_operation.operation_id,
+                    )?;
+                    require_nonempty(
+                        &format!("bindings.operations.{key}.metadata.source_operation.method"),
+                        &metadata.source_operation.method,
+                    )?;
+                    require_nonempty(
+                        &format!("bindings.operations.{key}.metadata.source_operation.path"),
+                        &metadata.source_operation.path,
+                    )?;
+                    require_nonempty(
+                        &format!("bindings.operations.{key}.metadata.emitted_operation_id"),
+                        &metadata.emitted_operation_id,
+                    )?;
+                    require_unique(
+                        &format!("bindings.operations.{key}.metadata.success_statuses"),
+                        &metadata.success_statuses,
+                    )?;
+
+                    for (index, discriminator) in metadata.request_discriminators.iter().enumerate()
+                    {
+                        let context = format!(
+                            "bindings.operations.{key}.metadata.request_discriminators[{index}]"
+                        );
+                        require_nonempty(
+                            &format!("{context}.wire_name"),
+                            &discriminator.wire_name,
+                        )?;
+                        if discriminator.rust_access_path.is_empty()
+                            || discriminator
+                                .rust_access_path
+                                .iter()
+                                .any(|segment| segment.is_empty())
+                        {
+                            return Err(invalid(
+                                format!("{context}.rust_access_path"),
+                                "must contain only non-empty path segments",
+                            ));
+                        }
+                        parse_type(&discriminator.rust_value_type).map_err(|error| {
+                            invalid(format!("{context}.rust_value_type"), error.to_string())
+                        })?;
+                    }
+
+                    let representation_streams = matches!(
+                        metadata.representation,
+                        crate::ResponseRepresentationBinding::EventStream { .. }
+                            | crate::ResponseRepresentationBinding::BinaryStream { .. }
+                    );
+                    if representation_streams != metadata.stream_abi.is_some() {
+                        return Err(invalid(
+                            format!("bindings.operations.{key}.metadata.stream_abi"),
+                            "stream ABI presence must match response representation",
+                        ));
+                    }
+                    if representation_streams != operation.stream.is_some() {
+                        return Err(invalid(
+                            format!("bindings.operations.{key}.stream"),
+                            "legacy/common stream view must match response representation",
+                        ));
+                    }
+                    if let Some(abi) = &metadata.stream_abi {
+                        for (field, spelling) in [
+                            ("item_type", abi.item_type.as_str()),
+                            ("error_type", abi.error_type.as_str()),
+                            ("native_type", abi.native_type.as_str()),
+                            ("wasm_type", abi.wasm_type.as_str()),
+                        ] {
+                            parse_type(spelling).map_err(|error| {
+                                invalid(
+                                    format!(
+                                        "bindings.operations.{key}.metadata.stream_abi.{field}"
+                                    ),
+                                    error.to_string(),
+                                )
+                            })?;
+                        }
+                        require_nonempty(
+                            &format!("bindings.operations.{key}.metadata.stream_abi.alias"),
+                            &abi.alias,
+                        )?;
+                        require_nonempty(
+                            &format!("bindings.operations.{key}.metadata.stream_abi.lifetime"),
+                            &abi.lifetime,
+                        )?;
+                        let stream = operation.stream.as_ref().expect("checked stream presence");
+                        if stream.item_type != abi.item_type
+                            || stream.error_type != abi.error_type
+                            || stream.lifetime != abi.lifetime
+                        {
+                            return Err(invalid(
+                                format!("bindings.operations.{key}.metadata.stream_abi"),
+                                "stream ABI common view disagrees with operation.stream",
+                            ));
+                        }
+                    }
+
+                    let identity = (
+                        metadata.kind.clone(),
+                        metadata.source_operation.clone(),
+                        metadata.representation.clone(),
+                    );
+                    if !canonical_operations.insert(identity) {
+                        return Err(invalid(
+                            format!("bindings.operations.{key}.metadata"),
+                            "duplicate canonical source-operation/representation identity",
+                        ));
+                    }
+                }
+                _ => unreachable!("schema version validated above"),
             }
         }
         require_unique(
@@ -472,6 +611,64 @@ mod tests {
                 serde_json::from_str(value).expect("fixture definition");
             definition.validate().expect("valid definition");
         }
+    }
+
+    #[test]
+    fn bindings_v3_requires_unique_canonical_operation_identity() {
+        let operation = serde_json::json!({
+            "name": "health",
+            "parameters": [],
+            "return_type": "Result<(), Error>",
+            "success_type": "()",
+            "metadata": {
+                "kind": "call_shape",
+                "source_operation": {
+                    "operation_id": "healthCheck",
+                    "method": "GET",
+                    "path": "/health"
+                },
+                "emitted_operation_id": "healthCheck",
+                "representation": {"kind": "empty"},
+                "success_statuses": ["204"],
+                "request_discriminators": [],
+                "stream_abi": null
+            }
+        });
+        let mut value = serde_json::json!({
+            "schema_version": 3,
+            "structs": {},
+            "enums": {},
+            "aliases": {},
+            "operations": {"health": operation},
+            "symbol_paths": {},
+            "binding": {
+                "client": {
+                    "type_path": "crate::generated::client::HttpClient",
+                    "constructor": "new",
+                    "api_key_builder": "with_api_key",
+                    "base_url_builder": "with_base_url"
+                },
+                "type_preludes": ["crate::generated::types::*"]
+            }
+        });
+        let bindings: Bindings =
+            serde_json::from_value(value.clone()).expect("deserialize Bindings v3");
+        bindings.validate().expect("valid Bindings v3");
+
+        value["operations"]["health_2"] = value["operations"]["health"].clone();
+        value["operations"]["health_2"]["name"] = serde_json::json!("health_2");
+        let duplicate: Bindings =
+            serde_json::from_value(value).expect("deserialize duplicate Bindings v3");
+        let error = duplicate
+            .validate()
+            .expect_err("canonical identity collision must fail");
+        assert_eq!(error.diagnostic.code, "contract.invalid");
+        assert!(
+            error
+                .diagnostic
+                .message
+                .contains("duplicate canonical source-operation/representation identity")
+        );
     }
 
     #[test]
