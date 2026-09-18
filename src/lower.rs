@@ -13,7 +13,8 @@ use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, TypeKind, parse_type};
 use crate::structural::{
     inline_object_union_mapping, raw_scalar_struct_shape, request_object_matches,
-    request_union_mapping, rust_type_matches_schema, scalar_object_shape,
+    request_optional_boolean_field, request_union_mapping, rust_type_matches_schema,
+    scalar_object_shape,
 };
 use crate::symbols::{SymbolProvider, field_identifier};
 
@@ -1719,26 +1720,14 @@ pub(crate) fn lower(
                     ));
                 }
                 if let Some(overrides) = &item.request_overrides {
-                    let request_fields = field_map(bindings, &model.raw)?;
-                    for (field, configured) in overrides {
-                        let raw_field = request_fields.get(field).ok_or_else(|| {
-                            error(
-                                "lower.request_override",
-                                format!("unknown request override for {raw_method}: {field}"),
-                            )
-                        })?;
-                        let raw_syntax = parse_type(&raw_field.type_name)?;
-                        let inner = raw_syntax
-                            .unary("Option")
-                            .map(|inner| inner.spelling.as_str());
-                        let wire_schema = index.object_schema(schema_name)?;
-                        let wire_type = wire_schema
-                            .get("properties")
-                            .and_then(Value::as_object)
-                            .and_then(|properties| properties.get(field))
-                            .and_then(|schema| schema.get("type"))
-                            .and_then(Value::as_str);
-                        if inner != Some("bool") || wire_type != Some("boolean") {
+                    for field in overrides.keys() {
+                        if !request_optional_boolean_field(
+                            &index,
+                            schema_name,
+                            &model.raw,
+                            field,
+                            bindings,
+                        ) {
                             return Err(error(
                                 "lower.request_override",
                                 format!(
@@ -1747,7 +1736,6 @@ pub(crate) fn lower(
                                 ),
                             ));
                         }
-                        let _ = configured;
                     }
                 }
                 Some(model.raw.clone())
