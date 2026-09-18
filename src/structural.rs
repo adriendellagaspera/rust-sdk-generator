@@ -143,15 +143,27 @@ fn type_matches_schema(
                 .unary("Vec")
                 .is_some_and(|inner| type_matches_schema(items, inner, bindings, seen_aliases))
         }),
-        Some("object") => schema
-            .get("additionalProperties")
-            .filter(|additional| **additional != Value::Bool(false))
-            .is_some_and(|additional| {
-                syntax.constructor.as_deref() == Some("std::collections::BTreeMap")
-                    && syntax.arguments.len() == 2
-                    && syntax.arguments[0].spelling == "String"
-                    && type_matches_schema(additional, &syntax.arguments[1], bindings, seen_aliases)
-            }),
+        Some("object") => {
+            if let Some(wire) = scalar_object_shape(schema) {
+                raw_scalar_struct_shape(bindings, &syntax.spelling)
+                    .is_some_and(|raw| raw == wire)
+            } else {
+                schema
+                    .get("additionalProperties")
+                    .filter(|additional| **additional != Value::Bool(false))
+                    .is_some_and(|additional| {
+                        syntax.constructor.as_deref() == Some("std::collections::BTreeMap")
+                            && syntax.arguments.len() == 2
+                            && syntax.arguments[0].spelling == "String"
+                            && type_matches_schema(
+                                additional,
+                                &syntax.arguments[1],
+                                bindings,
+                                seen_aliases,
+                            )
+                    })
+            }
+        }
         _ => false,
     }
 }
@@ -164,6 +176,46 @@ pub(crate) fn rust_type_matches_schema(
     parse_type(type_name)
         .ok()
         .is_some_and(|syntax| type_matches_schema(schema, &syntax, bindings, &mut BTreeSet::new()))
+}
+
+fn expand_alias_syntax(
+    mut syntax: Type,
+    bindings: &Bindings,
+    seen_aliases: &mut BTreeSet<String>,
+) -> Option<Type> {
+    while let Some(alias) = bindings.aliases.get(&syntax.spelling) {
+        if !seen_aliases.insert(syntax.spelling.clone()) {
+            return None;
+        }
+        syntax = parse_type(alias).ok()?;
+    }
+    Some(syntax)
+}
+
+pub(crate) fn inline_array_object_item(
+    schema: &Value,
+    raw: &str,
+    bindings: &Bindings,
+) -> Option<String> {
+    if schema.get("type").and_then(Value::as_str) != Some("array") {
+        return None;
+    }
+    let items = schema.get("items")?;
+    let wire = scalar_object_shape(items)?;
+    let root = expand_alias_syntax(
+        parse_type(raw).ok()?,
+        bindings,
+        &mut BTreeSet::new(),
+    )?;
+    let inner = root.unary("Vec")?;
+    let item = expand_alias_syntax(
+        inner.clone(),
+        bindings,
+        &mut BTreeSet::new(),
+    )?;
+    raw_scalar_struct_shape(bindings, &item.spelling)
+        .filter(|raw_shape| *raw_shape == wire)
+        .map(|_| item.spelling)
 }
 
 pub(crate) fn scalar_object_shape(schema: &Value) -> Option<BTreeMap<String, ScalarFieldShape>> {
