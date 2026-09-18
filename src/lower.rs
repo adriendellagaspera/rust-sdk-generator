@@ -675,8 +675,7 @@ fn generic_inner(type_name: &str, constructor: &str) -> Result<String> {
 fn accessor_type(raw: &str, path: &[String], bindings: &Bindings) -> Result<String> {
     let mut current = raw.to_owned();
     for segment in path {
-        let expanded =
-            expand_alias(parse_type(&current)?, bindings, &mut Vec::new())?.spelling;
+        let expanded = expand_alias(parse_type(&current)?, bindings, &mut Vec::new())?.spelling;
         current = if segment == "first" {
             generic_inner(&expanded, "Vec")?
         } else if segment == "optional" {
