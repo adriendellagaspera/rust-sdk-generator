@@ -570,13 +570,22 @@ pub(crate) fn request_optional_boolean_field(
         .is_some_and(|inner| inner.spelling == "bool" && inner.unary("Option").is_none())
 }
 
-pub(crate) fn request_object_matches(
+pub(crate) fn named_object_matches(
     openapi: &OpenApiIndex,
     schema_name: &str,
     raw: &str,
     bindings: &Bindings,
 ) -> bool {
     request_object_matches_inner(openapi, schema_name, raw, bindings, &mut BTreeSet::new())
+}
+
+pub(crate) fn request_object_matches(
+    openapi: &OpenApiIndex,
+    schema_name: &str,
+    raw: &str,
+    bindings: &Bindings,
+) -> bool {
+    named_object_matches(openapi, schema_name, raw, bindings)
 }
 
 fn expand_alias_syntax(
