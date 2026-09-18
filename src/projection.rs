@@ -1196,8 +1196,7 @@ fn selected_success_responses_are_empty(operation: &Value, statuses: &[String]) 
 }
 
 fn text_response_schema(schema: &Value) -> bool {
-    schema.get("type").and_then(Value::as_str) == Some("string")
-        && schema.get("format").is_none()
+    schema.get("type").and_then(Value::as_str) == Some("string") && schema.get("format").is_none()
 }
 
 fn binary_response_schema(schema: &Value) -> bool {
@@ -1421,8 +1420,10 @@ pub(crate) fn project_operation(
                 .map(|body| body.media)
         });
     let response = response_projection(openapi, bindings, operation, binding, &path, &public_name)?;
-    let canonical_response = bindings.operations[binding].metadata.as_ref().map(|metadata| {
-        match metadata.representation {
+    let canonical_response = bindings.operations[binding]
+        .metadata
+        .as_ref()
+        .map(|metadata| match metadata.representation {
             ResponseRepresentationBinding::Json { .. } => ResponseRepresentationDefinition::Json,
             ResponseRepresentationBinding::Empty => ResponseRepresentationDefinition::Empty,
             ResponseRepresentationBinding::Text { .. } => ResponseRepresentationDefinition::Text,
@@ -1435,8 +1436,7 @@ pub(crate) fn project_operation(
             ResponseRepresentationBinding::BinaryStream { .. } => {
                 ResponseRepresentationDefinition::BinaryStream
             }
-        }
-    });
+        });
     let (response_name, empty_response, response_models) = match response {
         ProjectedResponse::Empty => (None, Some(true), Vec::new()),
         ProjectedResponse::Json { name, models } => (Some(name), None, models),
