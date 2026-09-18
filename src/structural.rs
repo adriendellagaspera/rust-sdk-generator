@@ -717,6 +717,31 @@ pub(crate) fn raw_scalar_struct_shape(
     Some(result)
 }
 
+pub(crate) fn object_field_names_match(
+    schema: &Value,
+    raw: &str,
+    bindings: &Bindings,
+) -> bool {
+    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
+        return false;
+    };
+    let Some(fields) = bindings.structs.get(raw) else {
+        return false;
+    };
+    let wire_fields: BTreeSet<_> = properties.keys().map(String::as_str).collect();
+    let raw_fields: BTreeSet<_> = fields
+        .iter()
+        .map(|field| {
+            field
+                .wire_name
+                .as_deref()
+                .unwrap_or_else(|| field.name.strip_prefix("r#").unwrap_or(&field.name))
+        })
+        .collect();
+    fields.len() == raw_fields.len() && wire_fields == raw_fields
+}
+
+
 pub(crate) fn inline_object_union_mapping(
     schema: &Value,
     raw_union: &str,

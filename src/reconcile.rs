@@ -10,8 +10,8 @@ use crate::error::{GenerationError, Result};
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::parse_type;
 use crate::structural::{
-    ScalarFieldShape, inline_object_union_mapping, raw_scalar_struct_shape, request_object_matches,
-    rust_type_matches_schema, scalar_object_shape,
+    ScalarFieldShape, inline_object_union_mapping, object_field_names_match,
+    raw_scalar_struct_shape, request_object_matches, rust_type_matches_schema, scalar_object_shape,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -303,10 +303,55 @@ fn binary_schema(schema: &Value) -> bool {
         && schema.get("format").and_then(Value::as_str) == Some("binary")
 }
 
+fn canonical_json_schema_matches(
+    schema: &Value,
+    schema_name: &str,
+    binding: &OperationBinding,
+    bindings: &Bindings,
+) -> bool {
+    if let Some(reference) = ref_name(schema) {
+        return reference == schema_name;
+    }
+
+    let branches = schema
+        .get("oneOf")
+        .or_else(|| schema.get("anyOf"))
+        .and_then(Value::as_array);
+    if let Some(branches) = branches {
+        let references = branches.iter().filter_map(ref_name).collect::<BTreeSet<_>>();
+        if references.len() == branches.len()
+            && let Some(variants) = bindings.enums.get(&binding.success_type)
+        {
+            let actual = variants
+                .iter()
+                .filter_map(|variant| variant.payload.as_deref())
+                .collect::<BTreeSet<_>>();
+            if actual == references && variants.iter().all(|variant| variant.payload.is_some()) {
+                return true;
+            }
+        }
+        if inline_object_union_mapping(schema, &binding.success_type, bindings).is_some() {
+            return true;
+        }
+    }
+
+    if let Some(wire) = scalar_object_shape(schema) {
+        return raw_scalar_struct_shape(bindings, &binding.success_type)
+            .is_some_and(|actual| actual == wire);
+    }
+    if schema.get("type").and_then(Value::as_str) == Some("object")
+        && object_field_names_match(schema, &binding.success_type, bindings)
+    {
+        return true;
+    }
+    rust_type_matches_schema(schema, &binding.success_type, bindings)
+}
+
 fn metadata_response_matches(
     operation: &Value,
     binding: &OperationBinding,
     metadata: &OperationMetadataBinding,
+    bindings: &Bindings,
 ) -> bool {
     let Some(successes) = selected_success_responses(operation, &metadata.success_statuses) else {
         return false;
@@ -327,9 +372,9 @@ fn metadata_response_matches(
         } => {
             binding.success_type == *schema_name
                 && successes.iter().all(|(_, response)| {
-                    response_payload(response, media_type)
-                        .and_then(ref_name)
-                        .is_some_and(|reference| reference == schema_name)
+                    response_payload(response, media_type).is_some_and(|schema| {
+                        canonical_json_schema_matches(schema, schema_name, binding, bindings)
+                    })
                 })
         }
         ResponseRepresentationBinding::Text { media_type } => {
@@ -488,7 +533,7 @@ fn binding_matches(
         return false;
     }
     if let Some(metadata) = &binding.metadata {
-        metadata_response_matches(operation, binding, metadata)
+        metadata_response_matches(operation, binding, metadata, bindings)
     } else {
         response.is_some_and(|shape| response_matches(shape, binding, bindings))
     }

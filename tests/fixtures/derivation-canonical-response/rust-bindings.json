@@ -2,8 +2,33 @@
   "schema_version": 3,
   "structs": {
     "Report": [
-      {"name": "count", "wire_name": "count", "type": "i64"},
-      {"name": "name", "wire_name": "name", "type": "String"}
+      {
+        "name": "count",
+        "wire_name": "count",
+        "type": "i64"
+      },
+      {
+        "name": "name",
+        "wire_name": "name",
+        "type": "String"
+      },
+      {
+        "name": "details",
+        "wire_name": "details",
+        "type": "ReportDetails"
+      }
+    ],
+    "ReportDetails": [
+      {
+        "name": "flags",
+        "wire_name": "flags",
+        "type": "Option<Vec<String>>"
+      },
+      {
+        "name": "label",
+        "wire_name": "label",
+        "type": "String"
+      }
     ]
   },
   "enums": {},
@@ -28,7 +53,10 @@
           "schema_name": "Report",
           "media_type": "application/json"
         },
-        "success_statuses": ["200", "206"],
+        "success_statuses": [
+          "200",
+          "206"
+        ],
         "request_discriminators": [],
         "stream_abi": null
       }
@@ -47,15 +75,21 @@
           "path": "/reports/cache"
         },
         "emitted_operation_id": "purge_reports",
-        "representation": {"kind": "empty"},
-        "success_statuses": ["202", "204"],
+        "representation": {
+          "kind": "empty"
+        },
+        "success_statuses": [
+          "202",
+          "204"
+        ],
         "request_discriminators": [],
         "stream_abi": null
       }
     }
   },
   "symbol_paths": {
-    "Report": "crate::generated::types::Report"
+    "Report": "crate::generated::types::Report",
+    "ReportDetails": "crate::generated::types::ReportDetails"
   },
   "binding": {
     "client": {
@@ -64,6 +98,8 @@
       "api_key_builder": "with_api_key",
       "base_url_builder": "with_base_url"
     },
-    "type_preludes": ["crate::generated::types::*"]
+    "type_preludes": [
+      "crate::generated::types::*"
+    ]
   }
 }
