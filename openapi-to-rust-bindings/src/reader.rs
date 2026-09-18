@@ -1,12 +1,12 @@
-use crate::{Bindings, Error, MANIFEST_NAME, parse_binding_manifest, parse_bindings};
+use crate::{Bindings, Error, MANIFEST_NAME, parse_binding_manifest};
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
 
-/// Historical canonical sidecar name retained during migration.
+/// Canonical sidecar name accepted when generator-owned metadata is materialized separately.
 pub const SIDECAR_NAME: &str = "rust-bindings.json";
 
-/// Read normalized bindings, preferring generator-owned binding metadata when present.
+/// Read normalized bindings from generator-owned metadata or a canonical sidecar.
 pub fn read_bindings(path: impl AsRef<Path>) -> Result<Bindings, Error> {
     let path = path.as_ref();
 
@@ -28,12 +28,8 @@ pub fn read_bindings(path: impl AsRef<Path>) -> Result<Bindings, Error> {
         return Ok(value);
     }
 
-    let types_path = path.join("types.rs");
-    let client_path = path.join("client.rs");
-    let types = fs::read_to_string(&types_path)
-        .map_err(|error| Error::new(format!("failed to read {}: {error}", types_path.display())))?;
-    let client = fs::read_to_string(&client_path).map_err(|error| {
-        Error::new(format!("failed to read {}: {error}", client_path.display()))
-    })?;
-    parse_bindings(&types, &client)
+    Err(Error::new(format!(
+        "missing {MANIFEST_NAME} or {SIDECAR_NAME} in {}",
+        path.display()
+    )))
 }
