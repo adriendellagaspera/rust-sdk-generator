@@ -139,9 +139,13 @@ fn request_raw_core(type_name: &str) -> Result<(Type, usize), &'static str> {
     Ok((syntax, depth))
 }
 
+struct RequestModelContext<'a> {
+    openapi: &'a OpenApiIndex,
+    bindings: &'a Bindings,
+}
+
 fn request_object_models_value(
-    openapi: &OpenApiIndex,
-    bindings: &Bindings,
+    context: &RequestModelContext<'_>,
     schema: &Value,
     source_root: &str,
     source_path: &[String],
@@ -153,7 +157,7 @@ fn request_object_models_value(
         .get("properties")
         .and_then(Value::as_object)
         .ok_or(REQUEST_MODEL_UNPROVEN)?;
-    let fields = bindings.structs.get(raw).ok_or(REQUEST_MODEL_UNPROVEN)?;
+    let fields = context.bindings.structs.get(raw).ok_or(REQUEST_MODEL_UNPROVEN)?;
     let by_name: BTreeMap<_, _> = fields
         .iter()
         .map(|field| (field.name.strip_prefix("r#").unwrap_or(&field.name), field))
@@ -185,8 +189,8 @@ fn request_object_models_value(
 
         if let Some(reference) = ref_name(wire) {
             models.extend(request_object_models(
-                openapi,
-                bindings,
+                context.openapi,
+                context.bindings,
                 reference,
                 &core.spelling,
                 child_name.clone(),
@@ -202,8 +206,7 @@ fn request_object_models_value(
             let mut child_path = source_path.to_vec();
             child_path.push(field_name.clone());
             models.extend(request_object_models_value(
-                openapi,
-                bindings,
+                context,
                 wire,
                 source_root,
                 &child_path,
@@ -215,7 +218,7 @@ fn request_object_models_value(
         }
     }
 
-    if !public_model_name_available(&public_name, bindings) {
+    if !public_model_name_available(&public_name, context.bindings) {
         return Err("capability.public_model_name_collision");
     }
     models.push((
@@ -262,8 +265,7 @@ fn request_object_models(
         .map_err(|_| REQUEST_MODEL_UNPROVEN)
         .and_then(|schema| {
             request_object_models_value(
-                openapi,
-                bindings,
+                &RequestModelContext { openapi, bindings },
                 &schema,
                 schema_name,
                 &[],
@@ -658,7 +660,7 @@ fn map_response_model(
         .get("additionalProperties")
         .filter(|value| **value != Value::Bool(false))
         .ok_or(RESPONSE_VIEW_UNPROVEN)?;
-    let fields = bindings.structs.get(raw).ok_or(RESPONSE_VIEW_UNPROVEN)?;
+    let fields = context.bindings.structs.get(raw).ok_or(RESPONSE_VIEW_UNPROVEN)?;
     if fields.len() != 1
         || fields[0].name.strip_prefix("r#").unwrap_or(&fields[0].name) != "additional_properties"
     {
