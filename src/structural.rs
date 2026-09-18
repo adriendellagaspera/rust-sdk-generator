@@ -219,7 +219,10 @@ fn scalar_enum_matches_schema(schema: &Value, raw: &str, bindings: &Bindings) ->
     let Some(values) = schema.get("enum").and_then(Value::as_array) else {
         return false;
     };
-    let wire = values.iter().filter_map(Value::as_str).collect::<BTreeSet<_>>();
+    let wire = values
+        .iter()
+        .filter_map(Value::as_str)
+        .collect::<BTreeSet<_>>();
     if wire.len() != values.len() {
         return false;
     }
@@ -307,12 +310,7 @@ fn type_matches_schema(
                             if *additional == Value::Bool(true) {
                                 value_type.spelling == "serde_json::Value"
                             } else {
-                                type_matches_schema(
-                                    additional,
-                                    &value_type,
-                                    bindings,
-                                    seen_aliases,
-                                )
+                                type_matches_schema(additional, &value_type, bindings, seen_aliases)
                             }
                         })
                     })
@@ -422,7 +420,8 @@ fn request_union_matches_inner(
     let Some(variants) = bindings.enums.get(raw_union) else {
         return false;
     };
-    if variants.len() != branches.len() || variants.iter().any(|variant| variant.payload.is_none()) {
+    if variants.len() != branches.len() || variants.iter().any(|variant| variant.payload.is_none())
+    {
         return false;
     }
 
