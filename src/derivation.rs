@@ -319,8 +319,10 @@ fn validate_closed_world_projection(
     }
 
     for (operation_id, outcome) in operations {
-        let should_project =
-            matches!(outcome.status, DerivationStatus::Derived | DerivationStatus::Overridden);
+        let should_project = matches!(
+            outcome.status,
+            DerivationStatus::Derived | DerivationStatus::Overridden
+        );
         let is_projected = projected.remove(operation_id);
         if should_project != is_projected {
             return Err(DerivationError::at(
