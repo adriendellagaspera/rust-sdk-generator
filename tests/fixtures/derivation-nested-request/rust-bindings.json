@@ -1,0 +1,45 @@
+{
+  "schema_version": 2,
+  "structs": {
+    "OpaqueRequest9": [
+      {"name": "metadata", "type": "Option<OpaqueMeta7>"},
+      {"name": "config", "type": "OpaqueConfig4"},
+      {"name": "name", "type": "String"}
+    ],
+    "OpaqueConfig4": [
+      {"name": "retries", "type": "Option<i64>"},
+      {"name": "mode", "type": "String"}
+    ],
+    "OpaqueMeta7": [
+      {"name": "note", "type": "Option<String>"}
+    ]
+  },
+  "enums": {},
+  "aliases": {},
+  "operations": {
+    "opaque_create_call": {
+      "name": "unrelated_create_method",
+      "parameters": [
+        {"name": "dry_run", "type": "Option<bool>"},
+        {"name": "payload", "type": "OpaqueRequest9"},
+        {"name": "tenant_id", "type": "impl AsRef<str>"}
+      ],
+      "return_type": "Result<(), Error>",
+      "success_type": "()"
+    }
+  },
+  "symbol_paths": {
+    "OpaqueRequest9": "crate::generated::types::OpaqueRequest9",
+    "OpaqueConfig4": "crate::generated::types::OpaqueConfig4",
+    "OpaqueMeta7": "crate::generated::types::OpaqueMeta7"
+  },
+  "binding": {
+    "client": {
+      "type_path": "crate::generated::client::HttpClient",
+      "constructor": "new",
+      "api_key_builder": "with_api_key",
+      "base_url_builder": "with_base_url"
+    },
+    "type_preludes": ["crate::generated::types::*"]
+  }
+}
