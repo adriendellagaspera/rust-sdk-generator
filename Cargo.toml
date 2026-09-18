@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "openapi-to-rust-bindings"]
+resolver = "3"
+
 [package]
 name = "rust-sdk-generator"
 version = "0.2.8"

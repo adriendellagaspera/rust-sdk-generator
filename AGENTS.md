@@ -9,7 +9,7 @@ boundaries and executable contracts, not a second implementation spec.
 - `src/*.rs`: canonical Rust generator library, CLI, contracts, lowering and emission.
 - `tests/fixtures/`, `tests/oracle/`, `tests/rust_surface.rs`: generic generator behavior and surface proofs.
 - `tests/test_bindings_integration.py`: adapter-sidecar-to-Rust-CLI integration proof.
-- `openapi-to-rust-bindings/`: conversion from `openapi-to-rust` output to normalized `Bindings` JSON.
+- `openapi-to-rust-bindings/`: Rust conversion from `openapi-to-rust` output to normalized `Bindings` JSON.
 - `.github/workflows/`: required automation and quality gates.
 - `scripts/`: small repository-policy checks used locally and in CI.
 
@@ -20,14 +20,14 @@ Run the same focused contracts CI runs rather than inventing ad-hoc validation:
 ```sh
 python3 scripts/check_agent_contract.py
 cargo fmt --all -- --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-targets --all-features
-uvx --from ruff==0.16.8 ruff check --select E4,E7,E9,F63,F7,F82 tests/test_bindings_integration.py scripts openapi-to-rust-bindings/src openapi-to-rust-bindings/tests openapi-to-rust-bindings/scripts
-(cd openapi-to-rust-bindings && uv build --wheel)
+cargo clippy -p rust-sdk-generator --all-targets --all-features -- -D warnings
+cargo test -p rust-sdk-generator --all-targets --all-features
+cargo clippy -p openapi-to-rust-bindings --all-targets --all-features -- -D warnings
+cargo test -p openapi-to-rust-bindings --all-targets --all-features
+uvx --from ruff==0.16.8 ruff check --select E4,E7,E9,F63,F7,F82 tests/test_bindings_integration.py scripts openapi-to-rust-bindings/scripts
 ```
 
-Use the full GitHub CI before merge for the isolated adapter wheel-install and
-generic adapter-to-CLI integration checks.
+Use the full GitHub CI before merge for the generic adapter-to-CLI integration check.
 
 ## Gated invariants
 

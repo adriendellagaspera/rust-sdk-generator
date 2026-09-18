@@ -5,8 +5,6 @@ import subprocess
 import tempfile
 import unittest
 
-from openapi_to_rust_bindings import Bindings, parse_bindings
-
 
 ROOT = Path(__file__).resolve().parents[1]
 GENERATOR_FIXTURE = ROOT / "tests" / "fixtures" / "menagerie"
@@ -19,23 +17,33 @@ GENERATOR = Path(
         ROOT / "target" / "debug" / "rust-sdk-generator",
     )
 )
+BINDINGS_ADAPTER = Path(
+    os.environ.get(
+        "OPENAPI_TO_RUST_BINDINGS_BIN",
+        ROOT / "target" / "debug" / "openapi-to-rust-bindings",
+    )
+)
 
 
 class BindingsIntegrationTests(unittest.TestCase):
     def test_adapter_sidecar_drives_rust_cli_deterministically(self):
-        parsed = parse_bindings(
-            (BINDINGS_FIXTURE / "types.rs").read_bytes(),
-            (BINDINGS_FIXTURE / "client.rs").read_bytes(),
+        parsed_process = subprocess.run(
+            [str(BINDINGS_ADAPTER), str(BINDINGS_FIXTURE)],
+            check=False,
+            capture_output=True,
+            text=True,
         )
-        expected = Bindings.from_dict(
-            json.loads((GENERATOR_FIXTURE / "rust-bindings.json").read_text())
-        )
+        self.assertEqual(parsed_process.returncode, 0, parsed_process.stderr)
+        parsed = json.loads(parsed_process.stdout)
+        expected = json.loads((GENERATOR_FIXTURE / "rust-bindings.json").read_text())
+        for operation in expected["operations"].values():
+            operation.setdefault("stream", None)
         self.assertEqual(parsed, expected)
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             bindings = root / "rust-bindings.json"
-            bindings.write_text(json.dumps(parsed.to_dict(), sort_keys=True))
+            bindings.write_text(json.dumps(parsed, sort_keys=True))
 
             snapshots = []
             inventories = []
