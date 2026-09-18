@@ -318,7 +318,10 @@ fn canonical_json_schema_matches(
         .or_else(|| schema.get("anyOf"))
         .and_then(Value::as_array);
     if let Some(branches) = branches {
-        let references = branches.iter().filter_map(ref_name).collect::<BTreeSet<_>>();
+        let references = branches
+            .iter()
+            .filter_map(ref_name)
+            .collect::<BTreeSet<_>>();
         if references.len() == branches.len()
             && let Some(variants) = bindings.enums.get(&binding.success_type)
         {

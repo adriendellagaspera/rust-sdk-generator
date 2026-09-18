@@ -15,9 +15,8 @@ use crate::rust_type::{Type, TypeKind, parse_type};
 use crate::structural::{
     inline_object_union_mapping, multipart_filenames_binding, object_field_names_match,
     raw_scalar_struct_shape, request_object_matches, request_optional_boolean_field,
-    request_union_mapping,
-    rust_type_matches_schema, scalar_named_object_matches, scalar_object_shape,
-    sse_payload_schema_name,
+    request_union_mapping, rust_type_matches_schema, scalar_named_object_matches,
+    scalar_object_shape, sse_payload_schema_name,
 };
 use crate::symbols::{SymbolProvider, field_identifier};
 

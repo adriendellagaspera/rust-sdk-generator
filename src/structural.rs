@@ -717,11 +717,7 @@ pub(crate) fn raw_scalar_struct_shape(
     Some(result)
 }
 
-pub(crate) fn object_field_names_match(
-    schema: &Value,
-    raw: &str,
-    bindings: &Bindings,
-) -> bool {
+pub(crate) fn object_field_names_match(schema: &Value, raw: &str, bindings: &Bindings) -> bool {
     let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
         return false;
     };
@@ -740,7 +736,6 @@ pub(crate) fn object_field_names_match(
         .collect();
     fields.len() == raw_fields.len() && wire_fields == raw_fields
 }
-
 
 pub(crate) fn inline_object_union_mapping(
     schema: &Value,
