@@ -1,5 +1,5 @@
 use crate::{Bindings, Error};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -8,9 +8,13 @@ pub const MANIFEST_NAME: &str = "binding-manifest.json";
 const MANIFEST_SCHEMA: &str = "openapi-to-rust.binding-manifest";
 const MANIFEST_SCHEMA_VERSION: u32 = 1;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(transparent)]
-struct RequiredNullable<T>(Option<T>);
+fn deserialize_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
+}
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -37,7 +41,8 @@ struct ManifestGenerator {
 #[serde(deny_unknown_fields)]
 struct ManifestField {
     name: String,
-    wire_name: RequiredNullable<String>,
+    #[serde(deserialize_with = "deserialize_nullable")]
+    wire_name: Option<String>,
     #[serde(rename = "type")]
     type_name: String,
 }
@@ -46,8 +51,10 @@ struct ManifestField {
 #[serde(deny_unknown_fields)]
 struct ManifestVariant {
     name: String,
-    payload: RequiredNullable<String>,
-    wire_name: RequiredNullable<String>,
+    #[serde(deserialize_with = "deserialize_nullable")]
+    payload: Option<String>,
+    #[serde(deserialize_with = "deserialize_nullable")]
+    wire_name: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -228,7 +235,7 @@ pub fn parse_binding_manifest(source: &str) -> Result<Bindings, Error> {
                 .map(|field| {
                     json!({
                         "name": field.name,
-                        "wire_name": field.wire_name.0,
+                        "wire_name": field.wire_name,
                         "type": field.type_name,
                     })
                 })
@@ -246,8 +253,8 @@ pub fn parse_binding_manifest(source: &str) -> Result<Bindings, Error> {
                 .map(|variant| {
                     json!({
                         "name": variant.name,
-                        "payload": variant.payload.0,
-                        "wire_name": variant.wire_name.0,
+                        "payload": variant.payload,
+                        "wire_name": variant.wire_name,
                     })
                 })
                 .collect();
