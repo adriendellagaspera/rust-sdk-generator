@@ -1139,7 +1139,7 @@ fn parameter_request(
 ) -> Result<Option<ParameterRequestSpec>> {
     if matches!(
         operation.request_projection,
-        RequestProjection::Model { .. }
+        RequestProjection::Model { .. } | RequestProjection::Raw { .. }
     ) || operation.raw_signature.parameters.is_empty()
         || !operation
             .raw_signature
@@ -1233,6 +1233,35 @@ fn operation_call(
             if parameter.type_name == *raw {
                 declarations.push(format!("request: {model}"));
                 values.push(body.clone());
+            } else {
+                let (declaration, value) = direct_parameter(parameter, bindings)?;
+                declarations.push(declaration);
+                values.push(value);
+            }
+        }
+        return Ok(OperationCall {
+            arguments: declarations.join(", "),
+            raw_arguments: values.join(", "),
+            default_raw_arguments: None,
+        });
+    }
+    if let RequestProjection::Raw {
+        media: _,
+        raw_parameter,
+        public_name,
+    } = &operation.request_projection
+    {
+        let mut declarations = Vec::new();
+        let mut values = Vec::new();
+        for parameter in parameters {
+            if parameter.name == *raw_parameter {
+                let public = RawParameter {
+                    name: public_name.clone(),
+                    type_name: parameter.type_name.clone(),
+                };
+                let (declaration, value) = direct_parameter(&public, bindings)?;
+                declarations.push(declaration);
+                values.push(value);
             } else {
                 let (declaration, value) = direct_parameter(parameter, bindings)?;
                 declarations.push(declaration);
@@ -1366,7 +1395,7 @@ fn validate_symbols(ir: &FacadeIr, bindings: &Bindings) -> Result<()> {
             symbols.claim(&operation.name, &resource.name, &operation.operation_id, "")?;
             if !matches!(
                 operation.request_projection,
-                RequestProjection::Model { .. }
+                RequestProjection::Model { .. } | RequestProjection::Raw { .. }
             ) && !operation.raw_signature.parameters.is_empty()
                 && operation
                     .raw_signature
