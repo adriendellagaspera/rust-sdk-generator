@@ -6,9 +6,10 @@ use rust_sdk_generator::{
 fn fixture() -> (OpenApi, Bindings, PublicSdkSurface) {
     let openapi = serde_json::from_str(include_str!("fixtures/derivation-update/openapi.json"))
         .expect("fixture OpenAPI");
-    let bindings =
-        serde_json::from_str(include_str!("fixtures/derivation-update/rust-bindings.json"))
-            .expect("fixture bindings");
+    let bindings = serde_json::from_str(include_str!(
+        "fixtures/derivation-update/rust-bindings.json"
+    ))
+    .expect("fixture bindings");
     let surface = serde_json::from_str(include_str!("fixtures/derivation-update/surface.json"))
         .expect("fixture surface");
     (openapi, bindings, surface)
