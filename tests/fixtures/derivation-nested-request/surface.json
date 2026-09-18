@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "client": "PlatformClient",
+  "operations": {
+    "create_widget": ["platform.widgets.create"]
+  }
+}

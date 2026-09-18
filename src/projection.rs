@@ -12,8 +12,8 @@ use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, parse_type};
 use crate::structural::{
     ScalarFieldShape, ScalarKind as StructuralScalarKind, inline_array_object_item,
-    inline_object_union_mapping, raw_scalar_struct_shape, rust_type_matches_schema,
-    scalar_object_shape,
+    inline_object_union_mapping, raw_scalar_struct_shape, request_object_matches,
+    rust_type_matches_schema, scalar_object_shape,
 };
 use crate::symbols::field_identifier;
 
@@ -107,64 +107,174 @@ fn public_model_name_available(name: &str, bindings: &Bindings) -> bool {
         && !bindings.aliases.contains_key(name)
 }
 
+fn request_non_null_schema(schema: &Value) -> (&Value, bool) {
+    let Some(branches) = schema.get("anyOf").and_then(Value::as_array) else {
+        return (schema, false);
+    };
+    if branches.len() != 2 {
+        return (schema, false);
+    }
+    let non_null: Vec<_> = branches
+        .iter()
+        .filter(|branch| branch.get("type").and_then(Value::as_str) != Some("null"))
+        .collect();
+    let nulls = branches
+        .iter()
+        .filter(|branch| branch.get("type").and_then(Value::as_str) == Some("null"))
+        .count();
+    if non_null.len() == 1 && nulls == 1 {
+        (non_null[0], true)
+    } else {
+        (schema, false)
+    }
+}
+
+fn request_raw_core(type_name: &str) -> Result<(Type, usize), &'static str> {
+    let mut syntax = parse_type(type_name).map_err(|_| REQUEST_MODEL_UNPROVEN)?;
+    let mut depth = 0;
+    while let Some(inner) = syntax.unary("Option") {
+        depth += 1;
+        syntax = inner.clone();
+    }
+    Ok((syntax, depth))
+}
+
+fn request_object_models(
+    openapi: &OpenApiIndex,
+    bindings: &Bindings,
+    schema_name: &str,
+    raw: &str,
+    public_name: String,
+    seen: &mut BTreeSet<(String, String)>,
+) -> Result<ProjectedModels, &'static str> {
+    if !request_object_matches(openapi, schema_name, raw, bindings) {
+        return Err(REQUEST_MODEL_UNPROVEN);
+    }
+
+    let pair = (schema_name.to_owned(), raw.to_owned());
+    if !seen.insert(pair.clone()) {
+        return Err(REQUEST_MODEL_UNPROVEN);
+    }
+
+    let result = (|| {
+        let schema = openapi
+            .object_schema(schema_name)
+            .map_err(|_| REQUEST_MODEL_UNPROVEN)?;
+        let properties = schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .ok_or(REQUEST_MODEL_UNPROVEN)?;
+        let fields = bindings.structs.get(raw).ok_or(REQUEST_MODEL_UNPROVEN)?;
+        let by_name: BTreeMap<_, _> = fields
+            .iter()
+            .map(|field| (field.name.strip_prefix("r#").unwrap_or(&field.name), field))
+            .collect();
+        let required: Vec<String> = schema
+            .get("required")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect();
+        let required_set: BTreeSet<_> = required.iter().map(String::as_str).collect();
+
+        let mut models = Vec::new();
+        let mut adapters = IndexMap::new();
+        for (field_name, property) in properties {
+            let (wire, nullable) = request_non_null_schema(property);
+            if required_set.contains(field_name.as_str()) && nullable {
+                return Err(REQUEST_MODEL_UNPROVEN);
+            }
+            let Some(reference) = ref_name(wire) else {
+                continue;
+            };
+            let field = by_name
+                .get(field_name.as_str())
+                .ok_or(REQUEST_MODEL_UNPROVEN)?;
+            let (core, _) = request_raw_core(&field.type_name)?;
+            let segment =
+                semantic_pascal_identifier(field_name).map_err(|_| REQUEST_MODEL_UNPROVEN)?;
+            let child_name = format!("{public_name}{segment}");
+            models.extend(request_object_models(
+                openapi,
+                bindings,
+                reference,
+                &core.spelling,
+                child_name.clone(),
+                seen,
+            )?);
+            adapters.insert(field_name.clone(), child_name);
+        }
+
+        if !public_model_name_available(&public_name, bindings) {
+            return Err("capability.public_model_name_collision");
+        }
+        models.push((
+            public_name,
+            ModelDefinition {
+                schema: Some(schema_name.into()),
+                raw: Some(raw.into()),
+                constructor: Some(required),
+                exclude: None,
+                adapters: (!adapters.is_empty()).then_some(adapters),
+                union: None,
+                simple_union: None,
+                type_alias: None,
+                map: None,
+                scalar_enum: None,
+                union_factory: None,
+                borrowed: None,
+                accessors: None,
+            },
+        ));
+        Ok(models)
+    })();
+
+    seen.remove(&pair);
+    result
+}
+
 fn request_model(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
     operation_id: &str,
+    binding: &str,
     resource_path: &[String],
     public_name: &str,
-) -> Result<Option<(String, ModelDefinition)>, &'static str> {
-    let Some(raw) = openapi
+) -> Result<Option<(String, ProjectedModels)>, &'static str> {
+    let Some(schema_name) = openapi
         .request_schema(operation_id)
         .map_err(|_| REQUEST_MODEL_UNPROVEN)?
     else {
         return Ok(None);
     };
-    let schema = openapi
-        .object_schema(&raw)
-        .map_err(|_| REQUEST_MODEL_UNPROVEN)?;
-    let wire = scalar_object_shape(&schema).ok_or(REQUEST_MODEL_UNPROVEN)?;
-    let raw_shape = raw_scalar_struct_shape(bindings, &raw).ok_or(REQUEST_MODEL_UNPROVEN)?;
-    if wire != raw_shape {
-        return Err(REQUEST_MODEL_UNPROVEN);
-    }
-
-    let required: Vec<String> = schema
-        .get("required")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(str::to_owned)
-        .collect();
-    if required
+    let raw_binding = bindings
+        .operations
+        .get(binding)
+        .ok_or("bindings.no_structural_match")?;
+    let matching: Vec<_> = raw_binding
+        .parameters
         .iter()
-        .any(|field| wire.get(field).is_some_and(|shape| shape.option_depth != 0))
-    {
+        .filter(|parameter| {
+            request_object_matches(openapi, &schema_name, &parameter.type_name, bindings)
+        })
+        .collect();
+    if matching.len() != 1 {
         return Err(REQUEST_MODEL_UNPROVEN);
     }
 
+    let raw = &matching[0].type_name;
     let name = request_model_name(resource_path, public_name);
-    if !public_model_name_available(&name, bindings) {
-        return Err("capability.public_model_name_collision");
-    }
-    Ok(Some((
-        name,
-        ModelDefinition {
-            raw: Some(raw),
-            constructor: Some(required),
-            exclude: None,
-            adapters: None,
-            union: None,
-            simple_union: None,
-            type_alias: None,
-            map: None,
-            scalar_enum: None,
-            union_factory: None,
-            borrowed: None,
-            accessors: None,
-        },
-    )))
+    let models = request_object_models(
+        openapi,
+        bindings,
+        &schema_name,
+        raw,
+        name.clone(),
+        &mut BTreeSet::new(),
+    )?;
+    Ok(Some((name, models)))
 }
 
 fn safe_accessor_name(name: &str) -> bool {
@@ -222,6 +332,7 @@ fn response_view_named(
     Ok((
         name,
         ModelDefinition {
+            schema: None,
             raw: Some(raw.into()),
             constructor: None,
             exclude: None,
@@ -273,6 +384,7 @@ fn inline_response_view_named(
     Ok((
         name,
         ModelDefinition {
+            schema: None,
             raw: Some(raw.into()),
             constructor: None,
             exclude: None,
@@ -337,6 +449,7 @@ fn inline_array_response_model(
             },
         );
         let root_model = ModelDefinition {
+            schema: None,
             raw: Some(raw.into()),
             constructor: None,
             exclude: None,
@@ -361,6 +474,7 @@ fn inline_array_response_model(
         vec![(
             name,
             ModelDefinition {
+                schema: None,
                 raw: Some(raw.into()),
                 constructor: None,
                 exclude: None,
@@ -460,6 +574,7 @@ fn alias_response_model(
     Ok((
         name,
         ModelDefinition {
+            schema: None,
             raw: Some(raw.into()),
             constructor: None,
             exclude: None,
@@ -525,6 +640,7 @@ fn map_response_model(
     Ok((
         name,
         ModelDefinition {
+            schema: None,
             raw: Some(raw.into()),
             constructor: None,
             exclude: None,
@@ -586,6 +702,7 @@ fn scalar_enum_response_model(
     Ok((
         name,
         ModelDefinition {
+            schema: None,
             raw: Some(raw.into()),
             constructor: None,
             exclude: None,
@@ -680,6 +797,7 @@ fn inline_union_response_model(
     models.push((
         union_name.clone(),
         ModelDefinition {
+            schema: None,
             raw: Some(raw_union.into()),
             constructor: None,
             exclude: None,
@@ -789,6 +907,7 @@ fn union_response_model(
     models.push((
         union_name.clone(),
         ModelDefinition {
+            schema: None,
             raw: Some(raw_union.into()),
             constructor: None,
             exclude: None,
@@ -918,7 +1037,14 @@ pub(crate) fn project_operation(
     let operation = openapi
         .operation(operation_id)
         .map_err(|_| "openapi.unknown_operation")?;
-    let request_model = request_model(openapi, bindings, operation_id, &path, &public_name)?;
+    let request_model = request_model(
+        openapi,
+        bindings,
+        operation_id,
+        binding,
+        &path,
+        &public_name,
+    )?;
     let request = request_model.as_ref().map(|(name, _)| name.clone());
     let response = response_projection(openapi, bindings, operation, binding, &path, &public_name)?;
     let (response_name, empty_response, response_models) = match response {
@@ -926,8 +1052,8 @@ pub(crate) fn project_operation(
         ProjectedResponse::Json { name, models } => (Some(name), None, models),
     };
     let mut models = Vec::new();
-    if let Some(model) = request_model {
-        models.push(model);
+    if let Some((_, request_models)) = request_model {
+        models.extend(request_models);
     }
     models.extend(response_models);
 
