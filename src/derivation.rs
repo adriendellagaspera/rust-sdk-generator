@@ -9,6 +9,7 @@ use crate::naming::derive_public_paths;
 use crate::openapi::OpenApiIndex;
 use crate::projection::{insert_projection, project_operation};
 use crate::reconcile::reconcile;
+use crate::structural::request_optional_boolean_field;
 
 /// Consumer-provided public resource/method naming evidence.
 ///
@@ -39,12 +40,21 @@ impl Default for PublicSdkSurface {
 /// The initial contract supports explicit exclusion. Further semantic override
 /// fields are added only at the generic boundary; raw-generator method names are
 /// deliberately not part of this contract.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct OperationOverride {
+    #[serde(default)]
+    pub request_overrides: BTreeMap<String, Option<bool>>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SdkOverrides {
     pub schema_version: u32,
     #[serde(default)]
     pub excluded_operations: BTreeMap<String, String>,
+    #[serde(default)]
+    pub operations: BTreeMap<String, OperationOverride>,
 }
 
 impl Default for SdkOverrides {
@@ -52,6 +62,7 @@ impl Default for SdkOverrides {
         Self {
             schema_version: 1,
             excluded_operations: BTreeMap::new(),
+            operations: BTreeMap::new(),
         }
     }
 }
@@ -241,6 +252,118 @@ fn validate_evidence(
             ));
         }
     }
+    for (operation_id, operation_override) in &overrides.operations {
+        let path = format!("overrides.operations.{operation_id}");
+        if !operation_ids.contains(operation_id) {
+            return Err(DerivationError::at(
+                "overrides.unknown_operation",
+                path,
+                format!("SdkOverrides references unknown operation {operation_id}"),
+            ));
+        }
+        if overrides.excluded_operations.contains_key(operation_id) {
+            return Err(DerivationError::at(
+                "overrides.conflict",
+                path,
+                format!("operation {operation_id} cannot be both excluded and overridden"),
+            ));
+        }
+        if operation_override.request_overrides.is_empty() {
+            return Err(DerivationError::at(
+                "overrides.empty_operation",
+                path,
+                "operation override must contain at least one decision",
+            ));
+        }
+        if let Some(field) = operation_override
+            .request_overrides
+            .keys()
+            .find(|field| field.trim().is_empty())
+        {
+            return Err(DerivationError::at(
+                "overrides.invalid_request_override",
+                format!("{path}.request_overrides.{field}"),
+                "request override field must not be empty",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn apply_operation_override(
+    index: &OpenApiIndex,
+    bindings: &Bindings,
+    definition: &mut SdkDefinition,
+    operation_id: &str,
+    operation_override: &OperationOverride,
+) -> Result<(), DerivationError> {
+    let location = definition.resources.iter().find_map(|(resource_name, resource)| {
+        resource
+            .operations
+            .iter()
+            .find(|(_, operation)| operation.operation_id == operation_id)
+            .map(|(public_name, _)| (resource_name.clone(), public_name.clone()))
+    });
+    let Some((resource_name, public_name)) = location else {
+        return Err(DerivationError::at(
+            "overrides.unapplied",
+            format!("overrides.operations.{operation_id}"),
+            format!("operation {operation_id} was not projected into SdkDefinition"),
+        ));
+    };
+
+    let request_name = definition.resources[&resource_name].operations[&public_name]
+        .request
+        .clone()
+        .ok_or_else(|| {
+            DerivationError::at(
+                "overrides.invalid_request_override",
+                format!("overrides.operations.{operation_id}.request_overrides"),
+                format!("operation {operation_id} has no JSON request model"),
+            )
+        })?;
+    let request_model = definition.models.get(&request_name).ok_or_else(|| {
+        DerivationError::new(
+            "derivation.request_model_missing",
+            format!("projected request model {request_name} is missing"),
+        )
+    })?;
+    if request_model.schema_path.as_ref().is_some_and(|path| !path.is_empty()) {
+        return Err(DerivationError::at(
+            "overrides.invalid_request_override",
+            format!("overrides.operations.{operation_id}.request_overrides"),
+            "operation request override requires the root request model",
+        ));
+    }
+    let raw = request_model.raw.as_deref().unwrap_or(&request_name);
+    let schema = request_model.schema.as_deref().unwrap_or(raw);
+
+    for field in operation_override.request_overrides.keys() {
+        if !request_optional_boolean_field(index, schema, raw, field, bindings) {
+            return Err(DerivationError::at(
+                "overrides.invalid_request_override",
+                format!("overrides.operations.{operation_id}.request_overrides.{field}"),
+                format!(
+                    "request override requires optional non-null Boolean in OpenAPI and Option<bool> in Bindings: {raw}.{field}"
+                ),
+            ));
+        }
+    }
+
+    definition
+        .resources
+        .get_mut(&resource_name)
+        .expect("located resource")
+        .operations
+        .get_mut(&public_name)
+        .expect("located operation")
+        .request_overrides = Some(
+        operation_override
+            .request_overrides
+            .iter()
+            .map(|(field, value)| (field.clone(), *value))
+            .collect(),
+    );
     Ok(())
 }
 
@@ -300,7 +423,7 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
         })?;
         let public_paths = named.evidence.clone();
         let public_path = named.public_path.clone();
-        let outcome = if let Some(reason) = overrides.excluded_operations.get(&operation_id) {
+        let mut outcome = if let Some(reason) = overrides.excluded_operations.get(&operation_id) {
             OperationDerivation {
                 status: DerivationStatus::Excluded,
                 reason: DerivationReason {
@@ -389,6 +512,37 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                 }
             }
         };
+        if let Some(operation_override) = overrides.operations.get(&operation_id) {
+            if outcome.status != DerivationStatus::Derived {
+                return Err(DerivationError::at(
+                    "overrides.unapplied",
+                    format!("overrides.operations.{operation_id}"),
+                    format!(
+                        "operation {operation_id} could not accept overrides because generic derivation ended as {:?} ({})",
+                        outcome.status, outcome.reason.code
+                    ),
+                ));
+            }
+            apply_operation_override(
+                &index,
+                &bindings,
+                &mut definition,
+                &operation_id,
+                operation_override,
+            )?;
+            outcome.status = DerivationStatus::Overridden;
+            outcome.reason = DerivationReason {
+                code: "override.request_overrides".into(),
+                detail: Some(
+                    operation_override
+                        .request_overrides
+                        .keys()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(","),
+                ),
+            };
+        }
         operations.insert(operation_id, outcome);
     }
 
