@@ -1172,7 +1172,10 @@ fn named_stream_payload_matches(
     let Ok(fields) = bindings.fields(raw) else {
         return false;
     };
-    let wire_fields = properties.keys().map(String::as_str).collect::<BTreeSet<_>>();
+    let wire_fields = properties
+        .keys()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
     let raw_fields = fields
         .iter()
         .map(|field| {
