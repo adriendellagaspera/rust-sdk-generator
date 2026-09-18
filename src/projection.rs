@@ -5,8 +5,8 @@ use serde_json::Value;
 
 use crate::contracts::{
     AccessorDefinition, AccessorKindDefinition, Bindings, MapDefinition, ModelDefinition,
-    OperationDefinition, RequestMediaDefinition, ResourceDefinition, ScalarEnumDefinition,
-    SdkDefinition, SimpleUnionDefinition, SimpleUnionVariant,
+    OperationDefinition, RequestMediaDefinition, ResourceDefinition, ResponseRepresentationBinding,
+    ScalarEnumDefinition, SdkDefinition, SimpleUnionDefinition, SimpleUnionVariant,
 };
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, parse_type};
@@ -1133,6 +1133,110 @@ fn union_response_model(
     Ok((union_name, models))
 }
 
+fn selected_success_response_schemas<'a>(
+    operation: &'a Value,
+    statuses: &[String],
+    media_type: &str,
+) -> Result<Vec<&'a Value>, &'static str> {
+    let responses = operation
+        .get("responses")
+        .and_then(Value::as_object)
+        .ok_or("response.multiple_success_contracts")?;
+    let selected_statuses: Vec<_> = if statuses.is_empty() {
+        responses
+            .keys()
+            .filter(|status| status.starts_with('2'))
+            .map(String::as_str)
+            .collect()
+    } else {
+        statuses.iter().map(String::as_str).collect()
+    };
+    if selected_statuses.is_empty() {
+        return Err("response.multiple_success_contracts");
+    }
+    selected_statuses
+        .into_iter()
+        .map(|status| {
+            responses
+                .get(status)
+                .and_then(|response| response.get("content"))
+                .and_then(Value::as_object)
+                .and_then(|content| content.get(media_type))
+                .and_then(|payload| payload.get("schema"))
+                .ok_or("response.inline_or_unresolved")
+        })
+        .collect()
+}
+
+fn selected_success_responses_are_empty(operation: &Value, statuses: &[String]) -> bool {
+    let Some(responses) = operation.get("responses").and_then(Value::as_object) else {
+        return false;
+    };
+    let selected_statuses: Vec<_> = if statuses.is_empty() {
+        responses
+            .keys()
+            .filter(|status| status.starts_with('2'))
+            .map(String::as_str)
+            .collect()
+    } else {
+        statuses.iter().map(String::as_str).collect()
+    };
+    !selected_statuses.is_empty()
+        && selected_statuses.into_iter().all(|status| {
+            responses.get(status).is_some_and(|response| {
+                response
+                    .get("content")
+                    .and_then(Value::as_object)
+                    .is_none_or(|content| content.is_empty())
+            })
+        })
+}
+
+fn project_json_response_schema(
+    openapi: &OpenApiIndex,
+    bindings: &Bindings,
+    schema: &Value,
+    raw_success: &str,
+    resource_path: &[String],
+    public_name: &str,
+) -> Result<ProjectedResponse, &'static str> {
+    if let Some(raw) = ref_name(schema) {
+        if raw_success != raw {
+            return Err(RESPONSE_VIEW_UNPROVEN);
+        }
+        let (name, model) = response_model(openapi, bindings, raw, resource_path, public_name)?;
+        return Ok(ProjectedResponse::Json {
+            name: name.clone(),
+            models: vec![(name, model)],
+        });
+    }
+    if schema.get("oneOf").is_some() || schema.get("anyOf").is_some() {
+        let (name, models) = union_response_model(
+            openapi,
+            bindings,
+            schema,
+            raw_success,
+            resource_path,
+            public_name,
+        )?;
+        return Ok(ProjectedResponse::Json { name, models });
+    }
+    if schema.get("type").and_then(Value::as_str) == Some("object") {
+        let (name, model) =
+            inline_response_view(bindings, schema, raw_success, resource_path, public_name)?;
+        return Ok(ProjectedResponse::Json {
+            name: name.clone(),
+            models: vec![(name, model)],
+        });
+    }
+    if schema.get("type").and_then(Value::as_str) == Some("array") {
+        let (name, models) =
+            inline_array_response_model(bindings, schema, raw_success, resource_path, public_name)?;
+        return Ok(ProjectedResponse::Json { name, models });
+    }
+    Err(RESPONSE_VIEW_UNPROVEN)
+}
+
 fn response_projection(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
@@ -1145,6 +1249,46 @@ fn response_projection(
         .operations
         .get(binding)
         .ok_or("bindings.no_structural_match")?;
+
+    if let Some(metadata) = &raw_binding.metadata {
+        return match &metadata.representation {
+            ResponseRepresentationBinding::Empty => {
+                if raw_binding.success_type == "()"
+                    && selected_success_responses_are_empty(operation, &metadata.success_statuses)
+                {
+                    Ok(ProjectedResponse::Empty)
+                } else {
+                    Err("capability.empty_response_not_structurally_provable")
+                }
+            }
+            ResponseRepresentationBinding::Json {
+                schema_name,
+                media_type,
+            } => {
+                if raw_binding.success_type != *schema_name {
+                    return Err(RESPONSE_VIEW_UNPROVEN);
+                }
+                let schemas =
+                    selected_success_response_schemas(operation, &metadata.success_statuses, media_type)?;
+                let Some(schema) = schemas.first().copied() else {
+                    return Err("response.multiple_success_contracts");
+                };
+                if schemas.iter().any(|candidate| *candidate != schema) {
+                    return Err(RESPONSE_VIEW_UNPROVEN);
+                }
+                project_json_response_schema(
+                    openapi,
+                    bindings,
+                    schema,
+                    &raw_binding.success_type,
+                    resource_path,
+                    public_name,
+                )
+            }
+            _ => Err("capability.response_projection_not_implemented"),
+        };
+    }
+
     let success: Vec<_> = operation
         .get("responses")
         .and_then(Value::as_object)
@@ -1171,51 +1315,14 @@ fn response_projection(
         .get("schema")
         .ok_or("response.inline_or_unresolved")?;
     if media == "application/json" {
-        if let Some(raw) = ref_name(schema) {
-            if raw_binding.success_type != raw {
-                return Err(RESPONSE_VIEW_UNPROVEN);
-            }
-            let (name, model) = response_model(openapi, bindings, raw, resource_path, public_name)?;
-            return Ok(ProjectedResponse::Json {
-                name: name.clone(),
-                models: vec![(name, model)],
-            });
-        }
-        if schema.get("oneOf").is_some() || schema.get("anyOf").is_some() {
-            let (name, models) = union_response_model(
-                openapi,
-                bindings,
-                schema,
-                &raw_binding.success_type,
-                resource_path,
-                public_name,
-            )?;
-            return Ok(ProjectedResponse::Json { name, models });
-        }
-        if schema.get("type").and_then(Value::as_str) == Some("object") {
-            let (name, model) = inline_response_view(
-                bindings,
-                schema,
-                &raw_binding.success_type,
-                resource_path,
-                public_name,
-            )?;
-            return Ok(ProjectedResponse::Json {
-                name: name.clone(),
-                models: vec![(name, model)],
-            });
-        }
-        if schema.get("type").and_then(Value::as_str) == Some("array") {
-            let (name, models) = inline_array_response_model(
-                bindings,
-                schema,
-                &raw_binding.success_type,
-                resource_path,
-                public_name,
-            )?;
-            return Ok(ProjectedResponse::Json { name, models });
-        }
-        return Err(RESPONSE_VIEW_UNPROVEN);
+        return project_json_response_schema(
+            openapi,
+            bindings,
+            schema,
+            &raw_binding.success_type,
+            resource_path,
+            public_name,
+        );
     }
     let binary = schema.get("type").and_then(Value::as_str) == Some("string")
         && schema.get("format").and_then(Value::as_str) == Some("binary");
