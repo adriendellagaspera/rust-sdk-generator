@@ -1048,7 +1048,10 @@ fn selected_response_schemas<'a>(
         statuses.iter().map(String::as_str).collect()
     };
     if selected_statuses.is_empty() {
-        return Err(error("lower.responses", "operation has no selected success responses"));
+        return Err(error(
+            "lower.responses",
+            "operation has no selected success responses",
+        ));
     }
     selected_statuses
         .into_iter()
@@ -1129,16 +1132,17 @@ fn json_schema_for_binding<'a>(
 
 fn empty_response_matches(operation: &Value, binding: &OperationBinding) -> Result<bool> {
     if let Some(metadata) = &binding.metadata {
-        return Ok(
-            matches!(metadata.representation, ResponseRepresentationBinding::Empty)
-                && binding.success_type == "()"
-                && selected_responses_are_empty(operation, &metadata.success_statuses),
-        );
+        return Ok(matches!(
+            metadata.representation,
+            ResponseRepresentationBinding::Empty
+        ) && binding.success_type == "()"
+            && selected_responses_are_empty(operation, &metadata.success_statuses));
     }
     let response = success_response(operation)?;
-    Ok(response.get("content").is_none_or(|content| {
-        content.as_object().is_none_or(|object| object.is_empty())
-    }) && binding.success_type == "()")
+    Ok(response
+        .get("content")
+        .is_none_or(|content| content.as_object().is_none_or(|object| object.is_empty()))
+        && binding.success_type == "()")
 }
 
 fn response_matches(
@@ -2131,13 +2135,7 @@ pub(crate) fn lower(
                     .iter()
                     .find(|model| model.name == response)
                     .expect("known model");
-                if !response_matches(
-                    &index,
-                    operation_id,
-                    &model.raw,
-                    raw_operation,
-                    bindings,
-                )? {
+                if !response_matches(&index, operation_id, &model.raw, raw_operation, bindings)? {
                     return Err(error(
                         "lower.response_drift",
                         format!("OpenAPI response drift for {operation_id}"),
