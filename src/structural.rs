@@ -806,7 +806,6 @@ pub(crate) fn inline_object_union_mapping(
     )
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::{scalar_named_object_matches, sse_payload_binding_matches};
@@ -878,7 +877,10 @@ mod tests {
             &index, "Chunk", "Chunk", &bindings
         ));
         assert!(!sse_payload_binding_matches(
-            &index, "Chunk", "MissingChunk", &bindings
+            &index,
+            "Chunk",
+            "MissingChunk",
+            &bindings
         ));
     }
 }
