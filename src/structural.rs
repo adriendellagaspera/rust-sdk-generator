@@ -570,22 +570,13 @@ pub(crate) fn request_optional_boolean_field(
         .is_some_and(|inner| inner.spelling == "bool" && inner.unary("Option").is_none())
 }
 
-pub(crate) fn named_object_matches(
-    openapi: &OpenApiIndex,
-    schema_name: &str,
-    raw: &str,
-    bindings: &Bindings,
-) -> bool {
-    request_object_matches_inner(openapi, schema_name, raw, bindings, &mut BTreeSet::new())
-}
-
 pub(crate) fn request_object_matches(
     openapi: &OpenApiIndex,
     schema_name: &str,
     raw: &str,
     bindings: &Bindings,
 ) -> bool {
-    named_object_matches(openapi, schema_name, raw, bindings)
+    request_object_matches_inner(openapi, schema_name, raw, bindings, &mut BTreeSet::new())
 }
 
 fn expand_alias_syntax(
@@ -632,6 +623,19 @@ pub(crate) fn scalar_named_object_matches(
         .and_then(|schema| scalar_object_shape(&schema))
         .zip(raw_scalar_struct_shape(bindings, raw))
         .is_some_and(|(wire, actual)| wire == actual)
+}
+
+pub(crate) fn sse_payload_binding_matches(
+    openapi: &OpenApiIndex,
+    schema_name: &str,
+    raw: &str,
+    bindings: &Bindings,
+) -> bool {
+    // openapi-to-rust manifest type names are generator-owned schema identities.
+    // Opaque adapters may use different raw names, in which case retain the
+    // existing structural proof used by canonical SSE derivation.
+    (schema_name == raw && bindings.structs.contains_key(raw))
+        || scalar_named_object_matches(openapi, schema_name, raw, bindings)
 }
 
 fn sse_envelope_payload(schema: &Value) -> Option<&str> {
