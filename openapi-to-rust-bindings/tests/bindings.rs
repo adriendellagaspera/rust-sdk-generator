@@ -258,7 +258,11 @@ fn invalid_manifest_fails_closed_without_sidecar_or_source_fallback() {
     fs::write(root.path().join(MANIFEST_NAME), "{not json").expect("write manifest");
 
     let error = read_bindings(root.path()).expect_err("invalid manifest must fail");
-    assert!(error.to_string().starts_with("invalid binding-manifest.json:"));
+    assert!(
+        error
+            .to_string()
+            .starts_with("invalid binding-manifest.json:")
+    );
 }
 
 #[test]
@@ -268,7 +272,11 @@ fn manifest_schema_identifier_version_and_required_fields_fail_closed() {
     let value: Value = serde_json::from_str(&source).expect("parse fixture");
 
     for (path, replacement, message) in [
-        ("/schema", Value::String("other.schema".into()), "schema identifier"),
+        (
+            "/schema",
+            Value::String("other.schema".into()),
+            "schema identifier",
+        ),
         ("/schema_version", Value::from(99), "schema version"),
     ] {
         let mut invalid = value.clone();
