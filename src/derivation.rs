@@ -710,6 +710,7 @@ mod tests {
                 return_type: "Result<Forecast, Error>".into(),
                 success_type: "Forecast".into(),
                 stream: None,
+                metadata: None,
             },
         );
         let derivation = derive(DeriveInput {
