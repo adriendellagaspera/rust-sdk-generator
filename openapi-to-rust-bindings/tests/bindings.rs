@@ -1,6 +1,4 @@
-use openapi_to_rust_bindings::{
-    Bindings, MANIFEST_NAME, parse_binding_manifest, parse_bindings, read_bindings,
-};
+use openapi_to_rust_bindings::{Bindings, MANIFEST_NAME, parse_binding_manifest, read_bindings};
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -64,20 +62,7 @@ fn historical_common_contract(bindings: &Bindings) -> Value {
 }
 
 #[test]
-fn legacy_fixtures_match_checked_in_bindings_contract() {
-    for name in ["menagerie", "library"] {
-        let root = fixtures().join(name);
-        let actual = parse_bindings(
-            &fs::read_to_string(root.join("types.rs")).expect("read types fixture"),
-            &fs::read_to_string(root.join("client.rs")).expect("read client fixture"),
-        )
-        .expect("parse generated bindings");
-        assert_eq!(actual, expected(name));
-    }
-}
-
-#[test]
-fn manifest_fixtures_preserve_the_historical_common_contract() {
+fn manifest_fixtures_preserve_the_checked_in_common_contract() {
     for name in ["menagerie", "library"] {
         let root = fixtures().join(name);
         let manifest = parse_binding_manifest(
@@ -88,7 +73,7 @@ fn manifest_fixtures_preserve_the_historical_common_contract() {
         assert_eq!(
             historical_common_contract(&manifest),
             expected(name).to_value(),
-            "{name} manifest/common contract diverged from the legacy parser"
+            "{name} manifest/common contract diverged from the checked-in canonical sidecar"
         );
 
         let read = read_bindings(&root).expect("prefer manifest metadata");
@@ -111,7 +96,7 @@ fn manifest_fixtures_preserve_the_historical_common_contract() {
 }
 
 #[test]
-fn legacy_sidecar_remains_first_class_during_migration() {
+fn canonical_sidecar_remains_supported() {
     let root = TestDir::new();
     fs::copy(
         fixtures().join("library/rust-bindings.json"),
@@ -125,7 +110,7 @@ fn legacy_sidecar_remains_first_class_during_migration() {
 }
 
 #[test]
-fn manifest_path_does_not_parse_cfg_exclusive_legacy_aliases() {
+fn manifest_path_ignores_generated_sources() {
     let root = TestDir::new();
     fs::copy(
         fixtures().join("transport").join(MANIFEST_NAME),
@@ -147,7 +132,7 @@ pub type HttpResponseByteStream =
     fs::write(root.path().join("client.rs"), "this is not Rust").expect("write client source");
 
     let bindings =
-        read_bindings(root.path()).expect("manifest must bypass generated-source parser");
+        read_bindings(root.path()).expect("manifest metadata must be authoritative");
     assert_eq!(
         bindings.as_value()["operations"]["render_stream_2"]["metadata"]["stream_abi"]["alias"],
         "HttpResponseByteStream"
@@ -253,24 +238,6 @@ fn manifest_rejects_unknown_representation_and_canonical_collisions() {
 }
 
 #[test]
-fn generated_serde_rename_is_preserved() {
-    let bindings = parse_bindings(
-        r#"
-pub enum State {
-    #[serde(rename = "in-progress")]
-    InProgress,
-}
-"#,
-        "",
-    )
-    .expect("parse enum");
-    assert_eq!(
-        bindings.as_value()["enums"]["State"][0]["wire_name"],
-        Value::String("in-progress".to_owned())
-    );
-}
-
-#[test]
 fn sidecar_does_not_require_generated_sources() {
     let root = TestDir::new();
     fs::copy(
@@ -365,15 +332,14 @@ fn schema_invalid_sidecar_fails_closed() {
 }
 
 #[test]
-fn legacy_generated_sources_remain_supported() {
+fn generated_sources_without_metadata_are_rejected() {
     let root = TestDir::new();
     let fixture = fixtures().join("library");
     fs::copy(fixture.join("types.rs"), root.path().join("types.rs")).expect("copy types");
     fs::copy(fixture.join("client.rs"), root.path().join("client.rs")).expect("copy client");
-    assert_eq!(
-        read_bindings(root.path()).expect("read legacy generated sources"),
-        expected("library")
-    );
+    let error = read_bindings(root.path()).expect_err("generated Rust is not a bindings input");
+    assert!(error.to_string().contains(MANIFEST_NAME));
+    assert!(error.to_string().contains("rust-bindings.json"));
 }
 
 #[test]
