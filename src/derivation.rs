@@ -565,15 +565,15 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                     Ok(()) => {
                         definition = candidate;
                         OperationDerivation {
-                        status: DerivationStatus::Derived,
-                        reason: DerivationReason {
-                            code: "inference.structurally_proven".into(),
-                            detail: None,
-                        },
-                        public_paths,
-                        public_path,
-                        binding: matched.binding.clone(),
-                    }
+                            status: DerivationStatus::Derived,
+                            reason: DerivationReason {
+                                code: "inference.structurally_proven".into(),
+                                detail: None,
+                            },
+                            public_paths,
+                            public_path,
+                            binding: matched.binding.clone(),
+                        }
                     }
                     Err(reason) => OperationDerivation {
                         status: DerivationStatus::Rejected,
