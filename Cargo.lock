@@ -103,6 +103,7 @@ name = "openapi-to-rust-bindings"
 version = "0.2.2"
 dependencies = [
  "proc-macro2",
+ "serde",
  "serde_json",
  "syn",
 ]
