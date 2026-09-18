@@ -12,8 +12,9 @@ pub fn read_bindings(path: impl AsRef<Path>) -> Result<Bindings, Error> {
 
     let manifest = path.join(MANIFEST_NAME);
     if manifest.is_file() {
-        let source = fs::read_to_string(&manifest)
-            .map_err(|error| Error::new(format!("failed to read {}: {error}", manifest.display())))?;
+        let source = fs::read_to_string(&manifest).map_err(|error| {
+            Error::new(format!("failed to read {}: {error}", manifest.display()))
+        })?;
         return parse_binding_manifest(&source);
     }
 
