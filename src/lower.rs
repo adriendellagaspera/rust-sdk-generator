@@ -1730,10 +1730,7 @@ pub(crate) fn lower(
                 .map(|name| name.replace('-', "_"))
                 .collect();
             let is_wire_parameter = |parameter: &crate::ParameterBinding| {
-                let name = parameter
-                    .name
-                    .strip_prefix("r#")
-                    .unwrap_or(&parameter.name);
+                let name = parameter.name.strip_prefix("r#").unwrap_or(&parameter.name);
                 wire_parameter_names.iter().any(|wire| wire == name)
             };
 
