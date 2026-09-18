@@ -360,80 +360,84 @@ fn apply_operation_override(
     operation_id: &str,
     operation_override: &OperationOverride,
 ) -> Result<(), DerivationError> {
-    let location = definition
+    let locations: Vec<_> = definition
         .resources
         .iter()
-        .find_map(|(resource_name, resource)| {
+        .flat_map(|(resource_name, resource)| {
             resource
                 .operations
                 .iter()
-                .find(|(_, operation)| operation.operation_id == operation_id)
+                .filter(|(_, operation)| operation.operation_id == operation_id)
                 .map(|(public_name, _)| (resource_name.clone(), public_name.clone()))
-        });
-    let Some((resource_name, public_name)) = location else {
+        })
+        .collect();
+    if locations.is_empty() {
         return Err(DerivationError::at(
             "overrides.unapplied",
             format!("overrides.operations.{operation_id}"),
             format!("operation {operation_id} was not projected into SdkDefinition"),
         ));
-    };
+    }
 
-    let request_name = definition.resources[&resource_name].operations[&public_name]
-        .request
-        .clone()
-        .ok_or_else(|| {
-            DerivationError::at(
-                "overrides.invalid_request_override",
-                format!("overrides.operations.{operation_id}.request_overrides"),
-                format!("operation {operation_id} has no JSON request model"),
+    for (resource_name, public_name) in &locations {
+        let request_name = definition.resources[resource_name].operations[public_name]
+            .request
+            .clone()
+            .ok_or_else(|| {
+                DerivationError::at(
+                    "overrides.invalid_request_override",
+                    format!("overrides.operations.{operation_id}.request_overrides"),
+                    format!("operation {operation_id} has no JSON request model"),
+                )
+            })?;
+        let request_model = definition.models.get(&request_name).ok_or_else(|| {
+            DerivationError::new(
+                "derivation.request_model_missing",
+                format!("projected request model {request_name} is missing"),
             )
         })?;
-    let request_model = definition.models.get(&request_name).ok_or_else(|| {
-        DerivationError::new(
-            "derivation.request_model_missing",
-            format!("projected request model {request_name} is missing"),
-        )
-    })?;
-    if request_model
-        .schema_path
-        .as_ref()
-        .is_some_and(|path| !path.is_empty())
-    {
-        return Err(DerivationError::at(
-            "overrides.invalid_request_override",
-            format!("overrides.operations.{operation_id}.request_overrides"),
-            "operation request override requires the root request model",
-        ));
-    }
-    let raw = request_model.raw.as_deref().unwrap_or(&request_name);
-    let schema = request_model.schema.as_deref().unwrap_or(raw);
-
-    for field in operation_override.request_overrides.keys() {
-        if !request_optional_boolean_field(index, schema, raw, field, bindings) {
+        if request_model
+            .schema_path
+            .as_ref()
+            .is_some_and(|path| !path.is_empty())
+        {
             return Err(DerivationError::at(
                 "overrides.invalid_request_override",
-                format!("overrides.operations.{operation_id}.request_overrides.{field}"),
-                format!(
-                    "request override requires optional non-null Boolean in OpenAPI and Option<bool> in Bindings: {raw}.{field}"
-                ),
+                format!("overrides.operations.{operation_id}.request_overrides"),
+                "operation request override requires the root request model",
             ));
+        }
+        let raw = request_model.raw.as_deref().unwrap_or(&request_name);
+        let schema = request_model.schema.as_deref().unwrap_or(raw);
+
+        for field in operation_override.request_overrides.keys() {
+            if !request_optional_boolean_field(index, schema, raw, field, bindings) {
+                return Err(DerivationError::at(
+                    "overrides.invalid_request_override",
+                    format!("overrides.operations.{operation_id}.request_overrides.{field}"),
+                    format!(
+                        "request override requires optional non-null Boolean in OpenAPI and Option<bool> in Bindings: {raw}.{field}"
+                    ),
+                ));
+            }
         }
     }
 
-    definition
-        .resources
-        .get_mut(&resource_name)
-        .expect("located resource")
-        .operations
-        .get_mut(&public_name)
-        .expect("located operation")
-        .request_overrides = Some(
-        operation_override
-            .request_overrides
-            .iter()
-            .map(|(field, value)| (field.clone(), *value))
-            .collect(),
-    );
+    let configured = operation_override
+        .request_overrides
+        .iter()
+        .map(|(field, value)| (field.clone(), *value))
+        .collect();
+    for (resource_name, public_name) in locations {
+        definition
+            .resources
+            .get_mut(&resource_name)
+            .expect("located resource")
+            .operations
+            .get_mut(&public_name)
+            .expect("located operation")
+            .request_overrides = Some(configured.clone());
+    }
     Ok(())
 }
 
@@ -468,10 +472,10 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
         let Some(named) = naming.get(operation_id) else {
             continue;
         };
-        if named.reason.is_none()
-            && let Some(path) = &named.public_path
-        {
-            *public_path_counts.entry(path.clone()).or_insert(0usize) += 1;
+        if named.reason.is_none() {
+            for path in &named.evidence {
+                *public_path_counts.entry(path.clone()).or_insert(0usize) += 1;
+            }
         }
     }
 
@@ -536,10 +540,9 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                     public_path: None,
                     binding: matched.binding.clone(),
                 }
-            } else if public_path
-                .as_ref()
-                .and_then(|path| public_path_counts.get(path))
-                .is_some_and(|count| *count > 1)
+            } else if public_paths
+                .iter()
+                .any(|path| public_path_counts.get(path).is_some_and(|count| *count > 1))
             {
                 OperationDerivation {
                     status: DerivationStatus::Rejected,
@@ -553,13 +556,15 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                 }
             } else {
                 let binding = matched.binding.as_deref().expect("matched binding");
-                let path = public_path
-                    .as_deref()
-                    .expect("naming decision has public path");
-                match project_operation(&index, &bindings, &operation_id, binding, path)
-                    .and_then(|projected| insert_projection(&mut definition, projected))
-                {
-                    Ok(()) => OperationDerivation {
+                let mut candidate = definition.clone();
+                let projection = public_paths.iter().try_for_each(|path| {
+                    project_operation(&index, &bindings, &operation_id, binding, path)
+                        .and_then(|projected| insert_projection(&mut candidate, projected))
+                });
+                match projection {
+                    Ok(()) => {
+                        definition = candidate;
+                        OperationDerivation {
                         status: DerivationStatus::Derived,
                         reason: DerivationReason {
                             code: "inference.structurally_proven".into(),
@@ -568,7 +573,8 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                         public_paths,
                         public_path,
                         binding: matched.binding.clone(),
-                    },
+                    }
+                    }
                     Err(reason) => OperationDerivation {
                         status: DerivationStatus::Rejected,
                         reason: DerivationReason {
