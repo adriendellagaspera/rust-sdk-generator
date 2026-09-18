@@ -95,8 +95,7 @@ fn manifest_fixtures_preserve_the_historical_common_contract() {
         assert_eq!(read, manifest);
     }
 
-    let menagerie =
-        read_bindings(fixtures().join("menagerie")).expect("read menagerie manifest");
+    let menagerie = read_bindings(fixtures().join("menagerie")).expect("read menagerie manifest");
     assert_eq!(
         menagerie.as_value()["operations"]["adopt"]["metadata"]["source_operation"],
         serde_json::json!({
@@ -147,7 +146,8 @@ pub type HttpResponseByteStream =
     .expect("write cfg-exclusive aliases");
     fs::write(root.path().join("client.rs"), "this is not Rust").expect("write client source");
 
-    let bindings = read_bindings(root.path()).expect("manifest must bypass generated-source parser");
+    let bindings =
+        read_bindings(root.path()).expect("manifest must bypass generated-source parser");
     assert_eq!(
         bindings.as_value()["operations"]["render_stream_2"]["metadata"]["stream_abi"]["alias"],
         "HttpResponseByteStream"
