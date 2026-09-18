@@ -16,7 +16,7 @@ pub(crate) enum ScalarKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ScalarFieldShape {
     pub kind: ScalarKind,
-    pub optional: bool,
+    pub option_depth: usize,
 }
 
 fn direct_scalar_schema(schema: &Value) -> Option<ScalarKind> {
@@ -87,15 +87,19 @@ fn integer_rust_type(value: &str) -> bool {
     )
 }
 
-fn rust_scalar(type_name: &str) -> Option<(ScalarKind, bool)> {
+fn rust_scalar(type_name: &str) -> Option<(ScalarKind, usize)> {
     let syntax = parse_type(type_name).ok()?;
-    let (inner, optional) = if let Some(inner) = syntax.unary("Option") {
-        if inner.unary("Option").is_some() {
-            return None;
+    let (inner, option_depth) = if let Some(inner) = syntax.unary("Option") {
+        if let Some(nullable) = inner.unary("Option") {
+            if nullable.unary("Option").is_some() {
+                return None;
+            }
+            (nullable.spelling.as_str(), 2)
+        } else {
+            (inner.spelling.as_str(), 1)
         }
-        (inner.spelling.as_str(), true)
     } else {
-        (syntax.spelling.as_str(), false)
+        (syntax.spelling.as_str(), 0)
     };
     let kind = match inner {
         "String" => ScalarKind::String,
@@ -104,7 +108,7 @@ fn rust_scalar(type_name: &str) -> Option<(ScalarKind, bool)> {
         "f32" | "f64" => ScalarKind::Number,
         _ => return None,
     };
-    Some((kind, optional))
+    Some((kind, option_depth))
 }
 
 fn type_matches_schema(
@@ -241,7 +245,8 @@ pub(crate) fn scalar_object_shape(schema: &Value) -> Option<BTreeMap<String, Sca
             name.clone(),
             ScalarFieldShape {
                 kind,
-                optional: !required.contains(name.as_str()) || nullable,
+                option_depth: usize::from(!required.contains(name.as_str()))
+                    + usize::from(nullable),
             },
         );
     }
@@ -256,9 +261,9 @@ pub(crate) fn raw_scalar_struct_shape(
     let mut result = BTreeMap::new();
     for field in fields {
         let name = field.name.strip_prefix("r#").unwrap_or(&field.name);
-        let (kind, optional) = rust_scalar(&field.type_name)?;
+        let (kind, option_depth) = rust_scalar(&field.type_name)?;
         if result
-            .insert(name.to_owned(), ScalarFieldShape { kind, optional })
+            .insert(name.to_owned(), ScalarFieldShape { kind, option_depth })
             .is_some()
         {
             return None;
