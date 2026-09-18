@@ -899,7 +899,7 @@ mod tests {
             .get_mut("work_jobs")
             .expect("work jobs resource")
             .operations
-            .remove("update");
+            .shift_remove("update");
         let error =
             validate_closed_world_projection(&missing_definition, &derivation.report.operations)
                 .expect_err("derived operation must remain projected");
