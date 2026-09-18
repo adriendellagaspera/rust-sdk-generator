@@ -82,9 +82,12 @@ fn applies_request_override_after_generic_inference_and_generates_it() {
     })
     .expect("derived definition generates");
 
-    assert!(generated.files.values().any(|source| {
-        source.contains("raw.archived = Some(true);")
-    }));
+    assert!(
+        generated
+            .files
+            .values()
+            .any(|source| { source.contains("raw.archived = Some(true);") })
+    );
 }
 
 #[test]
@@ -107,9 +110,12 @@ fn null_request_override_is_explicitly_emitted() {
     })
     .expect("derived definition generates");
 
-    assert!(generated.files.values().any(|source| {
-        source.contains("raw.archived = None;")
-    }));
+    assert!(
+        generated
+            .files
+            .values()
+            .any(|source| { source.contains("raw.archived = None;") })
+    );
 }
 
 #[test]
@@ -124,10 +130,7 @@ fn rejects_request_override_without_optional_boolean_proof() {
     })
     .expect_err("non-Boolean request override must fail");
 
-    assert_eq!(
-        error.diagnostic.code,
-        "overrides.invalid_request_override"
-    );
+    assert_eq!(error.diagnostic.code, "overrides.invalid_request_override");
     assert_eq!(
         error.diagnostic.path.as_deref(),
         Some("overrides.operations.revise_job.request_overrides.priority")
