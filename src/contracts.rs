@@ -304,6 +304,9 @@ pub enum RequestMediaDefinition {
     Json,
     MultipartFormData,
     FormUrlencoded,
+    OctetStream,
+    Binary,
+    TextPlain,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
