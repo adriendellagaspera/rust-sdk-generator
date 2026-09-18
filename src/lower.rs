@@ -1154,6 +1154,47 @@ fn selected_response_schemas<'a>(
         .collect()
 }
 
+fn named_stream_payload_matches(
+    openapi: &OpenApiIndex,
+    schema_name: &str,
+    raw: &str,
+    bindings: &Bindings,
+) -> bool {
+    if schema_name != raw {
+        return false;
+    }
+    let Ok(schema) = openapi.object_schema(schema_name) else {
+        return false;
+    };
+    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
+        return false;
+    };
+    let Ok(fields) = bindings.fields(raw) else {
+        return false;
+    };
+    let wire_fields = properties.keys().map(String::as_str).collect::<BTreeSet<_>>();
+    let raw_fields = fields
+        .iter()
+        .map(|field| {
+            field
+                .wire_name
+                .as_deref()
+                .unwrap_or_else(|| field.name.strip_prefix("r#").unwrap_or(&field.name))
+        })
+        .collect::<BTreeSet<_>>();
+    wire_fields == raw_fields
+}
+
+fn event_stream_payload_matches(
+    openapi: &OpenApiIndex,
+    schema_name: &str,
+    raw: &str,
+    bindings: &Bindings,
+) -> bool {
+    scalar_named_object_matches(openapi, schema_name, raw, bindings)
+        || named_stream_payload_matches(openapi, schema_name, raw, bindings)
+}
+
 fn selected_responses_are_empty(operation: &Value, statuses: &[String]) -> bool {
     let Some(responses) = operation.get("responses").and_then(Value::as_object) else {
         return false;
@@ -2387,7 +2428,7 @@ pub(crate) fn lower(
                         )
                     })?;
                     if payloads.iter().any(|candidate| candidate != payload)
-                        || !scalar_named_object_matches(&index, payload, &stream.item, bindings)
+                        || !event_stream_payload_matches(&index, payload, &stream.item, bindings)
                     {
                         return Err(error(
                             "lower.stream_drift",
@@ -2592,6 +2633,78 @@ mod stream_abi_tests {
                 }),
             }),
         }
+    }
+
+    #[test]
+    fn named_stream_payload_accepts_non_scalar_fields_and_rejects_field_drift() {
+        let openapi = OpenApi(serde_json::json!({
+            "components": {
+                "schemas": {
+                    "ComplexChunk": {
+                        "type": "object",
+                        "required": ["id", "choices"],
+                        "properties": {
+                            "id": {"type": "string"},
+                            "choices": {
+                                "type": "array",
+                                "items": {"$ref": "#/components/schemas/Choice"}
+                            }
+                        }
+                    },
+                    "Choice": {
+                        "type": "object",
+                        "required": ["value"],
+                        "properties": {"value": {"type": "string"}}
+                    }
+                }
+            }
+        }));
+        let index = OpenApiIndex::new(&openapi).expect("OpenAPI index");
+        let mut bindings: Bindings = serde_json::from_value(serde_json::json!({
+            "schema_version": 3,
+            "structs": {
+                "ComplexChunk": [
+                    {"name": "choices", "wire_name": "choices", "type": "Vec<Choice>"},
+                    {"name": "id", "wire_name": "id", "type": "String"}
+                ],
+                "Choice": [
+                    {"name": "value", "wire_name": "value", "type": "String"}
+                ]
+            },
+            "enums": {},
+            "aliases": {},
+            "operations": {},
+            "symbol_paths": {},
+            "binding": {
+                "client": {
+                    "type_path": "crate::generated::client::HttpClient",
+                    "constructor": "new",
+                    "api_key_builder": "with_api_key",
+                    "base_url_builder": "with_base_url"
+                },
+                "type_preludes": ["crate::generated::types::*"]
+            }
+        }))
+        .expect("bindings");
+
+        assert!(event_stream_payload_matches(
+            &index,
+            "ComplexChunk",
+            "ComplexChunk",
+            &bindings
+        ));
+
+        bindings
+            .structs
+            .get_mut("ComplexChunk")
+            .expect("complex chunk")
+            .pop();
+        assert!(!event_stream_payload_matches(
+            &index,
+            "ComplexChunk",
+            "ComplexChunk",
+            &bindings
+        ));
     }
 
     #[test]
