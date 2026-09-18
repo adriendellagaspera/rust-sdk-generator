@@ -1251,7 +1251,16 @@ pub(crate) fn project_operation(
         &public_name,
     )?;
     let request = request_model.as_ref().map(|(name, _, _)| name.clone());
-    let request_media = request_model.as_ref().map(|(_, _, media)| *media);
+    let request_media = request_model
+        .as_ref()
+        .map(|(_, _, media)| *media)
+        .or_else(|| {
+            openapi
+                .raw_request_body(operation_id)
+                .ok()
+                .flatten()
+                .map(|body| body.media)
+        });
     let response = response_projection(openapi, bindings, operation, binding, &path, &public_name)?;
     let (response_name, empty_response, response_models) = match response {
         ProjectedResponse::Empty => (None, Some(true), Vec::new()),
