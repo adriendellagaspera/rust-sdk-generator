@@ -266,6 +266,28 @@ pub(crate) fn request_union_mapping(
     request_union_mapping_inner(openapi, schema, raw_union, bindings, &mut BTreeSet::new())
 }
 
+fn request_union_collection<'a>(
+    openapi: &'a OpenApiIndex,
+    schema: &'a Value,
+    core: &'a Type,
+) -> Option<(&'a Value, &'a str)> {
+    if schema.get("type").and_then(Value::as_str) != Some("array") {
+        return None;
+    }
+    let items = schema.get("items")?;
+    let inner = core.unary("Vec")?;
+    if inner.kind != TypeKind::Opaque {
+        return None;
+    }
+
+    if union_branches(items).is_some() {
+        return Some((items, inner.spelling.as_str()));
+    }
+    let reference = ref_name(items)?;
+    let referenced = openapi.schema(reference).ok()?;
+    union_branches(referenced).is_some().then_some((referenced, inner.spelling.as_str()))
+}
+
 fn request_object_value_matches(
     openapi: &OpenApiIndex,
     schema: &Value,
@@ -347,6 +369,15 @@ fn request_object_value_matches(
             if core.kind != TypeKind::Opaque
                 || request_union_mapping_inner(openapi, wire, &core.spelling, bindings, seen)
                     .is_none()
+            {
+                return false;
+            }
+            continue;
+        }
+
+        if let Some((union_schema, raw_union)) = request_union_collection(openapi, wire, &core) {
+            if request_union_mapping_inner(openapi, union_schema, raw_union, bindings, seen)
+                .is_none()
             {
                 return false;
             }
