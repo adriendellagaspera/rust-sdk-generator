@@ -26,6 +26,8 @@ pub struct Bindings {
 #[serde(deny_unknown_fields)]
 pub struct FieldBinding {
     pub name: String,
+    #[serde(default)]
+    pub wire_name: Option<String>,
     #[serde(rename = "type")]
     pub type_name: String,
 }
@@ -54,6 +56,90 @@ pub struct StreamBinding {
     pub lifetime: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OperationBindingKind {
+    CallShape,
+    MultipartFilenames,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SourceOperationBinding {
+    pub operation_id: String,
+    pub method: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ResponseRepresentationBinding {
+    Json {
+        schema_name: String,
+        media_type: String,
+    },
+    Text {
+        media_type: String,
+    },
+    BinaryBuffered {
+        media_type: String,
+        wildcard: bool,
+    },
+    EventStream {
+        media_type: String,
+    },
+    BinaryStream {
+        media_type: String,
+        wildcard: bool,
+    },
+    Empty,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RequestDiscriminatorValue {
+    Bool(bool),
+    Integer(i64),
+    String(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RequestDiscriminatorBinding {
+    pub wire_name: String,
+    pub rust_access_path: Vec<String>,
+    pub rust_value_type: String,
+    pub value: RequestDiscriminatorValue,
+    pub field_required: bool,
+    pub field_nullable: bool,
+    pub field_tri_state: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StreamAbiBinding {
+    pub alias: String,
+    pub item_type: String,
+    pub error_type: String,
+    pub lifetime: String,
+    pub native_type: String,
+    pub wasm_type: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OperationMetadataBinding {
+    pub kind: OperationBindingKind,
+    pub source_operation: SourceOperationBinding,
+    pub emitted_operation_id: String,
+    pub representation: ResponseRepresentationBinding,
+    pub success_statuses: Vec<String>,
+    #[serde(default)]
+    pub request_discriminators: Vec<RequestDiscriminatorBinding>,
+    #[serde(default)]
+    pub stream_abi: Option<StreamAbiBinding>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OperationBinding {
@@ -63,6 +149,8 @@ pub struct OperationBinding {
     pub success_type: String,
     #[serde(default)]
     pub stream: Option<StreamBinding>,
+    #[serde(default)]
+    pub metadata: Option<OperationMetadataBinding>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
