@@ -67,8 +67,7 @@ fn derives_request_union_by_structure_not_raw_names_or_order() {
         }
     );
 
-    let email =
-        &derivation.definition.models["SendDeliveryCommandsRequestCommandsEmailCommand"];
+    let email = &derivation.definition.models["SendDeliveryCommandsRequestCommandsEmailCommand"];
     assert_eq!(email.schema.as_deref(), Some("EmailCommand"));
     assert_eq!(email.raw.as_deref(), Some("OpaqueEmail3"));
     assert_eq!(
@@ -97,20 +96,14 @@ fn derives_request_union_by_structure_not_raw_names_or_order() {
     .expect("derived definition generates");
 
     let types = &generated.files["facade_types.rs"];
-    assert!(types.contains(
-        "commands: impl IntoIterator<Item = SendDeliveryCommandsRequestCommands>"
-    ));
+    assert!(
+        types.contains("commands: impl IntoIterator<Item = SendDeliveryCommandsRequestCommands>")
+    );
     assert!(types.contains("commands.into_iter().map(Into::into).collect()"));
     assert!(types.contains("pub enum SendDeliveryCommandsRequestCommands"));
-    assert!(types.contains(
-        "EmailCommand(SendDeliveryCommandsRequestCommandsEmailCommand)"
-    ));
-    assert!(types.contains(
-        "SmsCommand(SendDeliveryCommandsRequestCommandsSmsCommand)"
-    ));
-    assert!(types.contains(
-        "impl From<SendDeliveryCommandsRequestCommands> for OpaqueCommand7"
-    ));
+    assert!(types.contains("EmailCommand(SendDeliveryCommandsRequestCommandsEmailCommand)"));
+    assert!(types.contains("SmsCommand(SendDeliveryCommandsRequestCommandsSmsCommand)"));
+    assert!(types.contains("impl From<SendDeliveryCommandsRequestCommands> for OpaqueCommand7"));
     assert!(types.contains("OpaqueCommand7::VariantA"));
     assert!(types.contains("OpaqueCommand7::VariantB"));
 }
@@ -150,9 +143,7 @@ fn rejects_ambiguous_request_union_branch_shapes() {
         .pointer_mut("/components/schemas/SmsCommand")
         .expect("sms schema") = email;
     let email_fields = bindings.structs["OpaqueEmail3"].clone();
-    bindings
-        .structs
-        .insert("OpaqueSms4".into(), email_fields);
+    bindings.structs.insert("OpaqueSms4".into(), email_fields);
 
     let derivation = derive(DeriveInput {
         openapi,
