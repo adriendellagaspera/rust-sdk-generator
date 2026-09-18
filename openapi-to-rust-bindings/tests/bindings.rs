@@ -131,8 +131,7 @@ pub type HttpResponseByteStream =
     .expect("write cfg-exclusive aliases");
     fs::write(root.path().join("client.rs"), "this is not Rust").expect("write client source");
 
-    let bindings =
-        read_bindings(root.path()).expect("manifest metadata must be authoritative");
+    let bindings = read_bindings(root.path()).expect("manifest metadata must be authoritative");
     assert_eq!(
         bindings.as_value()["operations"]["render_stream_2"]["metadata"]["stream_abi"]["alias"],
         "HttpResponseByteStream"
