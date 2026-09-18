@@ -42,7 +42,10 @@ fn derives_and_generates_canonical_json_and_empty_representations() {
     assert_eq!(purge.binding.as_deref(), Some("raw_purge_reports"));
 
     let read_operation = &derivation.definition.resources["reports"].operations["current"];
-    assert_eq!(read_operation.raw_method.as_deref(), Some("raw_read_report"));
+    assert_eq!(
+        read_operation.raw_method.as_deref(),
+        Some("raw_read_report")
+    );
     assert_eq!(
         read_operation.response.as_deref(),
         Some("CurrentReportsResponse")
@@ -72,12 +75,18 @@ fn derives_and_generates_canonical_json_and_empty_representations() {
             .models
             .contains(&"CurrentReportsResponse".to_owned())
     );
-    assert!(generated.files.values().any(|source| {
-        source.contains("self.raw.raw_read_report(")
-    }));
-    assert!(generated.files.values().any(|source| {
-        source.contains("self.raw.raw_purge_reports(")
-    }));
+    assert!(
+        generated
+            .files
+            .values()
+            .any(|source| { source.contains("self.raw.raw_read_report(") })
+    );
+    assert!(
+        generated
+            .files
+            .values()
+            .any(|source| { source.contains("self.raw.raw_purge_reports(") })
+    );
 }
 
 #[test]
@@ -94,9 +103,7 @@ fn lowering_revalidates_selected_json_statuses() {
 
     *openapi
         .0
-        .pointer_mut(
-            "/paths/~1reports~1current/get/responses/206/content/application~1json/schema",
-        )
+        .pointer_mut("/paths/~1reports~1current/get/responses/206/content/application~1json/schema")
         .expect("206 JSON schema") = serde_json::json!({
         "type": "object",
         "properties": {
@@ -112,10 +119,7 @@ fn lowering_revalidates_selected_json_statuses() {
     })
     .expect_err("selected response drift must fail lowering");
 
-    assert_eq!(
-        error.diagnostic.code,
-        "lower.response_representation_drift"
-    );
+    assert_eq!(error.diagnostic.code, "lower.response_representation_drift");
 }
 
 #[test]
