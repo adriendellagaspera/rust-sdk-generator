@@ -1,0 +1,71 @@
+{
+  "schema": "openapi-to-rust.binding-manifest",
+  "schema_version": 1,
+  "generator": {"name": "openapi-to-rust", "version": "0.17.0"},
+  "structs": {
+    "AnimalRequest": [
+      {"name": "animals", "wire_name": "animals", "type": "Vec<AnimalUnion>"},
+      {"name": "model", "wire_name": "model", "type": "String"},
+      {"name": "energy", "wire_name": "energy", "type": "Option<i64>"}
+    ],
+    "Cat": [
+      {"name": "content", "wire_name": "content", "type": "CatContent"},
+      {"name": "kind", "wire_name": "kind", "type": "Option<String>"}
+    ],
+    "Dog": [
+      {"name": "content", "wire_name": "content", "type": "DogContent"},
+      {"name": "kind", "wire_name": "kind", "type": "Option<String>"}
+    ],
+    "AnimalResponse": [
+      {"name": "id", "wire_name": "id", "type": "String"}
+    ]
+  },
+  "enums": {
+    "AnimalUnion": [
+      {"name": "Cat", "payload": "Cat", "wire_name": null},
+      {"name": "Dog", "payload": "Dog", "wire_name": null}
+    ],
+    "CatContent": [
+      {"name": "String", "payload": "String", "wire_name": null},
+      {"name": "Parts", "payload": "Vec<String>", "wire_name": null}
+    ],
+    "DogContent": [
+      {"name": "String", "payload": "String", "wire_name": null},
+      {"name": "Parts", "payload": "Vec<String>", "wire_name": null}
+    ]
+  },
+  "aliases": {},
+  "symbol_paths": {
+    "AnimalRequest": "types::AnimalRequest",
+    "AnimalUnion": "types::AnimalUnion",
+    "Cat": "types::Cat",
+    "CatContent": "types::CatContent",
+    "Dog": "types::Dog",
+    "DogContent": "types::DogContent",
+    "AnimalResponse": "types::AnimalResponse"
+  },
+  "operations": [
+    {
+      "kind": "call_shape",
+      "source_operation": {"operation_id": "adopt", "method": "POST", "path": "/animals"},
+      "emitted_operation_id": "adopt",
+      "rust_method_name": "adopt",
+      "parameters": [{"name": "request", "type": "AnimalRequest"}],
+      "return_type": "Result<AnimalResponse, Error>",
+      "success_type": "AnimalResponse",
+      "representation": {
+        "kind": "json",
+        "schema_name": "AnimalResponse",
+        "media_type": "application/json"
+      },
+      "success_statuses": ["200"]
+    }
+  ],
+  "raw_client": {
+    "type_path": "client::HttpClient",
+    "constructor": "new",
+    "api_key_builder": "with_api_key",
+    "base_url_builder": "with_base_url",
+    "type_preludes": ["types::*"]
+  }
+}
