@@ -1716,8 +1716,12 @@ pub(crate) fn lower(
                         format!("structured request media drift for {operation_id}"),
                     ));
                 }
-                let request_matches = body.schema == schema_name
-                    && request_object_matches(&index, schema_name, &model.raw, bindings);
+                let request_matches = if model_definition.schema.is_some() {
+                    body.schema == schema_name
+                        && request_object_matches(&index, schema_name, &model.raw, bindings)
+                } else {
+                    body.schema == model.raw
+                };
                 if !request_matches {
                     return Err(error(
                         "lower.request_drift",
