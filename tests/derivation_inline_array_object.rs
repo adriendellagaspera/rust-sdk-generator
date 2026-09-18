@@ -136,7 +136,6 @@ fn rejects_ambiguous_inline_array_object_bindings_without_name_identity() {
     );
 }
 
-
 #[test]
 fn rejects_collection_iter_wrapper_with_wrong_raw_item() {
     let (openapi, bindings, surface) = fixture();
