@@ -1292,7 +1292,6 @@ fn buffered_scalar_response_projection(
     }
 }
 
-
 fn response_matches(
     openapi: &OpenApiIndex,
     operation_id: &str,
