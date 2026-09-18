@@ -215,6 +215,43 @@ fn binary_rust_type(syntax: &Type) -> bool {
             .is_some_and(|inner| inner.spelling == "u8")
 }
 
+fn scalar_enum_matches_schema(schema: &Value, raw: &str, bindings: &Bindings) -> bool {
+    let Some(values) = schema.get("enum").and_then(Value::as_array) else {
+        return false;
+    };
+    let wire = values.iter().filter_map(Value::as_str).collect::<BTreeSet<_>>();
+    if wire.len() != values.len() {
+        return false;
+    }
+    bindings.enums.get(raw).is_some_and(|variants| {
+        variants.len() == values.len()
+            && variants.iter().all(|variant| variant.payload.is_none())
+            && variants
+                .iter()
+                .filter_map(|variant| variant.wire_name.as_deref())
+                .collect::<BTreeSet<_>>()
+                == wire
+    })
+}
+
+fn map_value_type<'a>(syntax: &'a Type, bindings: &'a Bindings) -> Option<Type> {
+    if syntax.constructor.as_deref() == Some("std::collections::BTreeMap")
+        && syntax.arguments.len() == 2
+        && syntax.arguments[0].spelling == "String"
+    {
+        return Some(syntax.arguments[1].clone());
+    }
+    let fields = bindings.structs.get(&syntax.spelling)?;
+    if fields.len() != 1 {
+        return None;
+    }
+    let field = parse_type(&fields[0].type_name).ok()?;
+    (field.constructor.as_deref() == Some("std::collections::BTreeMap")
+        && field.arguments.len() == 2
+        && field.arguments[0].spelling == "String")
+        .then(|| field.arguments[1].clone())
+}
+
 fn type_matches_schema(
     schema: &Value,
     syntax: &Type,
@@ -247,6 +284,7 @@ fn type_matches_schema(
                 binary_rust_type(syntax)
             } else {
                 syntax.spelling == "String"
+                    || scalar_enum_matches_schema(schema, &syntax.spelling, bindings)
             }
         }
         Some("boolean") => syntax.spelling == "bool",
@@ -265,15 +303,18 @@ fn type_matches_schema(
                     .get("additionalProperties")
                     .filter(|additional| **additional != Value::Bool(false))
                     .is_some_and(|additional| {
-                        syntax.constructor.as_deref() == Some("std::collections::BTreeMap")
-                            && syntax.arguments.len() == 2
-                            && syntax.arguments[0].spelling == "String"
-                            && type_matches_schema(
-                                additional,
-                                &syntax.arguments[1],
-                                bindings,
-                                seen_aliases,
-                            )
+                        map_value_type(syntax, bindings).is_some_and(|value_type| {
+                            if *additional == Value::Bool(true) {
+                                value_type.spelling == "serde_json::Value"
+                            } else {
+                                type_matches_schema(
+                                    additional,
+                                    &value_type,
+                                    bindings,
+                                    seen_aliases,
+                                )
+                            }
+                        })
                     })
             }
         }
@@ -368,6 +409,71 @@ pub(crate) fn request_union_mapping(
     request_union_mapping_inner(openapi, schema, raw_union, bindings, &mut BTreeSet::new())
 }
 
+fn request_union_matches_inner(
+    openapi: &OpenApiIndex,
+    schema: &Value,
+    raw_union: &str,
+    bindings: &Bindings,
+    seen: &mut BTreeSet<(String, String)>,
+) -> bool {
+    let Some(branches) = union_branches(schema) else {
+        return false;
+    };
+    let Some(variants) = bindings.enums.get(raw_union) else {
+        return false;
+    };
+    if variants.len() != branches.len() || variants.iter().any(|variant| variant.payload.is_none()) {
+        return false;
+    }
+
+    let branch_matches = |branch: &Value, payload: &str, seen: &mut BTreeSet<(String, String)>| {
+        if let Some(reference) = ref_name(branch) {
+            let Ok(referenced) = openapi.schema(reference) else {
+                return false;
+            };
+            if union_branches(referenced).is_some() {
+                return request_union_matches_inner(openapi, referenced, payload, bindings, seen);
+            }
+            if referenced.get("properties").is_some() {
+                return request_object_matches_inner(openapi, reference, payload, bindings, seen);
+            }
+            return rust_type_matches_schema(referenced, payload, bindings);
+        }
+        if branch.get("properties").is_some() {
+            return request_object_value_matches(openapi, branch, payload, bindings, seen);
+        }
+        rust_type_matches_schema(branch, payload, bindings)
+    };
+
+    let mut used = BTreeSet::new();
+    for branch in branches {
+        let matches = variants
+            .iter()
+            .enumerate()
+            .filter(|(_, variant)| {
+                variant.payload.as_deref().is_some_and(|payload| {
+                    let mut branch_seen = seen.clone();
+                    branch_matches(branch, payload, &mut branch_seen)
+                })
+            })
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        if matches.len() != 1 || !used.insert(matches[0]) {
+            return false;
+        }
+    }
+    used.len() == variants.len()
+}
+
+pub(crate) fn request_union_matches(
+    openapi: &OpenApiIndex,
+    schema: &Value,
+    raw_union: &str,
+    bindings: &Bindings,
+) -> bool {
+    request_union_matches_inner(openapi, schema, raw_union, bindings, &mut BTreeSet::new())
+}
+
 fn request_union_collection<'a>(
     openapi: &'a OpenApiIndex,
     schema: &'a Value,
@@ -451,9 +557,15 @@ fn request_object_value_matches(
                 return false;
             };
             let matches = if union_branches(referenced).is_some() {
-                request_union_mapping_inner(openapi, referenced, &core.spelling, bindings, seen)
-                    .is_some()
-            } else {
+                core.kind == TypeKind::Opaque
+                    && request_union_matches_inner(
+                        openapi,
+                        referenced,
+                        &core.spelling,
+                        bindings,
+                        seen,
+                    )
+            } else if referenced.get("properties").is_some() {
                 core.kind == TypeKind::Opaque
                     && request_object_matches_inner(
                         openapi,
@@ -462,8 +574,10 @@ fn request_object_value_matches(
                         bindings,
                         seen,
                     )
+            } else {
+                type_matches_schema(referenced, &core, bindings, &mut BTreeSet::new())
             };
-            if core.kind != TypeKind::Opaque || !matches {
+            if !matches {
                 return false;
             }
             continue;
@@ -471,8 +585,7 @@ fn request_object_value_matches(
 
         if union_branches(wire).is_some() {
             if core.kind != TypeKind::Opaque
-                || request_union_mapping_inner(openapi, wire, &core.spelling, bindings, seen)
-                    .is_none()
+                || !request_union_matches_inner(openapi, wire, &core.spelling, bindings, seen)
             {
                 return false;
             }
@@ -488,9 +601,7 @@ fn request_object_value_matches(
             continue;
         }
 
-        let inline_object = matches!(wire.get("type").and_then(Value::as_str), Some("object"))
-            || wire.get("properties").is_some();
-        if inline_object {
+        if wire.get("properties").is_some() {
             if core.kind != TypeKind::Opaque
                 || !request_object_value_matches(openapi, wire, &core.spelling, bindings, seen)
             {

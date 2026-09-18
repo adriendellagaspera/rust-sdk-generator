@@ -1,24 +1,45 @@
 {
   "openapi": "3.1.0",
-  "info": {"title": "Nested request fixture", "version": "1"},
+  "info": {
+    "title": "Nested request fixture",
+    "version": "1"
+  },
   "paths": {
     "/tenants/{tenant_id}/widgets": {
       "post": {
         "operationId": "create_widget",
         "parameters": [
-          {"name": "tenant_id", "in": "path", "required": true, "schema": {"type": "string"}},
-          {"name": "dry-run", "in": "query", "required": false, "schema": {"type": "boolean"}}
+          {
+            "name": "tenant_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dry-run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": {"$ref": "#/components/schemas/CreateWidgetRequest"}
+              "schema": {
+                "$ref": "#/components/schemas/CreateWidgetRequest"
+              }
             }
           }
         },
         "responses": {
-          "204": {"description": "Created"}
+          "204": {
+            "description": "Created"
+          }
         }
       }
     }
@@ -27,26 +48,75 @@
     "schemas": {
       "CreateWidgetRequest": {
         "type": "object",
-        "required": ["name", "config"],
+        "required": [
+          "name",
+          "config"
+        ],
         "properties": {
-          "name": {"type": "string"},
-          "config": {"$ref": "#/components/schemas/WidgetConfig"},
-          "metadata": {"$ref": "#/components/schemas/WidgetMetadata"}
+          "name": {
+            "type": "string"
+          },
+          "config": {
+            "$ref": "#/components/schemas/WidgetConfig"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/WidgetMetadata"
+          },
+          "selector": {
+            "$ref": "#/components/schemas/WidgetSelector"
+          }
         }
       },
       "WidgetConfig": {
         "type": "object",
-        "required": ["mode"],
+        "required": [
+          "mode"
+        ],
         "properties": {
-          "mode": {"type": "string"},
-          "retries": {"type": "integer"}
+          "mode": {
+            "$ref": "#/components/schemas/WidgetMode"
+          },
+          "retries": {
+            "type": "integer"
+          },
+          "labels": {
+            "$ref": "#/components/schemas/WidgetLabels"
+          }
         }
       },
       "WidgetMetadata": {
         "type": "object",
         "properties": {
-          "note": {"type": "string"}
+          "note": {
+            "type": "string"
+          }
         }
+      },
+      "WidgetMode": {
+        "type": "string",
+        "enum": [
+          "fast",
+          "safe"
+        ]
+      },
+      "WidgetLabels": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        }
+      },
+      "WidgetSelector": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        ]
       }
     }
   }

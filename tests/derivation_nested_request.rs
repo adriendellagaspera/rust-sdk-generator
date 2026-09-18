@@ -54,6 +54,15 @@ fn derives_nested_named_request_models_without_raw_name_identity() {
         config.constructor.as_deref(),
         Some(&["mode".to_owned()][..])
     );
+    assert!(config.adapters.as_ref().is_none_or(indexmap::IndexMap::is_empty));
+    assert!(!derivation
+        .definition
+        .models
+        .contains_key("CreatePlatformWidgetsRequestConfigLabels"));
+    assert!(!derivation
+        .definition
+        .models
+        .contains_key("CreatePlatformWidgetsRequestSelector"));
 
     let metadata = &derivation.definition.models["CreatePlatformWidgetsRequestMetadata"];
     assert_eq!(metadata.schema.as_deref(), Some("WidgetMetadata"));
