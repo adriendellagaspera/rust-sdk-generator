@@ -634,7 +634,9 @@ pub(crate) fn sse_payload_binding_matches(
     // openapi-to-rust manifest type names are generator-owned schema identities.
     // Opaque adapters may use different raw names, in which case retain the
     // existing structural proof used by canonical SSE derivation.
-    (schema_name == raw && bindings.structs.contains_key(raw))
+    (schema_name == raw
+        && bindings.structs.contains_key(raw)
+        && openapi.object_schema(schema_name).is_ok())
         || scalar_named_object_matches(openapi, schema_name, raw, bindings)
 }
 
@@ -802,4 +804,81 @@ pub(crate) fn inline_object_union_mapping(
             })
             .collect(),
     )
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::{scalar_named_object_matches, sse_payload_binding_matches};
+    use crate::contracts::{Bindings, OpenApi};
+    use crate::openapi::OpenApiIndex;
+    use serde_json::json;
+
+    #[test]
+    fn sse_payload_identity_accepts_named_non_scalar_generated_object() {
+        let openapi = OpenApi(json!({
+            "openapi": "3.1.0",
+            "info": {"title": "fixture", "version": "1"},
+            "components": {
+                "schemas": {
+                    "Chunk": {
+                        "type": "object",
+                        "required": ["id", "choices"],
+                        "properties": {
+                            "id": {"type": "string"},
+                            "choices": {
+                                "type": "array",
+                                "items": {"$ref": "#/components/schemas/Choice"}
+                            }
+                        }
+                    },
+                    "Choice": {
+                        "type": "object",
+                        "required": ["index"],
+                        "properties": {"index": {"type": "integer"}}
+                    }
+                }
+            }
+        }));
+        let index = OpenApiIndex::new(&openapi).expect("index fixture OpenAPI");
+        let bindings: Bindings = serde_json::from_value(json!({
+            "schema_version": 3,
+            "structs": {
+                "Chunk": [
+                    {"name": "id", "wire_name": "id", "type": "String"},
+                    {"name": "choices", "wire_name": "choices", "type": "Vec<Choice>"}
+                ],
+                "Choice": [
+                    {"name": "index", "wire_name": "index", "type": "i64"}
+                ]
+            },
+            "enums": {},
+            "aliases": {},
+            "operations": {},
+            "symbol_paths": {
+                "Chunk": "crate::generated::types::Chunk",
+                "Choice": "crate::generated::types::Choice"
+            },
+            "binding": {
+                "client": {
+                    "type_path": "crate::generated::client::HttpClient",
+                    "constructor": "new",
+                    "api_key_builder": "with_api_key",
+                    "base_url_builder": "with_base_url"
+                },
+                "type_preludes": ["crate::generated::types::*"]
+            }
+        }))
+        .expect("bindings fixture");
+
+        assert!(!scalar_named_object_matches(
+            &index, "Chunk", "Chunk", &bindings
+        ));
+        assert!(sse_payload_binding_matches(
+            &index, "Chunk", "Chunk", &bindings
+        ));
+        assert!(!sse_payload_binding_matches(
+            &index, "Chunk", "MissingChunk", &bindings
+        ));
+    }
 }
