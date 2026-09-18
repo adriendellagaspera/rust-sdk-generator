@@ -521,56 +521,74 @@ fn emit_parameter_request(operation: &OperationSpec) -> String {
     )
 }
 
-fn emit_operation(operation: &OperationSpec, runtime: &Runtime) -> Result<String> {
-    let arguments = &operation.call.arguments;
-    let call = &operation.call.raw_arguments;
+fn emit_operation_call(
+    public_name: &str,
+    raw_method: &str,
+    call_spec: &OperationCall,
+    response: &ResponseProjection,
+    runtime: &Runtime,
+) -> Result<String> {
+    let arguments = &call_spec.arguments;
+    let call = &call_spec.raw_arguments;
     let separator = if arguments.is_empty() { "" } else { ", " };
     let error_type = &runtime.error_type;
-    Ok(match &operation.response_projection {
+    Ok(match response {
         ResponseProjection::Sse(stream) => format!(
-            "pub async fn {}(&self{separator}{arguments}) -> Result<{}, {error_type}> {{\n    let bytes = self.raw.{}({call}).await.map_err({error_type}::from)?;\n    let events = {}::{}::<_, _, {}>(bytes)\n        .map(|event| event.map(|event| {}::from(event.data)).map_err(Into::into));\n    Ok(Box::pin(events))\n}}",
-            operation.name,
+            "pub async fn {public_name}(&self{separator}{arguments}) -> Result<{}, {error_type}> {{\n    let bytes = self.raw.{raw_method}({call}).await.map_err({error_type}::from)?;\n    let events = {}::{}::<_, _, {}>(bytes)\n        .map(|event| event.map(|event| {}::from(event.data)).map_err(Into::into));\n    Ok(Box::pin(events))\n}}",
             stream.type_name,
-            operation.raw_method,
             runtime.sse_module,
             runtime.sse_function,
             stream.item,
             stream.wrapper
         ),
         ResponseProjection::Empty => format!(
-            "pub async fn {}(&self{separator}{arguments}) -> Result<(), {error_type}> {{\n    self.raw.{}({call}).await.map_err(Into::into)\n}}",
-            operation.name, operation.raw_method
+            "pub async fn {public_name}(&self{separator}{arguments}) -> Result<(), {error_type}> {{\n    self.raw.{raw_method}({call}).await.map_err(Into::into)\n}}"
         ),
         ResponseProjection::Text => format!(
-            "pub async fn {}(&self{separator}{arguments}) -> Result<String, {error_type}> {{\n    self.raw.{}({call}).await.map_err(Into::into)\n}}",
-            operation.name, operation.raw_method
+            "pub async fn {public_name}(&self{separator}{arguments}) -> Result<String, {error_type}> {{\n    self.raw.{raw_method}({call}).await.map_err(Into::into)\n}}"
         ),
         ResponseProjection::BinaryBuffered { type_name } => format!(
-            "pub async fn {}(&self{separator}{arguments}) -> Result<{type_name}, {error_type}> {{\n    self.raw.{}({call}).await.map_err(Into::into)\n}}",
-            operation.name, operation.raw_method
+            "pub async fn {public_name}(&self{separator}{arguments}) -> Result<{type_name}, {error_type}> {{\n    self.raw.{raw_method}({call}).await.map_err(Into::into)\n}}"
         ),
         ResponseProjection::Binary => format!(
-            "pub async fn {}(&self{separator}{arguments}) -> Result<BinaryStream, {error_type}> {{\n    let bytes = self.raw.{}({call}).await.map_err({error_type}::from)?;\n    let chunks = bytes.map(|chunk| chunk.map_err(Into::into));\n    Ok(Box::pin(chunks))\n}}",
-            operation.name, operation.raw_method
+            "pub async fn {public_name}(&self{separator}{arguments}) -> Result<BinaryStream, {error_type}> {{\n    let bytes = self.raw.{raw_method}({call}).await.map_err({error_type}::from)?;\n    let chunks = bytes.map(|chunk| chunk.map_err(Into::into));\n    Ok(Box::pin(chunks))\n}}"
         ),
         ResponseProjection::Json { model, .. } => {
-            if let Some(default) = &operation.call.default_raw_arguments {
+            if let Some(default) = &call_spec.default_raw_arguments {
                 let configured = format!(
-                    "pub async fn {}_with(&self, {arguments}) -> Result<{model}, {error_type}> {{\n    self.raw.{}({call}).await.map(Into::into).map_err(Into::into)\n}}",
-                    operation.name, operation.raw_method
+                    "pub async fn {public_name}_with(&self, {arguments}) -> Result<{model}, {error_type}> {{\n    self.raw.{raw_method}({call}).await.map(Into::into).map_err(Into::into)\n}}"
                 );
                 format!(
-                    "pub async fn {}(&self) -> Result<{model}, {error_type}> {{\n    self.raw.{}({default}).await.map(Into::into).map_err(Into::into)\n}}\n\n{configured}",
-                    operation.name, operation.raw_method
+                    "pub async fn {public_name}(&self) -> Result<{model}, {error_type}> {{\n    self.raw.{raw_method}({default}).await.map(Into::into).map_err(Into::into)\n}}\n\n{configured}"
                 )
             } else {
                 format!(
-                    "pub async fn {}(&self{separator}{arguments}) -> Result<{model}, {error_type}> {{\n    self.raw.{}({call}).await.map(Into::into).map_err(Into::into)\n}}",
-                    operation.name, operation.raw_method
+                    "pub async fn {public_name}(&self{separator}{arguments}) -> Result<{model}, {error_type}> {{\n    self.raw.{raw_method}({call}).await.map(Into::into).map_err(Into::into)\n}}"
                 )
             }
         }
     })
+}
+
+fn emit_operation(operation: &OperationSpec, runtime: &Runtime) -> Result<String> {
+    let primary = emit_operation_call(
+        &operation.name,
+        &operation.raw_method,
+        &operation.call,
+        &operation.response_projection,
+        runtime,
+    )?;
+    let Some(filenames) = &operation.multipart_filenames else {
+        return Ok(primary);
+    };
+    let auxiliary = emit_operation_call(
+        &format!("{}_with_filenames", operation.name),
+        &filenames.raw_method,
+        &filenames.call,
+        &operation.response_projection,
+        runtime,
+    )?;
+    Ok(format!("{primary}\n\n{auxiliary}"))
 }
 
 fn prelude_imports(binding: &BindingLayout) -> String {
