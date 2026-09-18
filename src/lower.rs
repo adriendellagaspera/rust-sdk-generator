@@ -1955,7 +1955,7 @@ pub(crate) fn lower(
                 validate_owned_byte_stream(raw_method, &raw_operation.success_type)?;
                 ResponseProjection::Binary
             } else if let Some(stream) = &item.stream {
-                if request.is_none() {
+                if request.is_none() && request_raw_parameter.is_none() {
                     return Err(error(
                         "lower.stream_request",
                         format!("stream requires a request projection: {raw_method}"),
@@ -2059,6 +2059,19 @@ pub(crate) fn lower(
                         .unwrap_or_default()
                         .into_iter()
                         .collect(),
+                }
+            } else if let Some(media) = item.request_media.filter(|media| {
+                matches!(
+                    media,
+                    RequestMediaDefinition::OctetStream
+                        | RequestMediaDefinition::Binary
+                        | RequestMediaDefinition::TextPlain
+                )
+            }) {
+                RequestProjection::Raw {
+                    media,
+                    raw_parameter: request_raw_parameter.expect("raw request parameter"),
+                    public_name: raw_request_public_name.expect("raw request public name"),
                 }
             } else if raw_operation.parameters.is_empty() {
                 RequestProjection::None
