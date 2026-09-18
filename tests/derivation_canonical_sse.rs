@@ -57,18 +57,14 @@ fn derives_canonical_sse_with_owned_public_wrappers_and_discriminator() {
 
     let request = &derivation.definition.models["WatchJobsRequest"];
     assert_eq!(request.raw.as_deref(), Some("OpaqueWatch8"));
-    assert_eq!(
-        request.exclude.as_deref(),
-        Some(&["stream".to_owned()][..])
-    );
+    assert_eq!(request.exclude.as_deref(), Some(&["stream".to_owned()][..]));
 
     let watch_item = &derivation.definition.models["WatchJobsStreamItem"];
     assert_eq!(watch_item.schema.as_deref(), Some("JobChunk"));
     assert_eq!(watch_item.raw.as_deref(), Some("OpaqueJobChunk4"));
     assert_eq!(watch_item.borrowed, Some(false));
 
-    let subscribe =
-        &derivation.definition.resources["notifications"].operations["subscribe"];
+    let subscribe = &derivation.definition.resources["notifications"].operations["subscribe"];
     let subscribe_stream = subscribe.stream.as_ref().expect("envelope SSE stream");
     assert_eq!(subscribe_stream.item, "OpaqueNotification6");
     assert_eq!(
@@ -102,7 +98,7 @@ fn derives_canonical_sse_with_owned_public_wrappers_and_discriminator() {
     }));
     assert!(generated.files.values().any(|source| {
         source.contains(
-            "pub async fn subscribe(&self) -> Result<SubscribeNotificationsStream, SdkError>"
+            "pub async fn subscribe(&self) -> Result<SubscribeNotificationsStream, SdkError>",
         ) && source.contains("json_events::<_, _, OpaqueNotification6>(bytes)")
             && source.contains("SubscribeNotificationsStreamItem::from(event.data)")
     }));
@@ -169,10 +165,7 @@ fn consumer_override_cannot_replace_canonical_discriminator() {
     overrides.operations.insert(
         "watch_job".into(),
         rust_sdk_generator::OperationOverride {
-            request_overrides: std::collections::BTreeMap::from([(
-                "stream".into(),
-                Some(false),
-            )]),
+            request_overrides: std::collections::BTreeMap::from([("stream".into(), Some(false))]),
         },
     );
 
