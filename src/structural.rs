@@ -223,3 +223,76 @@ pub(crate) fn raw_scalar_struct_shape(
     }
     Some(result)
 }
+
+pub(crate) fn inline_object_union_mapping(
+    schema: &Value,
+    raw_union: &str,
+    bindings: &Bindings,
+) -> Option<Vec<(String, String)>> {
+    let branches = schema
+        .get("oneOf")
+        .or_else(|| schema.get("anyOf"))
+        .and_then(Value::as_array)?;
+    if branches.len() < 2 {
+        return None;
+    }
+
+    let wire_shapes = branches
+        .iter()
+        .map(scalar_object_shape)
+        .collect::<Option<Vec<_>>>()?;
+    let variants = bindings.enums.get(raw_union)?;
+    if variants.len() != wire_shapes.len()
+        || variants.iter().any(|variant| variant.payload.is_none())
+    {
+        return None;
+    }
+
+    let raw_shapes = variants
+        .iter()
+        .map(|variant| {
+            let payload = variant.payload.as_ref()?;
+            Some((
+                variant.name.clone(),
+                payload.clone(),
+                raw_scalar_struct_shape(bindings, payload)?,
+            ))
+        })
+        .collect::<Option<Vec<_>>>()?;
+
+    let branch_matches = wire_shapes
+        .iter()
+        .map(|wire| {
+            raw_shapes
+                .iter()
+                .enumerate()
+                .filter(|(_, (_, _, raw))| raw == wire)
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    if branch_matches.iter().any(|matches| matches.len() != 1) {
+        return None;
+    }
+
+    for raw_index in 0..raw_shapes.len() {
+        if branch_matches
+            .iter()
+            .filter(|matches| matches[0] == raw_index)
+            .count()
+            != 1
+        {
+            return None;
+        }
+    }
+
+    Some(
+        branch_matches
+            .into_iter()
+            .map(|matches| {
+                let (variant, payload, _) = &raw_shapes[matches[0]];
+                (variant.clone(), payload.clone())
+            })
+            .collect(),
+    )
+}

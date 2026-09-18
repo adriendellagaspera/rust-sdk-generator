@@ -11,8 +11,8 @@ use crate::contracts::{
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, parse_type};
 use crate::structural::{
-    ScalarKind as StructuralScalarKind, raw_scalar_struct_shape, rust_type_matches_schema,
-    scalar_object_shape,
+    ScalarKind as StructuralScalarKind, inline_object_union_mapping, raw_scalar_struct_shape,
+    rust_type_matches_schema, scalar_object_shape,
 };
 use crate::symbols::field_identifier;
 
@@ -352,12 +352,11 @@ fn response_view(
     )
 }
 
-fn inline_response_view(
+fn inline_response_view_named(
     bindings: &Bindings,
     schema: &Value,
     raw: &str,
-    resource_path: &[String],
-    public_name: &str,
+    name: String,
 ) -> Result<(String, ModelDefinition), &'static str> {
     let wire = scalar_object_shape(schema).ok_or(RESPONSE_VIEW_UNPROVEN)?;
     let raw_shape = raw_scalar_struct_shape(bindings, raw).ok_or(RESPONSE_VIEW_UNPROVEN)?;
@@ -386,7 +385,6 @@ fn inline_response_view(
         );
     }
 
-    let name = response_model_name(resource_path, public_name);
     if !public_model_name_available(&name, bindings) {
         return Err("capability.public_model_name_collision");
     }
@@ -407,6 +405,21 @@ fn inline_response_view(
             accessors: Some(accessors),
         },
     ))
+}
+
+fn inline_response_view(
+    bindings: &Bindings,
+    schema: &Value,
+    raw: &str,
+    resource_path: &[String],
+    public_name: &str,
+) -> Result<(String, ModelDefinition), &'static str> {
+    inline_response_view_named(
+        bindings,
+        schema,
+        raw,
+        response_model_name(resource_path, public_name),
+    )
 }
 
 fn inline_array_response_model(
@@ -698,6 +711,72 @@ fn response_model(
     Err(RESPONSE_VIEW_UNPROVEN)
 }
 
+fn inline_union_response_model(
+    bindings: &Bindings,
+    schema: &Value,
+    raw_union: &str,
+    resource_path: &[String],
+    public_name: &str,
+) -> Result<(String, ProjectedModels), &'static str> {
+    let branches = schema
+        .get("oneOf")
+        .or_else(|| schema.get("anyOf"))
+        .and_then(Value::as_array)
+        .ok_or(RESPONSE_UNION_REQUIRED)?;
+    let mapping =
+        inline_object_union_mapping(schema, raw_union, bindings).ok_or(RESPONSE_UNION_REQUIRED)?;
+    if mapping.len() != branches.len() {
+        return Err(RESPONSE_UNION_REQUIRED);
+    }
+
+    let union_name = response_model_name(resource_path, public_name);
+    if !public_model_name_available(&union_name, bindings) {
+        return Err("capability.public_model_name_collision");
+    }
+
+    let mut models = Vec::new();
+    let mut variants = IndexMap::new();
+    for (index, ((raw_variant, raw_payload), branch)) in
+        mapping.into_iter().zip(branches).enumerate()
+    {
+        let public_variant = format!("Variant{}", index + 1);
+        let branch_name = format!("{union_name}{public_variant}");
+        let (adapter, branch_model) =
+            inline_response_view_named(bindings, branch, &raw_payload, branch_name)
+                .map_err(|_| RESPONSE_UNION_REQUIRED)?;
+        models.push((adapter.clone(), branch_model));
+        variants.insert(
+            raw_variant,
+            SimpleUnionVariant::Adapted {
+                name: public_variant,
+                adapter,
+            },
+        );
+    }
+
+    models.push((
+        union_name.clone(),
+        ModelDefinition {
+            raw: Some(raw_union.into()),
+            constructor: None,
+            exclude: None,
+            adapters: None,
+            union: None,
+            simple_union: Some(SimpleUnionDefinition {
+                bidirectional: true,
+                variants,
+            }),
+            type_alias: None,
+            map: None,
+            scalar_enum: None,
+            union_factory: None,
+            borrowed: None,
+            accessors: None,
+        },
+    ));
+    Ok((union_name, models))
+}
+
 fn union_response_model(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
@@ -714,11 +793,19 @@ fn union_response_model(
     if branches.len() < 2 {
         return Err(RESPONSE_UNION_REQUIRED);
     }
-    let references: Vec<_> = branches
+    let references = branches
         .iter()
         .map(|branch| ref_name(branch).map(str::to_owned))
-        .collect::<Option<Vec<_>>>()
-        .ok_or(RESPONSE_UNION_REQUIRED)?;
+        .collect::<Option<Vec<_>>>();
+    let Some(references) = references else {
+        return inline_union_response_model(
+            bindings,
+            schema,
+            raw_union,
+            resource_path,
+            public_name,
+        );
+    };
     let reference_set: BTreeSet<_> = references.iter().cloned().collect();
     if reference_set.len() != references.len() {
         return Err(RESPONSE_UNION_REQUIRED);
