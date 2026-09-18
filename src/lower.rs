@@ -1499,7 +1499,11 @@ pub(crate) fn lower(
             ModelRenderSpec::View(resolve_view(&raw, config, bindings)?)
         } else {
             let schema_name = config.schema.as_deref().unwrap_or(&raw);
-            let wire_schema = index.object_schema(schema_name)?;
+            let wire_schema = if let Some(path) = config.schema_path.as_deref() {
+                index.object_schema_path(schema_name, path)?
+            } else {
+                index.object_schema(schema_name)?
+            };
             let wire_fields: BTreeSet<_> = wire_schema
                 .get("properties")
                 .and_then(Value::as_object)
