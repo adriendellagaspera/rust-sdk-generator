@@ -37,13 +37,9 @@ fn derives_multipart_and_form_request_models_through_the_common_path() {
         assert_eq!(outcome.reason.code, "inference.structurally_proven");
     }
 
-    let upload =
-        &derivation.definition.resources["media_uploads"].operations["create"];
+    let upload = &derivation.definition.resources["media_uploads"].operations["create"];
     assert_eq!(upload.raw_method.as_deref(), Some("raw_upload_17"));
-    assert_eq!(
-        upload.request.as_deref(),
-        Some("CreateMediaUploadsRequest")
-    );
+    assert_eq!(upload.request.as_deref(), Some("CreateMediaUploadsRequest"));
     assert_eq!(
         upload.request_media,
         Some(RequestMediaDefinition::MultipartFormData)
@@ -79,9 +75,9 @@ fn derives_multipart_and_form_request_models_through_the_common_path() {
     .expect("derived definition generates");
 
     let types = &generated.files["facade_types.rs"];
-    assert!(types.contains(
-        "pub fn new(labels: Vec<String>, thumbnail: bytes::Bytes, publish: bool)"
-    ));
+    assert!(
+        types.contains("pub fn new(labels: Vec<String>, thumbnail: bytes::Bytes, publish: bool)")
+    );
     assert!(types.contains("pub fn file(mut self, file: bytes::Bytes)"));
     assert!(types.contains("pub fn file_null(mut self)"));
     assert!(types.contains("pub fn new(title: impl Into<String>, tags: Vec<String>)"));
