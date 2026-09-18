@@ -612,7 +612,7 @@ mod tests {
     use super::*;
     use crate::contracts::{
         BindingLayout, ClientBinding, OperationBindingKind, OperationMetadataBinding,
-        ParameterBinding, ResponseRepresentationBinding, SourceOperationBinding,
+        ParameterBinding, ResponseRepresentationBinding, SourceOperationBinding, StreamBinding,
     };
 
     fn bindings(operations: BTreeMap<String, OperationBinding>) -> Bindings {
@@ -666,19 +666,23 @@ mod tests {
         }
     }
 
-    fn v3_operation(
+    fn v3_operation_with_response(
         key: &str,
         operation_id: &str,
         method: &str,
         path: &str,
         kind: OperationBindingKind,
+        success_type: &str,
+        representation: ResponseRepresentationBinding,
+        success_statuses: Vec<&str>,
+        stream: Option<StreamBinding>,
     ) -> OperationBinding {
         OperationBinding {
             name: key.into(),
             parameters: Vec::new(),
-            return_type: "Result<(), Error>".into(),
-            success_type: "()".into(),
-            stream: None,
+            return_type: format!("Result<{success_type}, Error>"),
+            success_type: success_type.into(),
+            stream,
             metadata: Some(OperationMetadataBinding {
                 kind,
                 source_operation: SourceOperationBinding {
@@ -687,12 +691,32 @@ mod tests {
                     path: path.into(),
                 },
                 emitted_operation_id: operation_id.into(),
-                representation: ResponseRepresentationBinding::Empty,
-                success_statuses: vec!["204".into()],
+                representation,
+                success_statuses: success_statuses.into_iter().map(str::to_owned).collect(),
                 request_discriminators: Vec::new(),
                 stream_abi: None,
             }),
         }
+    }
+
+    fn v3_operation(
+        key: &str,
+        operation_id: &str,
+        method: &str,
+        path: &str,
+        kind: OperationBindingKind,
+    ) -> OperationBinding {
+        v3_operation_with_response(
+            key,
+            operation_id,
+            method,
+            path,
+            kind,
+            "()",
+            ResponseRepresentationBinding::Empty,
+            vec!["204"],
+            None,
+        )
     }
 
     #[test]
@@ -876,6 +900,167 @@ mod tests {
         let result = reconcile(&openapi, &bindings).expect("reconcile");
         assert_eq!(result["upload"].binding.as_deref(), Some("opaque_upload"));
         assert_eq!(result["upload"].reason, None);
+    }
+
+    #[test]
+    fn canonical_representation_reconciles_multiple_success_statuses() {
+        let openapi = OpenApi(serde_json::json!({
+            "openapi": "3.1.0",
+            "paths": {
+                "/item": {"get": {
+                    "operationId": "read_item",
+                    "responses": {
+                        "200": {"content": {"application/json": {
+                            "schema": {"$ref": "#/components/schemas/Item"}
+                        }}},
+                        "206": {"content": {"application/json": {
+                            "schema": {"$ref": "#/components/schemas/Item"}
+                        }}}
+                    }
+                }}
+            }
+        }));
+        let bindings = v3_bindings(BTreeMap::from([(
+            "opaque_read".into(),
+            v3_operation_with_response(
+                "opaque_read",
+                "read_item",
+                "GET",
+                "/item",
+                OperationBindingKind::CallShape,
+                "Item",
+                ResponseRepresentationBinding::Json {
+                    schema_name: "Item".into(),
+                    media_type: "application/json".into(),
+                },
+                vec!["200", "206"],
+                None,
+            ),
+        )]));
+
+        let result = reconcile(&openapi, &bindings).expect("reconcile");
+        assert_eq!(result["read_item"].binding.as_deref(), Some("opaque_read"));
+        assert_eq!(result["read_item"].reason, None);
+    }
+
+    #[test]
+    fn canonical_representation_selects_one_media_from_multi_media_success() {
+        let openapi = OpenApi(serde_json::json!({
+            "openapi": "3.1.0",
+            "paths": {
+                "/export": {"get": {
+                    "operationId": "export",
+                    "responses": {"200": {"content": {
+                        "application/json": {
+                            "schema": {"$ref": "#/components/schemas/Export"}
+                        },
+                        "application/octet-stream": {
+                            "schema": {"type": "string", "format": "binary"}
+                        }
+                    }}}
+                }}
+            }
+        }));
+        let bindings = v3_bindings(BTreeMap::from([(
+            "opaque_json_export".into(),
+            v3_operation_with_response(
+                "opaque_json_export",
+                "export",
+                "GET",
+                "/export",
+                OperationBindingKind::CallShape,
+                "Export",
+                ResponseRepresentationBinding::Json {
+                    schema_name: "Export".into(),
+                    media_type: "application/json".into(),
+                },
+                vec!["200"],
+                None,
+            ),
+        )]));
+
+        let result = reconcile(&openapi, &bindings).expect("reconcile");
+        assert_eq!(
+            result["export"].binding.as_deref(),
+            Some("opaque_json_export")
+        );
+        assert_eq!(result["export"].reason, None);
+    }
+
+    #[test]
+    fn canonical_representation_reconciles_text_success() {
+        let openapi = OpenApi(serde_json::json!({
+            "openapi": "3.1.0",
+            "paths": {
+                "/text": {"get": {
+                    "operationId": "read_text",
+                    "responses": {"200": {"content": {
+                        "text/plain": {"schema": {"type": "string"}}
+                    }}}
+                }}
+            }
+        }));
+        let bindings = v3_bindings(BTreeMap::from([(
+            "opaque_text".into(),
+            v3_operation_with_response(
+                "opaque_text",
+                "read_text",
+                "GET",
+                "/text",
+                OperationBindingKind::CallShape,
+                "String",
+                ResponseRepresentationBinding::Text {
+                    media_type: "text/plain".into(),
+                },
+                vec!["200"],
+                None,
+            ),
+        )]));
+
+        let result = reconcile(&openapi, &bindings).expect("reconcile");
+        assert_eq!(result["read_text"].binding.as_deref(), Some("opaque_text"));
+        assert_eq!(result["read_text"].reason, None);
+    }
+
+    #[test]
+    fn canonical_representation_reconciles_event_stream_success() {
+        let openapi = OpenApi(serde_json::json!({
+            "openapi": "3.1.0",
+            "paths": {
+                "/events": {"get": {
+                    "operationId": "events",
+                    "responses": {"200": {"content": {
+                        "text/event-stream": {
+                            "schema": {"$ref": "#/components/schemas/EventEnvelope"}
+                        }
+                    }}}
+                }}
+            }
+        }));
+        let bindings = v3_bindings(BTreeMap::from([(
+            "opaque_events".into(),
+            v3_operation_with_response(
+                "opaque_events",
+                "events",
+                "GET",
+                "/events",
+                OperationBindingKind::CallShape,
+                "HttpResponseByteStream",
+                ResponseRepresentationBinding::EventStream {
+                    media_type: "text/event-stream".into(),
+                },
+                vec!["200"],
+                Some(StreamBinding {
+                    item_type: "bytes::Bytes".into(),
+                    error_type: "reqwest::Error".into(),
+                    lifetime: "'static".into(),
+                }),
+            ),
+        )]));
+
+        let result = reconcile(&openapi, &bindings).expect("reconcile");
+        assert_eq!(result["events"].binding.as_deref(), Some("opaque_events"));
+        assert_eq!(result["events"].reason, None);
     }
 
     #[test]
