@@ -122,6 +122,9 @@ fn split_arguments(value: &str) -> Result<Vec<&str>> {
     }
     let final_part = value[start..].trim();
     if final_part.is_empty() {
+        if !parts.is_empty() && value.trim_end().ends_with(',') {
+            return Ok(parts);
+        }
         return Err(type_error("empty Rust generic argument"));
     }
     parts.push(final_part);
@@ -217,6 +220,29 @@ mod tests {
         let vector = parsed.unary("Option").expect("option");
         assert_eq!(vector.constructor.as_deref(), Some("Vec"));
         assert_eq!(parsed.spelling, "Option<Vec<Result<String, Error>>>");
+    }
+
+    #[test]
+    fn accepts_trailing_comma_in_generic_arguments() {
+        let parsed = parse_type(
+            "std::collections::BTreeMap<\n    String,\n    Option<serde_json::Value>,\n>",
+        )
+        .expect("valid Rust generic with trailing comma");
+        assert_eq!(
+            parsed.constructor.as_deref(),
+            Some("std::collections::BTreeMap")
+        );
+        assert_eq!(parsed.arguments.len(), 2);
+        assert_eq!(parsed.arguments[0].spelling, "String");
+        assert_eq!(parsed.arguments[1].spelling, "Option<serde_json::Value>");
+    }
+
+    #[test]
+    fn rejects_empty_internal_generic_arguments() {
+        for spelling in ["Result<, Error>", "Result<String,, Error>"] {
+            let error = parse_type(spelling).expect_err("must reject empty argument");
+            assert_eq!(error.diagnostic.code, "rust_type.invalid");
+        }
     }
 
     #[test]
