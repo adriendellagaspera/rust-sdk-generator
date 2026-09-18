@@ -206,17 +206,15 @@ pub(crate) fn request_union_mapping(
         return None;
     }
 
-    let references = branches
-        .iter()
-        .map(ref_name)
-        .collect::<Option<Vec<_>>>()?;
+    let references = branches.iter().map(ref_name).collect::<Option<Vec<_>>>()?;
     let reference_set: BTreeSet<_> = references.iter().copied().collect();
     if reference_set.len() != references.len() {
         return None;
     }
 
     let variants = bindings.enums.get(raw_union)?;
-    if variants.len() != references.len() || variants.iter().any(|variant| variant.payload.is_none())
+    if variants.len() != references.len()
+        || variants.iter().any(|variant| variant.payload.is_none())
     {
         return None;
     }
@@ -272,7 +270,10 @@ pub(crate) fn request_union_mapping(
     )
 }
 
-pub(crate) fn request_union_raw<'a>(schema: &'a Value, syntax: &'a Type) -> Option<(&'a Value, &'a str)> {
+pub(crate) fn request_union_raw<'a>(
+    schema: &'a Value,
+    syntax: &'a Type,
+) -> Option<(&'a Value, &'a str)> {
     if schema.get("oneOf").is_some() || schema.get("anyOf").is_some() {
         return (syntax.kind == TypeKind::Opaque).then_some((schema, syntax.spelling.as_str()));
     }
