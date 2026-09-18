@@ -11,8 +11,8 @@ use crate::contracts::{
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, parse_type};
 use crate::structural::{
-    ScalarKind as StructuralScalarKind, inline_object_union_mapping, raw_scalar_struct_shape,
-    rust_type_matches_schema, scalar_object_shape,
+    ScalarKind as StructuralScalarKind, inline_array_object_item, inline_object_union_mapping,
+    raw_scalar_struct_shape, rust_type_matches_schema, scalar_object_shape,
 };
 use crate::symbols::field_identifier;
 
@@ -428,30 +428,71 @@ fn inline_array_response_model(
     raw: &str,
     resource_path: &[String],
     public_name: &str,
-) -> Result<(String, ModelDefinition), &'static str> {
+) -> Result<(String, ProjectedModels), &'static str> {
     if !bindings.aliases.contains_key(raw) || !rust_type_matches_schema(schema, raw, bindings) {
         return Err(RESPONSE_VIEW_UNPROVEN);
     }
+
     let name = response_model_name(resource_path, public_name);
     if !public_model_name_available(&name, bindings) {
         return Err("capability.public_model_name_collision");
     }
-    Ok((
-        name,
-        ModelDefinition {
+
+    if let Some(raw_item) = inline_array_object_item(schema, raw, bindings) {
+        let items = schema.get("items").ok_or(RESPONSE_VIEW_UNPROVEN)?;
+        let item_name = format!("{name}Item");
+        let (_, mut item_model) =
+            inline_response_view_named(bindings, items, &raw_item, item_name.clone())?;
+        item_model.borrowed = Some(true);
+
+        let mut accessors = IndexMap::new();
+        accessors.insert(
+            "iter".into(),
+            AccessorDefinition {
+                kind: AccessorKindDefinition::Iter,
+                path: Vec::new(),
+                wrapper: Some(item_name.clone()),
+            },
+        );
+        let root_model = ModelDefinition {
             raw: Some(raw.into()),
             constructor: None,
             exclude: None,
             adapters: None,
             union: None,
             simple_union: None,
-            type_alias: Some(true),
+            type_alias: None,
             map: None,
             scalar_enum: None,
             union_factory: None,
-            borrowed: None,
-            accessors: None,
-        },
+            borrowed: Some(false),
+            accessors: Some(accessors),
+        };
+        return Ok((
+            name.clone(),
+            vec![(item_name, item_model), (name, root_model)],
+        ));
+    }
+
+    Ok((
+        name.clone(),
+        vec![(
+            name,
+            ModelDefinition {
+                raw: Some(raw.into()),
+                constructor: None,
+                exclude: None,
+                adapters: None,
+                union: None,
+                simple_union: None,
+                type_alias: Some(true),
+                map: None,
+                scalar_enum: None,
+                union_factory: None,
+                borrowed: None,
+                accessors: None,
+            },
+        )],
     ))
 }
 
@@ -959,17 +1000,14 @@ fn response_projection(
             });
         }
         if schema.get("type").and_then(Value::as_str) == Some("array") {
-            let (name, model) = inline_array_response_model(
+            let (name, models) = inline_array_response_model(
                 bindings,
                 schema,
                 &raw_binding.success_type,
                 resource_path,
                 public_name,
             )?;
-            return Ok(ProjectedResponse::Json {
-                name: name.clone(),
-                models: vec![(name, model)],
-            });
+            return Ok(ProjectedResponse::Json { name, models });
         }
         return Err(RESPONSE_VIEW_UNPROVEN);
     }

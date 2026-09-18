@@ -379,10 +379,10 @@ impl SdkDefinition {
                         &format!("definition.models.{name}.accessors.{accessor_name}"),
                         accessor_name,
                     )?;
-                    if accessor.path.is_empty() {
+                    if accessor.path.is_empty() && accessor.kind != AccessorKindDefinition::Iter {
                         return Err(invalid(
                             format!("definition.models.{name}.accessors.{accessor_name}.path"),
-                            "path must not be empty",
+                            "path must not be empty except for a root iter accessor",
                         ));
                     }
                     if accessor.kind == AccessorKindDefinition::Iter && accessor.wrapper.is_none() {
