@@ -645,8 +645,7 @@ fn sse_envelope_payload(schema: &Value) -> Option<&str> {
     {
         return None;
     }
-    let has_metadata = properties.keys().any(|field| field != "data");
-    has_metadata.then_some(data)
+    Some(data)
 }
 
 pub(crate) fn sse_payload_schema_name(openapi: &OpenApiIndex, schema: &Value) -> Option<String> {

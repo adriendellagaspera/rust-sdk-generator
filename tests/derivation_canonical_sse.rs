@@ -105,6 +105,62 @@ fn derives_canonical_sse_with_owned_public_wrappers_and_discriminator() {
 }
 
 #[test]
+fn explicit_sse_accepts_exact_named_non_scalar_payload() {
+    let (mut openapi, mut bindings, surface) = fixture();
+    let mut definition = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive")
+    .definition;
+
+    *openapi
+        .0
+        .pointer_mut("/components/schemas/JobChunk/properties/message")
+        .expect("job chunk message schema") =
+        serde_json::json!({"type": "array", "items": {"type": "string"}});
+
+    let mut fields = bindings
+        .structs
+        .remove("OpaqueJobChunk4")
+        .expect("opaque job chunk binding");
+    fields
+        .iter_mut()
+        .find(|field| field.name == "message")
+        .expect("message binding")
+        .type_name = "Vec<String>".into();
+    bindings.structs.insert("JobChunk".into(), fields);
+    if let Some(path) = bindings.symbol_paths.remove("OpaqueJobChunk4") {
+        bindings.symbol_paths.insert(
+            "JobChunk".into(),
+            path.replace("OpaqueJobChunk4", "JobChunk"),
+        );
+    }
+
+    definition.models["WatchJobsStreamItem"].raw = Some("JobChunk".into());
+    definition.resources["jobs"].operations["watch"]
+        .stream
+        .as_mut()
+        .expect("explicit stream definition")
+        .item = "JobChunk".into();
+
+    let generated = generate(GenerateInput {
+        openapi,
+        bindings,
+        definition,
+        runtime: Runtime::default(),
+    })
+    .expect("exact named SSE payload should reconcile");
+
+    assert!(generated.files.values().any(|source| {
+        source.contains("json_events::<_, _, JobChunk>(bytes)")
+            && source.contains("WatchJobsStreamItem::from(event.data)")
+    }));
+}
+
+#[test]
 fn lowering_revalidates_sse_envelope_payload() {
     let (mut openapi, bindings, surface) = fixture();
     let derivation = derive(DeriveInput {

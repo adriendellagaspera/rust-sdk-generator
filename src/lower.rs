@@ -2386,9 +2386,9 @@ pub(crate) fn lower(
                             format!("event stream has no selected payload for {raw_method}"),
                         )
                     })?;
-                    if payloads.iter().any(|candidate| candidate != payload)
-                        || !scalar_named_object_matches(&index, payload, &stream.item, bindings)
-                    {
+                    let payload_matches = payload == &stream.item
+                        || scalar_named_object_matches(&index, payload, &stream.item, bindings);
+                    if payloads.iter().any(|candidate| candidate != payload) || !payload_matches {
                         return Err(error(
                             "lower.stream_drift",
                             format!("stream payload drift for {raw_method}"),
