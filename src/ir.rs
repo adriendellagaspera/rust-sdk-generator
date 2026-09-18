@@ -221,6 +221,11 @@ pub(crate) enum RequestProjection {
         raw: String,
         overrides: Vec<(String, Option<bool>)>,
     },
+    Raw {
+        media: RequestMediaDefinition,
+        raw_parameter: String,
+        public_name: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
