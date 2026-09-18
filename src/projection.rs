@@ -6,7 +6,8 @@ use serde_json::Value;
 use crate::contracts::{
     AccessorDefinition, AccessorKindDefinition, Bindings, MapDefinition, ModelDefinition,
     OperationDefinition, RequestMediaDefinition, ResourceDefinition, ResponseRepresentationBinding,
-    ScalarEnumDefinition, SdkDefinition, SimpleUnionDefinition, SimpleUnionVariant,
+    ResponseRepresentationDefinition, ScalarEnumDefinition, SdkDefinition, SimpleUnionDefinition,
+    SimpleUnionVariant,
 };
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, parse_type};
@@ -31,6 +32,8 @@ enum ProjectedResponse {
         name: String,
         models: ProjectedModels,
     },
+    Text,
+    BinaryBuffered,
 }
 
 #[derive(Debug, Clone)]
@@ -1192,6 +1195,20 @@ fn selected_success_responses_are_empty(operation: &Value, statuses: &[String]) 
         })
 }
 
+fn text_response_schema(schema: &Value) -> bool {
+    schema.get("type").and_then(Value::as_str) == Some("string")
+        && schema.get("format").is_none()
+}
+
+fn binary_response_schema(schema: &Value) -> bool {
+    schema.get("type").and_then(Value::as_str) == Some("string")
+        && schema.get("format").and_then(Value::as_str) == Some("binary")
+}
+
+fn buffered_binary_success_type(type_name: &str) -> bool {
+    matches!(type_name, "bytes::Bytes" | "Vec<u8>")
+}
+
 fn project_json_response_schema(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
@@ -1288,7 +1305,39 @@ fn response_projection(
                     public_name,
                 )
             }
-            _ => Err("capability.response_projection_not_implemented"),
+            ResponseRepresentationBinding::Text { media_type } => {
+                let schemas = selected_success_response_schemas(
+                    operation,
+                    &metadata.success_statuses,
+                    media_type,
+                )?;
+                if raw_binding.success_type == "String"
+                    && schemas.iter().all(|schema| text_response_schema(schema))
+                {
+                    Ok(ProjectedResponse::Text)
+                } else {
+                    Err("capability.text_response_not_structurally_provable")
+                }
+            }
+            ResponseRepresentationBinding::BinaryBuffered { media_type, .. } => {
+                let schemas = selected_success_response_schemas(
+                    operation,
+                    &metadata.success_statuses,
+                    media_type,
+                )?;
+                if raw_binding.stream.is_none()
+                    && buffered_binary_success_type(&raw_binding.success_type)
+                    && schemas.iter().all(|schema| binary_response_schema(schema))
+                {
+                    Ok(ProjectedResponse::BinaryBuffered)
+                } else {
+                    Err("capability.buffered_binary_response_not_structurally_provable")
+                }
+            }
+            ResponseRepresentationBinding::EventStream { .. }
+            | ResponseRepresentationBinding::BinaryStream { .. } => {
+                Err("capability.response_projection_not_implemented")
+            }
         };
     }
 
@@ -1372,9 +1421,26 @@ pub(crate) fn project_operation(
                 .map(|body| body.media)
         });
     let response = response_projection(openapi, bindings, operation, binding, &path, &public_name)?;
+    let canonical_response = bindings.operations[binding].metadata.as_ref().map(|metadata| {
+        match metadata.representation {
+            ResponseRepresentationBinding::Json { .. } => ResponseRepresentationDefinition::Json,
+            ResponseRepresentationBinding::Empty => ResponseRepresentationDefinition::Empty,
+            ResponseRepresentationBinding::Text { .. } => ResponseRepresentationDefinition::Text,
+            ResponseRepresentationBinding::BinaryBuffered { .. } => {
+                ResponseRepresentationDefinition::BinaryBuffered
+            }
+            ResponseRepresentationBinding::EventStream { .. } => {
+                ResponseRepresentationDefinition::EventStream
+            }
+            ResponseRepresentationBinding::BinaryStream { .. } => {
+                ResponseRepresentationDefinition::BinaryStream
+            }
+        }
+    });
     let (response_name, empty_response, response_models) = match response {
         ProjectedResponse::Empty => (None, Some(true), Vec::new()),
         ProjectedResponse::Json { name, models } => (Some(name), None, models),
+        ProjectedResponse::Text | ProjectedResponse::BinaryBuffered => (None, None, Vec::new()),
     };
     let mut models = Vec::new();
     if let Some((_, request_models, _)) = request_model {
@@ -1392,6 +1458,7 @@ pub(crate) fn project_operation(
             request,
             request_media,
             response: response_name,
+            response_representation: canonical_response,
             empty_response,
             binary_response: None,
             stream: None,
