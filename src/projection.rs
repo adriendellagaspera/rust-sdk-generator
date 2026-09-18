@@ -660,7 +660,7 @@ fn map_response_model(
         .get("additionalProperties")
         .filter(|value| **value != Value::Bool(false))
         .ok_or(RESPONSE_VIEW_UNPROVEN)?;
-    let fields = context.bindings.structs.get(raw).ok_or(RESPONSE_VIEW_UNPROVEN)?;
+    let fields = bindings.structs.get(raw).ok_or(RESPONSE_VIEW_UNPROVEN)?;
     if fields.len() != 1
         || fields[0].name.strip_prefix("r#").unwrap_or(&fields[0].name) != "additional_properties"
     {
