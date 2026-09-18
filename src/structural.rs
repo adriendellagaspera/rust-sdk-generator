@@ -20,6 +20,13 @@ pub(crate) struct ScalarFieldShape {
     pub option_depth: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RequestUnionBranch {
+    pub raw_variant: String,
+    pub schema: String,
+    pub raw_payload: String,
+}
+
 fn direct_scalar_schema(schema: &Value) -> Option<ScalarKind> {
     match schema.get("type").and_then(Value::as_str)? {
         "string" => Some(ScalarKind::String),
@@ -192,6 +199,79 @@ fn rust_option_core(type_name: &str) -> Option<(Type, usize)> {
     Some((syntax, depth))
 }
 
+fn union_branches(schema: &Value) -> Option<&Vec<Value>> {
+    let branches = schema
+        .get("oneOf")
+        .or_else(|| schema.get("anyOf"))?
+        .as_array()?;
+    (branches.len() >= 2).then_some(branches)
+}
+
+fn request_union_mapping_inner(
+    openapi: &OpenApiIndex,
+    schema: &Value,
+    raw_union: &str,
+    bindings: &Bindings,
+    seen: &mut BTreeSet<(String, String)>,
+) -> Option<Vec<RequestUnionBranch>> {
+    let branches = union_branches(schema)?;
+    let references = branches
+        .iter()
+        .map(|branch| ref_name(branch).map(str::to_owned))
+        .collect::<Option<Vec<_>>>()?;
+    let reference_set: BTreeSet<_> = references.iter().collect();
+    if reference_set.len() != references.len() {
+        return None;
+    }
+
+    let variants = bindings.enums.get(raw_union)?;
+    if variants.len() != references.len()
+        || variants.iter().any(|variant| variant.payload.is_none())
+    {
+        return None;
+    }
+
+    let mut used = BTreeSet::new();
+    let mut mapping = Vec::new();
+    for reference in references {
+        let matches = variants
+            .iter()
+            .enumerate()
+            .filter(|(_, variant)| {
+                variant.payload.as_ref().is_some_and(|payload| {
+                    request_object_matches_inner(openapi, &reference, payload, bindings, seen)
+                })
+            })
+            .collect::<Vec<_>>();
+        if matches.len() != 1 || !used.insert(matches[0].0) {
+            return None;
+        }
+        let (_, variant) = matches[0];
+        mapping.push(RequestUnionBranch {
+            raw_variant: variant.name.clone(),
+            schema: reference,
+            raw_payload: variant.payload.clone()?,
+        });
+    }
+
+    (used.len() == variants.len()).then_some(mapping)
+}
+
+pub(crate) fn request_union_mapping(
+    openapi: &OpenApiIndex,
+    schema: &Value,
+    raw_union: &str,
+    bindings: &Bindings,
+) -> Option<Vec<RequestUnionBranch>> {
+    request_union_mapping_inner(
+        openapi,
+        schema,
+        raw_union,
+        bindings,
+        &mut BTreeSet::new(),
+    )
+}
+
 fn request_object_value_matches(
     openapi: &OpenApiIndex,
     schema: &Value,
@@ -247,8 +327,38 @@ fn request_object_value_matches(
         }
 
         if let Some(reference) = ref_name(wire) {
+            let Some(referenced) = openapi.schema(reference).ok() else {
+                return false;
+            };
+            let matches = if union_branches(referenced).is_some() {
+                request_union_mapping_inner(
+                    openapi,
+                    referenced,
+                    &core.spelling,
+                    bindings,
+                    seen,
+                )
+                .is_some()
+            } else {
+                core.kind == TypeKind::Opaque
+                    && request_object_matches_inner(
+                        openapi,
+                        reference,
+                        &core.spelling,
+                        bindings,
+                        seen,
+                    )
+            };
+            if core.kind != TypeKind::Opaque || !matches {
+                return false;
+            }
+            continue;
+        }
+
+        if union_branches(wire).is_some() {
             if core.kind != TypeKind::Opaque
-                || !request_object_matches_inner(openapi, reference, &core.spelling, bindings, seen)
+                || request_union_mapping_inner(openapi, wire, &core.spelling, bindings, seen)
+                    .is_none()
             {
                 return false;
             }
