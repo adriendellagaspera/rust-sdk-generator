@@ -267,10 +267,8 @@ fn binding_matches(
             .iter()
             .enumerate()
             .filter(|(_, parameter)| {
-                request_object_matches(openapi, body, &parameter.type_name, bindings)
-                    || (parameter.type_name == *body
-                        && (!bindings.structs.contains_key(body)
-                            || openapi.object_schema(body).is_err()))
+                parameter.type_name == *body
+                    || request_object_matches(openapi, body, &parameter.type_name, bindings)
             })
             .map(|(index, _)| index)
             .collect();
