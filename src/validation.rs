@@ -431,6 +431,12 @@ impl SdkDefinition {
                         "operation must select exactly one response projection",
                     ));
                 }
+                if operation.request.is_none() && operation.request_media.is_some() {
+                    return Err(invalid(
+                        format!("definition.resources.{module}.operations.{name}.request_media"),
+                        "request media requires a request model",
+                    ));
+                }
                 if operation.request.is_none() && operation.request_overrides.is_some() {
                     return Err(invalid(
                         format!(
