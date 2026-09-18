@@ -514,7 +514,7 @@ impl OpenApiIndex {
                     format!("OpenAPI schema at {context} is not an object: {kind:?}"),
                 ));
             }
-            schema = merge_object_shapes(&[object.clone()], &context)?;
+            schema = merge_object_shapes(std::slice::from_ref(object), &context)?;
         }
 
         Ok(schema)
