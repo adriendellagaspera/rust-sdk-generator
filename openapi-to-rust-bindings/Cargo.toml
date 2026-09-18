@@ -1,6 +1,6 @@
 [package]
 name = "openapi-to-rust-bindings"
-version = "0.2.2"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.88"
 description = "Normalize openapi-to-rust output into the rust-sdk-generator Bindings contract"
@@ -16,7 +16,5 @@ name = "openapi-to-rust-bindings"
 path = "src/main.rs"
 
 [dependencies]
-proc-macro2 = { version = "1.0", features = ["span-locations"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-syn = { version = "3.0", features = ["full"] }
