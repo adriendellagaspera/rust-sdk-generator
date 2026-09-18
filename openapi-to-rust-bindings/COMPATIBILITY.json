@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "package_name": "openapi-to-rust-bindings",
-  "package_version": "0.2.2",
+  "package_version": "0.3.0",
   "bindings_schema_version": 3,
   "manifest": "binding-manifest.json",
   "legacy_sidecar": "rust-bindings.json",
