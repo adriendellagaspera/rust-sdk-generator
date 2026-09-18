@@ -241,40 +241,25 @@ fn request_object_value_matches(
         let (wire, nullable) = nullable_schema(property)
             .map(|schema| (schema, true))
             .unwrap_or((property, false));
-        let expected_depth =
-            usize::from(!required.contains(name.as_str())) + usize::from(nullable);
+        let expected_depth = usize::from(!required.contains(name.as_str())) + usize::from(nullable);
         if option_depth != expected_depth {
             return false;
         }
 
         if let Some(reference) = ref_name(wire) {
             if core.kind != TypeKind::Opaque
-                || !request_object_matches_inner(
-                    openapi,
-                    reference,
-                    &core.spelling,
-                    bindings,
-                    seen,
-                )
+                || !request_object_matches_inner(openapi, reference, &core.spelling, bindings, seen)
             {
                 return false;
             }
             continue;
         }
 
-        let inline_object = matches!(
-            wire.get("type").and_then(Value::as_str),
-            Some("object")
-        ) || wire.get("properties").is_some();
+        let inline_object = matches!(wire.get("type").and_then(Value::as_str), Some("object"))
+            || wire.get("properties").is_some();
         if inline_object {
             if core.kind != TypeKind::Opaque
-                || !request_object_value_matches(
-                    openapi,
-                    wire,
-                    &core.spelling,
-                    bindings,
-                    seen,
-                )
+                || !request_object_value_matches(openapi, wire, &core.spelling, bindings, seen)
             {
                 return false;
             }
@@ -301,9 +286,7 @@ fn request_object_matches_inner(
     let matched = openapi
         .object_schema(schema_name)
         .ok()
-        .is_some_and(|schema| {
-            request_object_value_matches(openapi, &schema, raw, bindings, seen)
-        });
+        .is_some_and(|schema| request_object_value_matches(openapi, &schema, raw, bindings, seen));
 
     seen.remove(&pair);
     matched
