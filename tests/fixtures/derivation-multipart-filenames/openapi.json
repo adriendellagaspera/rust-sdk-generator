@@ -1,0 +1,39 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title": "Multipart filename fixture", "version": "1"},
+  "paths": {
+    "/assets/{asset_id}": {
+      "post": {
+        "operationId": "upload_asset",
+        "parameters": [
+          {"name": "asset_id", "in": "path", "required": true, "schema": {"type": "string"}},
+          {"name": "overwrite", "in": "query", "required": false, "schema": {"type": "boolean"}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {"$ref": "#/components/schemas/UploadAssetRequest"}
+            }
+          }
+        },
+        "responses": {
+          "204": {"description": "Uploaded"}
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "UploadAssetRequest": {
+        "type": "object",
+        "required": ["file"],
+        "properties": {
+          "file": {"type": "string", "format": "binary"},
+          "labels": {"type": "array", "items": {"type": "string"}},
+          "note": {"type": "string"}
+        }
+      }
+    }
+  }
+}
