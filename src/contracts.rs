@@ -107,6 +107,8 @@ pub struct ModelDefinition {
     #[serde(default)]
     pub schema: Option<String>,
     #[serde(default)]
+    pub schema_path: Option<Vec<String>>,
+    #[serde(default)]
     pub constructor: Option<Vec<String>>,
     #[serde(default)]
     pub exclude: Option<Vec<String>>,
