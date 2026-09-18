@@ -272,7 +272,7 @@ pub(crate) fn request_union_mapping(
     )
 }
 
-fn request_union_raw<'a>(schema: &'a Value, syntax: &'a Type) -> Option<(&'a Value, &'a str)> {
+pub(crate) fn request_union_raw<'a>(schema: &'a Value, syntax: &'a Type) -> Option<(&'a Value, &'a str)> {
     if schema.get("oneOf").is_some() || schema.get("anyOf").is_some() {
         return (syntax.kind == TypeKind::Opaque).then_some((schema, syntax.spelling.as_str()));
     }
