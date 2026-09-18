@@ -92,6 +92,53 @@ fn applies_request_override_after_generic_inference_and_generates_it() {
 }
 
 #[test]
+fn applies_request_override_to_every_explicit_public_alias() {
+    let (openapi, bindings, mut surface) = fixture();
+    surface.operations.insert(
+        "revise_job".into(),
+        vec!["work.jobs.update".into(), "legacy.jobs.revise".into()],
+    );
+
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides: request_override("archived", Some(false)),
+    })
+    .expect("derive");
+
+    assert_eq!(
+        derivation.report.operations["revise_job"].status,
+        DerivationStatus::Overridden
+    );
+    for (resource, operation) in [("work_jobs", "update"), ("legacy_jobs", "revise")] {
+        assert_eq!(
+            derivation.definition.resources[resource].operations[operation]
+                .request_overrides
+                .as_ref()
+                .expect("request overrides")["archived"],
+            Some(false)
+        );
+    }
+
+    let generated = generate(GenerateInput {
+        openapi,
+        bindings,
+        definition: derivation.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("derived definition generates");
+    assert!(
+        generated
+            .files
+            .values()
+            .filter(|source| source.contains("raw.archived = Some(false);"))
+            .count()
+            >= 2
+    );
+}
+
+#[test]
 fn null_request_override_is_explicitly_emitted() {
     let (openapi, bindings, surface) = fixture();
 
