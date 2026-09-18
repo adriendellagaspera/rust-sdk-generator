@@ -1,0 +1,29 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title": "Canonical binary stream fixture", "version": "1"},
+  "paths": {
+    "/archives/export": {
+      "get": {
+        "operationId": "stream_archive",
+        "responses": {
+          "200": {
+            "description": "archive stream",
+            "content": {
+              "application/octet-stream": {
+                "schema": {"type": "string", "format": "binary"}
+              }
+            }
+          },
+          "206": {
+            "description": "partial archive stream",
+            "content": {
+              "application/octet-stream": {
+                "schema": {"type": "string", "format": "binary"}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
