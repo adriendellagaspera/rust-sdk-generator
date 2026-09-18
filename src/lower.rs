@@ -954,8 +954,88 @@ fn resolve_scalar_enum(
     })
 }
 
-fn validate_owned_byte_stream(raw_method: &str, success_type: &str) -> Result<()> {
-    let transport = parse_type(success_type)?;
+fn validate_stream_type(
+    raw_method: &str,
+    spelling: &str,
+    constructor: &str,
+    item_type: &str,
+    error_type: &str,
+    lifetime: &str,
+) -> Result<()> {
+    let transport = parse_type(spelling)?;
+    if transport.constructor.as_deref() != Some(constructor) || transport.arguments.len() != 2 {
+        return Err(error(
+            "lower.stream_transport",
+            format!("raw stream ABI has unexpected transport type: {raw_method}"),
+        ));
+    }
+    let actual_lifetime = &transport.arguments[0];
+    let event = &transport.arguments[1];
+    if actual_lifetime.spelling != lifetime
+        || event.constructor.as_deref() != Some("Result")
+        || event.arguments.len() != 2
+        || event.arguments[1].spelling != error_type
+    {
+        return Err(error(
+            "lower.stream_ownership",
+            format!("raw stream response ownership/item drift: {raw_method}"),
+        ));
+    }
+    if event.arguments[0].spelling != item_type {
+        return Err(error(
+            "lower.stream_bytes",
+            format!("raw stream response does not yield declared bytes: {raw_method}"),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_owned_byte_stream(raw_method: &str, binding: &OperationBinding) -> Result<()> {
+    if let Some(metadata) = &binding.metadata {
+        let abi = metadata.stream_abi.as_ref().ok_or_else(|| {
+            error(
+                "lower.stream_transport",
+                format!("raw stream binding lacks canonical stream ABI: {raw_method}"),
+            )
+        })?;
+        if binding.success_type != abi.alias {
+            return Err(error(
+                "lower.stream_transport",
+                format!("raw stream success type disagrees with canonical alias: {raw_method}"),
+            ));
+        }
+        if abi.item_type != "bytes::Bytes" {
+            return Err(error(
+                "lower.stream_bytes",
+                format!("raw stream response does not yield bytes: {raw_method}"),
+            ));
+        }
+        if abi.lifetime != "'static" {
+            return Err(error(
+                "lower.stream_ownership",
+                format!("raw stream response is not owned: {raw_method}"),
+            ));
+        }
+        validate_stream_type(
+            raw_method,
+            &abi.native_type,
+            "futures_util::stream::BoxStream",
+            &abi.item_type,
+            &abi.error_type,
+            &abi.lifetime,
+        )?;
+        validate_stream_type(
+            raw_method,
+            &abi.wasm_type,
+            "futures_util::stream::LocalBoxStream",
+            &abi.item_type,
+            &abi.error_type,
+            &abi.lifetime,
+        )?;
+        return Ok(());
+    }
+
+    let transport = parse_type(&binding.success_type)?;
     if transport.constructor.as_deref() != Some("futures_util::stream::BoxStream")
         || transport.arguments.len() != 2
     {
@@ -2062,7 +2142,7 @@ pub(crate) fn lower(
                         format!("binary response drift for {operation_id}"),
                     ));
                 }
-                validate_owned_byte_stream(raw_method, &raw_operation.success_type)?;
+                validate_owned_byte_stream(raw_method, raw_operation)?;
                 ResponseProjection::Binary
             } else if let Some(stream) = &item.stream {
                 if request.is_none() && request_raw_parameter.is_none() {
@@ -2124,7 +2204,7 @@ pub(crate) fn lower(
                         format!("stream wrapper must own the configured item: {wrapper}"),
                     ));
                 }
-                validate_owned_byte_stream(raw_method, &raw_operation.success_type)?;
+                validate_owned_byte_stream(raw_method, raw_operation)?;
                 ResponseProjection::Sse(StreamPolicy {
                     item: stream.item.clone(),
                     wrapper,
@@ -2229,4 +2309,105 @@ pub(crate) fn lower(
     validate_symbols(&ir, bindings)?;
     validate_runtime(&ir, runtime)?;
     Ok(ir)
+}
+
+#[cfg(test)]
+mod stream_abi_tests {
+    use super::validate_owned_byte_stream;
+    use crate::contracts::{
+        OperationBinding, OperationBindingKind, OperationMetadataBinding,
+        ResponseRepresentationBinding, SourceOperationBinding, StreamAbiBinding,
+    };
+
+    fn v3_binding() -> OperationBinding {
+        OperationBinding {
+            name: "stream_events".into(),
+            parameters: Vec::new(),
+            return_type:
+                "Result<HttpResponseByteStream, ApiOpError<serde_json::Value>>".into(),
+            success_type: "HttpResponseByteStream".into(),
+            stream: None,
+            metadata: Some(OperationMetadataBinding {
+                kind: OperationBindingKind::CallShape,
+                source_operation: SourceOperationBinding {
+                    operation_id: "stream_events".into(),
+                    method: "GET".into(),
+                    path: "/events".into(),
+                },
+                emitted_operation_id: "stream_events".into(),
+                representation: ResponseRepresentationBinding::EventStream {
+                    media_type: "text/event-stream".into(),
+                },
+                success_statuses: vec!["200".into()],
+                request_discriminators: Vec::new(),
+                stream_abi: Some(StreamAbiBinding {
+                    alias: "HttpResponseByteStream".into(),
+                    item_type: "bytes::Bytes".into(),
+                    error_type: "reqwest::Error".into(),
+                    lifetime: "'static".into(),
+                    native_type: "futures_util::stream::BoxStream<'static, Result<bytes::Bytes, reqwest::Error>>".into(),
+                    wasm_type: "futures_util::stream::LocalBoxStream<'static, Result<bytes::Bytes, reqwest::Error>>".into(),
+                }),
+            }),
+        }
+    }
+
+    #[test]
+    fn canonical_stream_abi_allows_emitted_alias_success_type() {
+        let binding = v3_binding();
+        validate_owned_byte_stream("stream_events", &binding)
+            .expect("canonical stream ABI should prove alias ownership");
+    }
+
+    #[test]
+    fn canonical_stream_abi_fails_closed_when_missing() {
+        let mut binding = v3_binding();
+        binding.metadata.as_mut().expect("metadata").stream_abi = None;
+        let error = validate_owned_byte_stream("stream_events", &binding)
+            .expect_err("v3 stream binding must carry ABI metadata");
+        assert_eq!(error.diagnostic.code, "lower.stream_transport");
+    }
+
+    #[test]
+    fn canonical_stream_abi_rejects_non_owned_or_non_byte_contracts() {
+        let mut binding = v3_binding();
+        let abi = binding
+            .metadata
+            .as_mut()
+            .and_then(|metadata| metadata.stream_abi.as_mut())
+            .expect("stream ABI");
+        abi.lifetime = "'a".into();
+        let error = validate_owned_byte_stream("stream_events", &binding)
+            .expect_err("borrowed stream ABI must be rejected");
+        assert_eq!(error.diagnostic.code, "lower.stream_ownership");
+
+        let mut binding = v3_binding();
+        let abi = binding
+            .metadata
+            .as_mut()
+            .and_then(|metadata| metadata.stream_abi.as_mut())
+            .expect("stream ABI");
+        abi.item_type = "String".into();
+        let error = validate_owned_byte_stream("stream_events", &binding)
+            .expect_err("non-byte stream ABI must be rejected");
+        assert_eq!(error.diagnostic.code, "lower.stream_bytes");
+    }
+
+    #[test]
+    fn legacy_stream_success_type_validation_is_unchanged() {
+        let binding = OperationBinding {
+            name: "stream_events".into(),
+            parameters: Vec::new(),
+            return_type:
+                "Result<futures_util::stream::BoxStream<'static, Result<bytes::Bytes, reqwest::Error>>, Error>"
+                    .into(),
+            success_type:
+                "futures_util::stream::BoxStream<'static, Result<bytes::Bytes, reqwest::Error>>"
+                    .into(),
+            stream: None,
+            metadata: None,
+        };
+        validate_owned_byte_stream("stream_events", &binding)
+            .expect("legacy explicit BoxStream contract remains valid");
+    }
 }
