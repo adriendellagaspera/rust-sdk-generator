@@ -1,13 +1,16 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "package_name": "openapi-to-rust-bindings",
   "package_version": "0.2.2",
-  "bindings_schema_version": 2,
-  "sidecar": "rust-bindings.json",
+  "bindings_schema_version": 3,
+  "manifest": "binding-manifest.json",
+  "legacy_sidecar": "rust-bindings.json",
   "backend": {
     "name": "openapi-to-rust",
-    "version": "0.16.0",
-    "repository": "gpu-cli/openapi-to-rust",
-    "commit": "2af34b86ca9f38c35787f13ec5841989efcf4b99"
+    "repository": "adriendellagaspera/openapi-to-rust",
+    "baseline": {
+      "version": "0.17.0",
+      "commit": "addb1a6c69d63cc83178dca1c9f749b03711bc54"
+    }
   }
 }
