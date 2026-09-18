@@ -232,6 +232,8 @@ pub(crate) enum RequestProjection {
 pub(crate) enum ResponseProjection {
     Json { model: String, raw: String },
     Empty,
+    Text,
+    BinaryBuffered { type_name: String },
     Binary,
     Sse(StreamPolicy),
 }
