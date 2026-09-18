@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "client": "ArchiveClient",
+  "operations": {
+    "stream_archive": ["archives.stream"]
+  }
+}

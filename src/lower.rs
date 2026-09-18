@@ -2272,42 +2272,78 @@ pub(crate) fn lower(
                 }
                 ResponseProjection::Empty
             } else if item.binary_response == Some(true) {
-                let response = success_response(wire_operation)?;
-                let content = response
-                    .get("content")
-                    .and_then(Value::as_object)
-                    .ok_or_else(|| {
-                        error(
-                            "lower.binary_response_drift",
-                            format!("binary response drift for {operation_id}"),
-                        )
-                    })?;
-                if content.len() != 1 {
-                    return Err(error(
-                        "lower.binary_response_drift",
-                        format!("binary response drift for {operation_id}"),
-                    ));
-                }
-                let schema = content
-                    .values()
-                    .next()
-                    .and_then(|payload| payload.get("schema"))
-                    .ok_or_else(|| {
-                        error(
-                            "lower.binary_response_drift",
-                            format!("binary response drift for {operation_id}"),
-                        )
-                    })?;
-                if schema.get("type").and_then(Value::as_str) != Some("string")
-                    || schema.get("format").and_then(Value::as_str) != Some("binary")
+                if item.response_representation
+                    == Some(ResponseRepresentationDefinition::BinaryStream)
                 {
-                    return Err(error(
-                        "lower.binary_response_drift",
-                        format!("binary response drift for {operation_id}"),
-                    ));
+                    let metadata = raw_operation.metadata.as_ref().ok_or_else(|| {
+                        error(
+                            "lower.response_representation_drift",
+                            "canonical binary stream requires binding metadata",
+                        )
+                    })?;
+                    let ResponseRepresentationBinding::BinaryStream { media_type, .. } =
+                        &metadata.representation
+                    else {
+                        return Err(error(
+                            "lower.response_representation_drift",
+                            "configured binary stream disagrees with binding representation",
+                        ));
+                    };
+                    let schemas = selected_response_schemas(
+                        wire_operation,
+                        &metadata.success_statuses,
+                        media_type,
+                    )?;
+                    if schemas.is_empty()
+                        || schemas
+                            .iter()
+                            .any(|schema| !buffered_binary_response_schema(schema))
+                    {
+                        return Err(error(
+                            "lower.response_representation_drift",
+                            format!("binary stream response drift for {operation_id}"),
+                        ));
+                    }
+                    validate_owned_byte_stream(raw_method, raw_operation)?;
+                    ResponseProjection::Binary
+                } else {
+                    let response = success_response(wire_operation)?;
+                    let content = response
+                        .get("content")
+                        .and_then(Value::as_object)
+                        .ok_or_else(|| {
+                            error(
+                                "lower.binary_response_drift",
+                                format!("binary response drift for {operation_id}"),
+                            )
+                        })?;
+                    if content.len() != 1 {
+                        return Err(error(
+                            "lower.binary_response_drift",
+                            format!("binary response drift for {operation_id}"),
+                        ));
+                    }
+                    let schema = content
+                        .values()
+                        .next()
+                        .and_then(|payload| payload.get("schema"))
+                        .ok_or_else(|| {
+                            error(
+                                "lower.binary_response_drift",
+                                format!("binary response drift for {operation_id}"),
+                            )
+                        })?;
+                    if schema.get("type").and_then(Value::as_str) != Some("string")
+                        || schema.get("format").and_then(Value::as_str) != Some("binary")
+                    {
+                        return Err(error(
+                            "lower.binary_response_drift",
+                            format!("binary response drift for {operation_id}"),
+                        ));
+                    }
+                    validate_owned_byte_stream(raw_method, raw_operation)?;
+                    ResponseProjection::Binary
                 }
-                validate_owned_byte_stream(raw_method, raw_operation)?;
-                ResponseProjection::Binary
             } else if let Some(stream) = &item.stream {
                 if item.response_representation
                     == Some(ResponseRepresentationDefinition::EventStream)
