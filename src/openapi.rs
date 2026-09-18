@@ -302,9 +302,7 @@ impl OpenApiIndex {
                     .and_then(Value::as_array)
                     .cloned()
                     .unwrap_or_default();
-                for method in [
-                    "get", "put", "post", "delete", "patch", "head", "options", "trace",
-                ] {
+                for method in ["get", "put", "post", "delete", "patch", "head", "options"] {
                     let Some(operation) = path_item.get(method).and_then(Value::as_object) else {
                         continue;
                     };
@@ -760,11 +758,11 @@ mod tests {
     }
 
     #[test]
-    fn indexes_trace_operations_for_closed_world_derivation() {
+    fn ignores_trace_operations_to_match_existing_contract() {
         let value = serde_json::json!({
             "paths": {"/trace": {"trace": {"operationId": "trace_only"}}}
         });
         let index = OpenApiIndex::new(&OpenApi(value)).expect("valid index");
-        assert!(index.operations.contains_key("trace_only"));
+        assert!(!index.operations.contains_key("trace_only"));
     }
 }
