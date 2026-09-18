@@ -311,6 +311,46 @@ fn request_object_models_value(
             continue;
         }
 
+        if wire.get("type").and_then(Value::as_str) == Some("array")
+            && let Some(items) = wire.get("items")
+            && let Some(raw_union) = core.unary("Vec")
+        {
+            if let Some(reference) = ref_name(items) {
+                let referenced = context
+                    .openapi
+                    .schema(reference)
+                    .map_err(|_| REQUEST_MODEL_UNPROVEN)?;
+                if request_union_schema(referenced) {
+                    models.extend(request_union_models(
+                        context,
+                        referenced,
+                        reference,
+                        &[],
+                        &raw_union.spelling,
+                        child_name.clone(),
+                        seen,
+                    )?);
+                    adapters.insert(field_name.clone(), child_name);
+                    continue;
+                }
+            } else if request_union_schema(items) {
+                let mut child_path = source_path.to_vec();
+                child_path.push(field_name.clone());
+                child_path.push("items".into());
+                models.extend(request_union_models(
+                    context,
+                    items,
+                    source_root,
+                    &child_path,
+                    &raw_union.spelling,
+                    child_name.clone(),
+                    seen,
+                )?);
+                adapters.insert(field_name.clone(), child_name);
+                continue;
+            }
+        }
+
         let inline_object = matches!(wire.get("type").and_then(Value::as_str), Some("object"))
             || wire.get("properties").is_some();
         if inline_object {
