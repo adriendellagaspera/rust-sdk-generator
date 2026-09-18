@@ -303,46 +303,51 @@ fn validate_closed_world_projection(
     definition: &SdkDefinition,
     operations: &BTreeMap<String, OperationDerivation>,
 ) -> Result<(), DerivationError> {
-    let mut projected = BTreeSet::new();
+    let mut projected = BTreeMap::<String, usize>::new();
     for resource in definition.resources.values() {
         for operation in resource.operations.values() {
-            if !projected.insert(operation.operation_id.clone()) {
+            let Some(outcome) = operations.get(&operation.operation_id) else {
                 return Err(DerivationError::new(
                     "derivation.closed_world_mismatch",
                     format!(
-                        "operation {} appears more than once in SdkDefinition",
+                        "SdkDefinition contains operation {} that is absent from DerivationReport",
                         operation.operation_id
                     ),
                 ));
+            };
+            if !matches!(
+                outcome.status,
+                DerivationStatus::Derived | DerivationStatus::Overridden
+            ) {
+                return Err(DerivationError::at(
+                    "derivation.closed_world_mismatch",
+                    format!("report.operations.{}", operation.operation_id),
+                    format!(
+                        "operation {} is projected in SdkDefinition but has status {:?}",
+                        operation.operation_id, outcome.status
+                    ),
+                ));
             }
+            *projected.entry(operation.operation_id.clone()).or_default() += 1;
         }
     }
 
     for (operation_id, outcome) in operations {
+        let projection_count = projected.get(operation_id).copied().unwrap_or_default();
         let should_project = matches!(
             outcome.status,
             DerivationStatus::Derived | DerivationStatus::Overridden
         );
-        let is_projected = projected.remove(operation_id);
-        if should_project != is_projected {
+        if should_project != (projection_count > 0) {
             return Err(DerivationError::at(
                 "derivation.closed_world_mismatch",
                 format!("report.operations.{operation_id}"),
                 format!(
-                    "operation {operation_id} has status {:?} but SdkDefinition projection presence is {is_projected}",
+                    "operation {operation_id} has status {:?} but SdkDefinition projection count is {projection_count}",
                     outcome.status
                 ),
             ));
         }
-    }
-
-    if let Some(operation_id) = projected.into_iter().next() {
-        return Err(DerivationError::new(
-            "derivation.closed_world_mismatch",
-            format!(
-                "SdkDefinition contains operation {operation_id} that is absent from DerivationReport"
-            ),
-        ));
     }
 
     Ok(())
@@ -883,6 +888,17 @@ mod tests {
 
         validate_closed_world_projection(&derivation.definition, &derivation.report.operations)
             .expect("derived operation projection matches report");
+
+        let mut aliased_definition = derivation.definition.clone();
+        let alias = aliased_definition.resources["work_jobs"].operations["update"].clone();
+        aliased_definition
+            .resources
+            .get_mut("work_jobs")
+            .expect("work jobs resource")
+            .operations
+            .insert("revise".into(), alias);
+        validate_closed_world_projection(&aliased_definition, &derivation.report.operations)
+            .expect("multiple public helpers may share one source-operation coverage identity");
 
         let mut rejected_report = derivation.report.operations.clone();
         rejected_report
