@@ -367,6 +367,7 @@ fn resolve_wrapper(
         let (argument, value) = if let Some(adapter) = adapters.get(name) {
             let synthetic = FieldBinding {
                 name: field.name.clone(),
+                wire_name: field.wire_name.clone(),
                 type_name: inner.clone(),
             };
             constructor_argument(name, &synthetic, Some(adapter))?
