@@ -2,7 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value};
 
-use crate::contracts::{Bindings, OpenApi, OperationBinding, RequestMediaDefinition};
+use crate::contracts::{
+    Bindings, OpenApi, OperationBinding, OperationBindingKind, RequestMediaDefinition,
+};
 use crate::error::{GenerationError, Result};
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::parse_type;
@@ -318,6 +320,40 @@ fn response_matches(
     }
 }
 
+fn canonical_source_identity_matches(
+    operation_id: &str,
+    operation: &Value,
+    binding: &OperationBinding,
+) -> bool {
+    let Some(metadata) = &binding.metadata else {
+        return true;
+    };
+    if metadata.kind != OperationBindingKind::CallShape {
+        return false;
+    }
+    let Some(method) = operation.get("x-sdk-method").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(path) = operation.get("x-sdk-path").and_then(Value::as_str) else {
+        return false;
+    };
+    metadata.source_operation.operation_id == operation_id
+        && metadata
+            .source_operation
+            .method
+            .eq_ignore_ascii_case(method)
+        && metadata.source_operation.path == path
+}
+
+fn has_source_operation_id(bindings: &Bindings, operation_id: &str) -> bool {
+    bindings.operations.values().any(|binding| {
+        binding.metadata.as_ref().is_some_and(|metadata| {
+            metadata.kind == OperationBindingKind::CallShape
+                && metadata.source_operation.operation_id == operation_id
+        })
+    })
+}
+
 fn binding_matches(
     openapi: &OpenApiIndex,
     request: &RequestShape,
@@ -383,11 +419,28 @@ pub(crate) fn reconcile(
                 continue;
             }
         };
+        let canonical_operation = index.operation(operation_id)?;
+        let source_candidates: Vec<_> = bindings
+            .operations
+            .iter()
+            .filter(|(_, binding)| {
+                canonical_source_identity_matches(operation_id, canonical_operation, binding)
+            })
+            .collect();
+        if bindings.schema_version == 3
+            && has_source_operation_id(bindings, operation_id)
+            && source_candidates.is_empty()
+        {
+            reasons.insert(
+                operation_id.clone(),
+                "bindings.source_operation_identity_mismatch",
+            );
+            continue;
+        }
         candidates.insert(
             operation_id.clone(),
-            bindings
-                .operations
-                .iter()
+            source_candidates
+                .into_iter()
                 .filter(|(_, binding)| {
                     binding_matches(&index, &request, &response, binding, bindings)
                 })
@@ -447,7 +500,10 @@ pub(crate) fn reconcile(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contracts::{BindingLayout, ClientBinding, ParameterBinding};
+    use crate::contracts::{
+        BindingLayout, ClientBinding, OperationBindingKind, OperationMetadataBinding,
+        ParameterBinding, ResponseRepresentationBinding, SourceOperationBinding,
+    };
 
     fn bindings(operations: BTreeMap<String, OperationBinding>) -> Bindings {
         Bindings {
@@ -477,6 +533,55 @@ mod tests {
             success_type: success_type.into(),
             stream: None,
             metadata: None,
+        }
+    }
+
+    fn v3_bindings(operations: BTreeMap<String, OperationBinding>) -> Bindings {
+        Bindings {
+            schema_version: 3,
+            structs: BTreeMap::new(),
+            enums: BTreeMap::new(),
+            aliases: BTreeMap::new(),
+            operations,
+            symbol_paths: BTreeMap::new(),
+            binding: BindingLayout {
+                client: ClientBinding {
+                    type_path: "crate::raw::Client".into(),
+                    constructor: "new".into(),
+                    api_key_builder: "with_api_key".into(),
+                    base_url_builder: "with_base_url".into(),
+                },
+                type_preludes: Vec::new(),
+            },
+        }
+    }
+
+    fn v3_operation(
+        key: &str,
+        operation_id: &str,
+        method: &str,
+        path: &str,
+        kind: OperationBindingKind,
+    ) -> OperationBinding {
+        OperationBinding {
+            name: key.into(),
+            parameters: Vec::new(),
+            return_type: "Result<(), Error>".into(),
+            success_type: "()".into(),
+            stream: None,
+            metadata: Some(OperationMetadataBinding {
+                kind,
+                source_operation: SourceOperationBinding {
+                    operation_id: operation_id.into(),
+                    method: method.into(),
+                    path: path.into(),
+                },
+                emitted_operation_id: operation_id.into(),
+                representation: ResponseRepresentationBinding::Empty,
+                success_statuses: vec!["204".into()],
+                request_discriminators: Vec::new(),
+                stream_abi: None,
+            }),
         }
     }
 
@@ -547,6 +652,120 @@ mod tests {
             result["health"].reason,
             Some("bindings.source_operation_identity_required")
         );
+    }
+
+    #[test]
+    fn canonical_source_identity_disambiguates_structurally_identical_operations() {
+        let openapi = OpenApi(serde_json::json!({
+            "openapi": "3.1.0",
+            "paths": {
+                "/health-a": {"get": {
+                    "operationId": "health_a",
+                    "responses": {"204": {"description": "ok"}}
+                }},
+                "/health-b": {"get": {
+                    "operationId": "health_b",
+                    "responses": {"204": {"description": "ok"}}
+                }}
+            }
+        }));
+        let bindings = v3_bindings(BTreeMap::from([
+            (
+                "opaque_a".into(),
+                v3_operation(
+                    "opaque_a",
+                    "health_a",
+                    "GET",
+                    "/health-a",
+                    OperationBindingKind::CallShape,
+                ),
+            ),
+            (
+                "opaque_b".into(),
+                v3_operation(
+                    "opaque_b",
+                    "health_b",
+                    "GET",
+                    "/health-b",
+                    OperationBindingKind::CallShape,
+                ),
+            ),
+        ]));
+
+        let result = reconcile(&openapi, &bindings).expect("reconcile");
+        assert_eq!(result["health_a"].binding.as_deref(), Some("opaque_a"));
+        assert_eq!(result["health_b"].binding.as_deref(), Some("opaque_b"));
+        assert_eq!(result["health_a"].reason, None);
+        assert_eq!(result["health_b"].reason, None);
+    }
+
+    #[test]
+    fn canonical_source_identity_rejects_method_or_path_drift() {
+        let openapi = OpenApi(serde_json::json!({
+            "openapi": "3.1.0",
+            "paths": {
+                "/health": {"get": {
+                    "operationId": "health",
+                    "responses": {"204": {"description": "ok"}}
+                }}
+            }
+        }));
+        let bindings = v3_bindings(BTreeMap::from([(
+            "opaque_health".into(),
+            v3_operation(
+                "opaque_health",
+                "health",
+                "POST",
+                "/other",
+                OperationBindingKind::CallShape,
+            ),
+        )]));
+
+        let result = reconcile(&openapi, &bindings).expect("reconcile");
+        assert_eq!(result["health"].binding, None);
+        assert_eq!(
+            result["health"].reason,
+            Some("bindings.source_operation_identity_mismatch")
+        );
+    }
+
+    #[test]
+    fn multipart_filename_helper_is_not_a_primary_operation_candidate() {
+        let openapi = OpenApi(serde_json::json!({
+            "openapi": "3.1.0",
+            "paths": {
+                "/upload": {"post": {
+                    "operationId": "upload",
+                    "responses": {"204": {"description": "ok"}}
+                }}
+            }
+        }));
+        let bindings = v3_bindings(BTreeMap::from([
+            (
+                "opaque_upload".into(),
+                v3_operation(
+                    "opaque_upload",
+                    "upload",
+                    "POST",
+                    "/upload",
+                    OperationBindingKind::CallShape,
+                ),
+            ),
+            (
+                "opaque_upload_with_filenames".into(),
+                v3_operation(
+                    "opaque_upload_with_filenames",
+                    "upload",
+                    "POST",
+                    "/upload",
+                    OperationBindingKind::MultipartFilenames,
+                ),
+            ),
+        ]));
+
+        let result = reconcile(&openapi, &bindings).expect("reconcile");
+        assert_eq!(result["upload"].binding.as_deref(), Some("opaque_upload"));
+        assert_eq!(result["upload"].reason, None);
     }
 
     #[test]
