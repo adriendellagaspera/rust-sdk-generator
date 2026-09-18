@@ -205,7 +205,6 @@ fn preserves_optional_request_union_branch_evolution() {
     );
 }
 
-
 #[test]
 fn lowering_revalidates_request_union_collection_drift() {
     let (mut openapi, bindings, surface) = fixture();
