@@ -561,10 +561,7 @@ fn sse_envelope_payload(schema: &Value) -> Option<&str> {
     has_metadata.then_some(data)
 }
 
-pub(crate) fn sse_payload_schema_name(
-    openapi: &OpenApiIndex,
-    schema: &Value,
-) -> Option<String> {
+pub(crate) fn sse_payload_schema_name(openapi: &OpenApiIndex, schema: &Value) -> Option<String> {
     let root = ref_name(schema)?;
     let resolved = openapi.schema(root).ok()?;
     if let Some(payload) = sse_envelope_payload(resolved) {
