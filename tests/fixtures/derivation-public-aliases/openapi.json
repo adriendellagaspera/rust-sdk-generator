@@ -1,0 +1,18 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title": "Public surface aliases fixture", "version": "1"},
+  "paths": {
+    "/things/a": {
+      "get": {
+        "operationId": "read_alpha",
+        "responses": {"204": {"description": "ok"}}
+      }
+    },
+    "/things/b": {
+      "get": {
+        "operationId": "read_beta",
+        "responses": {"204": {"description": "ok"}}
+      }
+    }
+  }
+}

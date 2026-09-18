@@ -1,0 +1,56 @@
+{
+  "schema_version": 3,
+  "structs": {},
+  "enums": {},
+  "aliases": {},
+  "operations": {
+    "opaque_alpha_7": {
+      "name": "opaque_alpha_7",
+      "parameters": [],
+      "return_type": "Result<(), Error>",
+      "success_type": "()",
+      "metadata": {
+        "kind": "call_shape",
+        "source_operation": {
+          "operation_id": "read_alpha",
+          "method": "GET",
+          "path": "/things/a"
+        },
+        "emitted_operation_id": "read_alpha",
+        "representation": {"kind": "empty"},
+        "success_statuses": ["204"],
+        "request_discriminators": [],
+        "stream_abi": null
+      }
+    },
+    "opaque_beta_9": {
+      "name": "opaque_beta_9",
+      "parameters": [],
+      "return_type": "Result<(), Error>",
+      "success_type": "()",
+      "metadata": {
+        "kind": "call_shape",
+        "source_operation": {
+          "operation_id": "read_beta",
+          "method": "GET",
+          "path": "/things/b"
+        },
+        "emitted_operation_id": "read_beta",
+        "representation": {"kind": "empty"},
+        "success_statuses": ["204"],
+        "request_discriminators": [],
+        "stream_abi": null
+      }
+    }
+  },
+  "symbol_paths": {},
+  "binding": {
+    "client": {
+      "type_path": "crate::generated::client::HttpClient",
+      "constructor": "new",
+      "api_key_builder": "with_api_key",
+      "base_url_builder": "with_base_url"
+    },
+    "type_preludes": ["crate::generated::types::*"]
+  }
+}

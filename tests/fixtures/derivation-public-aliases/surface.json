@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "client": "ThingsClient",
+  "operations": {
+    "read_alpha": ["things.alpha", "legacy.alpha"],
+    "read_beta": ["things.beta"]
+  }
+}

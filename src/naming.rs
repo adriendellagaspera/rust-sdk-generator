@@ -140,21 +140,16 @@ fn canonical_surface_path(paths: &[String]) -> NamingDecision {
         };
     }
     let depth = parsed.iter().map(Vec::len).max().unwrap_or(0);
-    let candidates: Vec<_> = evidence
+    let canonical = evidence
         .iter()
         .zip(parsed.iter())
         .filter(|(_, parts)| parts.len() == depth)
-        .map(|(path, _)| path.clone())
-        .collect();
-    if candidates.len() != 1 {
-        return NamingDecision {
-            public_path: None,
-            evidence,
-            reason: Some("surface.alias_ambiguity"),
-        };
-    }
+        .map(|(path, _)| path)
+        .next()
+        .expect("non-empty explicit surface paths")
+        .clone();
     NamingDecision {
-        public_path: Some(candidates[0].clone()),
+        public_path: Some(canonical),
         evidence,
         reason: None,
     }
@@ -466,7 +461,7 @@ mod tests {
     }
 
     #[test]
-    fn equal_depth_aliases_are_rejected_even_when_one_looks_like_stream() {
+    fn equal_depth_explicit_aliases_have_a_deterministic_canonical_path() {
         let api = OpenApi(serde_json::json!({
             "openapi": "3.1.0",
             "paths": {"/events": {"get": {"operationId": "events", "responses": {"204": {}}}}}
@@ -476,8 +471,15 @@ mod tests {
             &surface(&[("events", &["events.list", "events.list_stream"])]),
         )
         .expect("naming");
-        assert_eq!(decisions["events"].public_path, None);
-        assert_eq!(decisions["events"].reason, Some("surface.alias_ambiguity"));
+        assert_eq!(
+            decisions["events"].public_path.as_deref(),
+            Some("events.list")
+        );
+        assert_eq!(
+            decisions["events"].evidence,
+            vec!["events.list", "events.list_stream"]
+        );
+        assert_eq!(decisions["events"].reason, None);
     }
 
     #[test]
