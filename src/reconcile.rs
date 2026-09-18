@@ -764,10 +764,7 @@ mod tests {
         ]));
 
         let result = reconcile(&openapi, &bindings).expect("reconcile");
-        assert_eq!(
-            result["upload"].binding.as_deref(),
-            Some("opaque_upload")
-        );
+        assert_eq!(result["upload"].binding.as_deref(), Some("opaque_upload"));
         assert_eq!(result["upload"].reason, None);
     }
 
