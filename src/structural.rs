@@ -145,8 +145,7 @@ fn type_matches_schema(
         }),
         Some("object") => {
             if let Some(wire) = scalar_object_shape(schema) {
-                raw_scalar_struct_shape(bindings, &syntax.spelling)
-                    .is_some_and(|raw| raw == wire)
+                raw_scalar_struct_shape(bindings, &syntax.spelling).is_some_and(|raw| raw == wire)
             } else {
                 schema
                     .get("additionalProperties")
@@ -202,17 +201,9 @@ pub(crate) fn inline_array_object_item(
     }
     let items = schema.get("items")?;
     let wire = scalar_object_shape(items)?;
-    let root = expand_alias_syntax(
-        parse_type(raw).ok()?,
-        bindings,
-        &mut BTreeSet::new(),
-    )?;
+    let root = expand_alias_syntax(parse_type(raw).ok()?, bindings, &mut BTreeSet::new())?;
     let inner = root.unary("Vec")?;
-    let item = expand_alias_syntax(
-        inner.clone(),
-        bindings,
-        &mut BTreeSet::new(),
-    )?;
+    let item = expand_alias_syntax(inner.clone(), bindings, &mut BTreeSet::new())?;
     raw_scalar_struct_shape(bindings, &item.spelling)
         .filter(|raw_shape| *raw_shape == wire)
         .map(|_| item.spelling)
