@@ -579,7 +579,9 @@ impl SdkDefinition {
                     );
                     if structured != operation.request.is_some() {
                         return Err(invalid(
-                            format!("definition.resources.{module}.operations.{name}.request_media"),
+                            format!(
+                                "definition.resources.{module}.operations.{name}.request_media"
+                            ),
                             if structured {
                                 "structured request media requires a request model"
                             } else {
