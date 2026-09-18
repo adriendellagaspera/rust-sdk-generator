@@ -37,7 +37,10 @@ fn derives_canonical_binary_stream_from_binding_representation_and_abi() {
     assert_eq!(outcome.binding.as_deref(), Some("raw_archive_stream_41"));
 
     let operation = &derivation.definition.resources["archives"].operations["stream"];
-    assert_eq!(operation.raw_method.as_deref(), Some("raw_archive_stream_41"));
+    assert_eq!(
+        operation.raw_method.as_deref(),
+        Some("raw_archive_stream_41")
+    );
     assert_eq!(
         operation.response_representation,
         Some(ResponseRepresentationDefinition::BinaryStream)
@@ -60,9 +63,8 @@ fn derives_canonical_binary_stream_from_binding_representation_and_abi() {
         "pub type BinaryStream = Pin<Box<dyn Stream<Item = Result<bytes::Bytes, SdkError>> + Send + 'static>>;"
     ));
     assert!(generated.files.values().any(|source| {
-        source.contains(
-            "pub async fn stream(&self) -> Result<BinaryStream, SdkError>"
-        ) && source.contains("self.raw.raw_archive_stream_41(")
+        source.contains("pub async fn stream(&self) -> Result<BinaryStream, SdkError>")
+            && source.contains("self.raw.raw_archive_stream_41(")
             && source.contains("chunk.map_err(Into::into)")
     }));
 }
@@ -96,10 +98,7 @@ fn rejects_canonical_binary_stream_with_non_byte_abi() {
 
     let outcome = &derivation.report.operations["stream_archive"];
     assert_eq!(outcome.status, DerivationStatus::Rejected);
-    assert_eq!(
-        outcome.reason.code,
-        "capability.binary_stream_abi_required"
-    );
+    assert_eq!(outcome.reason.code, "capability.binary_stream_abi_required");
 }
 
 #[test]
@@ -129,8 +128,5 @@ fn lowering_revalidates_all_selected_binary_stream_statuses() {
     })
     .expect_err("binary stream response drift must fail lowering");
 
-    assert_eq!(
-        error.diagnostic.code,
-        "lower.response_representation_drift"
-    );
+    assert_eq!(error.diagnostic.code, "lower.response_representation_drift");
 }
