@@ -675,25 +675,27 @@ fn generic_inner(type_name: &str, constructor: &str) -> Result<String> {
 fn accessor_type(raw: &str, path: &[String], bindings: &Bindings) -> Result<String> {
     let mut current = raw.to_owned();
     for segment in path {
+        let expanded =
+            expand_alias(parse_type(&current)?, bindings, &mut Vec::new())?.spelling;
         current = if segment == "first" {
-            generic_inner(&current, "Vec")?
+            generic_inner(&expanded, "Vec")?
         } else if segment == "optional" {
-            generic_inner(&current, "Option")?
+            generic_inner(&expanded, "Option")?
         } else {
-            let fields = field_map(bindings, &current)?;
+            let fields = field_map(bindings, &expanded)?;
             fields
                 .get(segment)
                 .ok_or_else(|| {
                     error(
                         "lower.accessor_path",
-                        format!("accessor path field {current}.{segment} not found"),
+                        format!("accessor path field {expanded}.{segment} not found"),
                     )
                 })?
                 .type_name
                 .clone()
         };
     }
-    Ok(current)
+    Ok(expand_alias(parse_type(&current)?, bindings, &mut Vec::new())?.spelling)
 }
 
 fn resolve_view(raw: &str, model: &ModelDefinition, bindings: &Bindings) -> Result<ViewModelSpec> {
@@ -1492,7 +1494,9 @@ pub(crate) fn lower(
         } else if config.scalar_enum.is_some() {
             ModelRenderSpec::ScalarEnum(resolve_scalar_enum(&raw, config, &index, bindings)?)
         } else if config.accessors.is_some() {
-            let _ = bindings.fields(&raw)?;
+            if !bindings.aliases.contains_key(&raw) {
+                let _ = bindings.fields(&raw)?;
+            }
             ModelRenderSpec::View(resolve_view(&raw, config, bindings)?)
         } else {
             let wire_schema = index.object_schema(&raw)?;
