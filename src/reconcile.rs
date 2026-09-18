@@ -20,7 +20,13 @@ pub(crate) struct OperationMatch {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RequestShape {
     parameters: BTreeSet<String>,
-    body: Option<(RequestMediaDefinition, String)>,
+    body: Option<RequestBodyShape>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RequestBodyShape {
+    Model(RequestMediaDefinition, String),
+    Raw(RequestMediaDefinition, String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,8 +120,12 @@ fn request_shape(operation: &Value) -> std::result::Result<RequestShape, &'stati
         }
     }
 
-    let body = match operation
-        .get("requestBody")
+    let request_body = operation.get("requestBody");
+    let required = request_body
+        .and_then(|body| body.get("required"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let body = match request_body
         .and_then(|body| body.get("content"))
         .and_then(Value::as_object)
     {
@@ -123,18 +133,56 @@ fn request_shape(operation: &Value) -> std::result::Result<RequestShape, &'stati
         Some(content) if content.is_empty() => None,
         Some(content) if content.len() == 1 => {
             let (media_type, payload) = content.iter().next().expect("one request media");
-            let media = match media_type.as_str() {
-                "application/json" => RequestMediaDefinition::Json,
-                "multipart/form-data" => RequestMediaDefinition::MultipartFormData,
-                "application/x-www-form-urlencoded" => RequestMediaDefinition::FormUrlencoded,
-                _ => return Err("request.media_projection_unsupported"),
-            };
             let schema = payload
                 .get("schema")
-                .and_then(ref_name)
-                .map(str::to_owned)
                 .ok_or("request.inline_or_unresolved")?;
-            Some((media, schema))
+            match media_type.as_str() {
+                "application/json" | "multipart/form-data" | "application/x-www-form-urlencoded" => {
+                    let media = match media_type.as_str() {
+                        "application/json" => RequestMediaDefinition::Json,
+                        "multipart/form-data" => RequestMediaDefinition::MultipartFormData,
+                        "application/x-www-form-urlencoded" => RequestMediaDefinition::FormUrlencoded,
+                        _ => unreachable!(),
+                    };
+                    let schema = ref_name(schema)
+                        .map(str::to_owned)
+                        .ok_or("request.inline_or_unresolved")?;
+                    Some(RequestBodyShape::Model(media, schema))
+                }
+                "application/octet-stream"
+                    if schema.get("type").and_then(Value::as_str) == Some("string")
+                        && schema.get("format").and_then(Value::as_str) == Some("binary") =>
+                {
+                    let raw = if required {
+                        "Vec<u8>".to_owned()
+                    } else {
+                        "Option<Vec<u8>>".to_owned()
+                    };
+                    Some(RequestBodyShape::Raw(RequestMediaDefinition::OctetStream, raw))
+                }
+                "text/plain"
+                    if schema.get("type").and_then(Value::as_str) == Some("string")
+                        && schema.get("format").is_none() =>
+                {
+                    let raw = if required {
+                        "String".to_owned()
+                    } else {
+                        "Option<String>".to_owned()
+                    };
+                    Some(RequestBodyShape::Raw(RequestMediaDefinition::TextPlain, raw))
+                }
+                _ if schema.get("type").and_then(Value::as_str) == Some("string")
+                    && schema.get("format").and_then(Value::as_str) == Some("binary") =>
+                {
+                    let raw = if required {
+                        "Vec<u8>".to_owned()
+                    } else {
+                        "Option<Vec<u8>>".to_owned()
+                    };
+                    Some(RequestBodyShape::Raw(RequestMediaDefinition::Binary, raw))
+                }
+                _ => return Err("request.media_projection_unsupported"),
+            }
         }
         Some(_) => return Err("request.media_projection_unsupported"),
     };
@@ -268,14 +316,17 @@ fn binding_matches(
     bindings: &Bindings,
 ) -> bool {
     let mut body_index = None;
-    if let Some((_, body)) = &request.body {
+    if let Some(body) = &request.body {
         let matching: Vec<_> = binding
             .parameters
             .iter()
             .enumerate()
-            .filter(|(_, parameter)| {
-                parameter.type_name == *body
-                    || request_object_matches(openapi, body, &parameter.type_name, bindings)
+            .filter(|(_, parameter)| match body {
+                RequestBodyShape::Model(_, schema) => {
+                    parameter.type_name == *schema
+                        || request_object_matches(openapi, schema, &parameter.type_name, bindings)
+                }
+                RequestBodyShape::Raw(_, type_name) => parameter.type_name == *type_name,
             })
             .map(|(index, _)| index)
             .collect();
