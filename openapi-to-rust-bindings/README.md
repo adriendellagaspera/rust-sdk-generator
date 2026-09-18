@@ -1,21 +1,25 @@
 # openapi-to-rust-bindings
 
-`openapi-to-rust-bindings` is the compatibility layer between `openapi-to-rust` output and the versioned `Bindings` JSON contract consumed by `rust-sdk-generator`.
+`openapi-to-rust-bindings` is the Rust compatibility layer between `openapi-to-rust` output and the versioned `Bindings` JSON contract consumed by `rust-sdk-generator`.
 
-It exposes a deliberately small functional API:
+The library API is deliberately small:
 
-```python
-from openapi_to_rust_bindings import parse_bindings, read_bindings
+```rust
+use openapi_to_rust_bindings::{parse_bindings, read_bindings};
 
-bindings = read_bindings(generated_dir)
-# or, for generated-source compatibility
-bindings = parse_bindings(types_source, client_source)
+let bindings = read_bindings("generated")?;
+let fallback = parse_bindings(types_source, client_source)?;
+# Ok::<(), openapi_to_rust_bindings::Error>(())
+```
 
-sidecar = bindings.to_dict()
+The CLI writes the same canonical value as JSON:
+
+```text
+openapi-to-rust-bindings generated > rust-bindings.json
 ```
 
 `read_bindings()` prefers a versioned `rust-bindings.json` sidecar when present and fails closed if that sidecar is invalid. For older generator output without a sidecar, it falls back to normalizing `types.rs` and `client.rs`.
 
-Both functions return the adapter-owned immutable `Bindings` value. The package validates the same version-2 JSON shape that the Rust generator consumes, but it does not import or depend on the generator runtime. The generated-source fallback owns all knowledge of `openapi-to-rust` source layout and conventions; the sidecar path needs only the versioned contract.
+The crate validates the same version-2 JSON shape that the root Rust generator consumes, but it does not depend on the generator crate. The generated-source fallback owns all knowledge of `openapi-to-rust` source layout and conventions; the sidecar path needs only the versioned contract.
 
-The exact `openapi-to-rust` backend revision validated by the compatibility fixtures is recorded in `COMPATIBILITY.json`. Compatibility with generator consumers is expressed through `bindings_schema_version`, not a runtime package dependency or compiler commit pin.
+The exact `openapi-to-rust` backend revision validated by the compatibility fixtures remains recorded in `COMPATIBILITY.json`. The Rust migration does not repin that backend. Issue #8 will move the steady-state boundary to generator-owned binding metadata and retire this source parser once equivalence has been proved.

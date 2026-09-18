@@ -12,8 +12,6 @@ import subprocess
 import tempfile
 from typing import Any
 
-from openapi_to_rust_bindings import read_bindings
-
 
 def run(*args: object, cwd: Path | None = None) -> None:
     subprocess.run([str(arg) for arg in args], cwd=cwd, check=True)
@@ -23,6 +21,13 @@ def output(*args: object, cwd: Path | None = None) -> str:
     return subprocess.check_output(
         [str(arg) for arg in args], cwd=cwd, text=True
     ).strip()
+
+
+def bindings_value(adapter: Path, generated: Path) -> dict[str, Any]:
+    value = json.loads(output(adapter, generated))
+    if not isinstance(value, dict):
+        raise RuntimeError("bindings adapter did not emit a JSON object")
+    return value
 
 
 def snapshot(root: Path) -> dict[str, bytes]:
@@ -117,6 +122,7 @@ def update_compatibility(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--package-root", type=Path, default=Path("."))
+    parser.add_argument("--bindings-adapter", type=Path, required=True)
     parser.add_argument("--baseline-generator", type=Path, required=True)
     parser.add_argument("--candidate-generator", type=Path, required=True)
     parser.add_argument("--candidate-commit", required=True)
@@ -171,11 +177,11 @@ def main() -> None:
             baseline_error = candidate_error = None
             baseline_value = candidate_value = None
             try:
-                baseline_value = read_bindings(baseline_raw).to_dict()
+                baseline_value = bindings_value(args.bindings_adapter, baseline_raw)
             except Exception as error:
                 baseline_error = f"{type(error).__name__}: {error}"
             try:
-                candidate_value = read_bindings(candidate_raw).to_dict()
+                candidate_value = bindings_value(args.bindings_adapter, candidate_raw)
             except Exception as error:
                 candidate_error = f"{type(error).__name__}: {error}"
 
