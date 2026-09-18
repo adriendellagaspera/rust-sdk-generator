@@ -2599,11 +2599,12 @@ pub(crate) fn lower(
 
 #[cfg(test)]
 mod stream_abi_tests {
-    use super::validate_owned_byte_stream;
+    use super::{event_stream_payload_matches, validate_owned_byte_stream};
     use crate::contracts::{
-        OperationBinding, OperationBindingKind, OperationMetadataBinding,
+        Bindings, OpenApi, OperationBinding, OperationBindingKind, OperationMetadataBinding,
         ResponseRepresentationBinding, SourceOperationBinding, StreamAbiBinding,
     };
+    use crate::openapi::OpenApiIndex;
 
     fn v3_binding() -> OperationBinding {
         OperationBinding {
