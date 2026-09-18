@@ -14,8 +14,9 @@ use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, TypeKind, parse_type};
 use crate::structural::{
     inline_object_union_mapping, multipart_filenames_binding, raw_scalar_struct_shape,
-    named_object_matches, request_object_matches, request_optional_boolean_field,
-    request_union_mapping, rust_type_matches_schema, scalar_object_shape, sse_payload_schema_name,
+    request_object_matches, request_optional_boolean_field, request_union_mapping,
+    rust_type_matches_schema, scalar_object_shape, sse_payload_binding_matches,
+    sse_payload_schema_name,
 };
 use crate::symbols::{SymbolProvider, field_identifier};
 
@@ -2386,7 +2387,7 @@ pub(crate) fn lower(
                         )
                     })?;
                     if payloads.iter().any(|candidate| candidate != payload)
-                        || !named_object_matches(&index, payload, &stream.item, bindings)
+                        || !sse_payload_binding_matches(&index, payload, &stream.item, bindings)
                     {
                         return Err(error(
                             "lower.stream_drift",
