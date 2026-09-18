@@ -1600,6 +1600,38 @@ pub(crate) fn lower(
         }
     }
 
+    for model in &models {
+        let ModelRenderSpec::View(view) = &model.render else {
+            continue;
+        };
+        for accessor in &view.accessors {
+            if accessor.kind != AccessorKindDefinition::Iter {
+                continue;
+            }
+            let wrapper = accessor
+                .wrapper
+                .as_deref()
+                .expect("validated iter accessor wrapper");
+            let raw_collection = accessor_type(&model.raw, &accessor.path, bindings)?;
+            let raw_item = generic_inner(&raw_collection, "Vec")?;
+            let wrapper_model = models
+                .iter()
+                .find(|candidate| candidate.name == wrapper)
+                .expect("validated model reference");
+            if wrapper_model.raw != raw_item
+                || !matches!(&wrapper_model.render, ModelRenderSpec::View(item) if item.borrowed)
+            {
+                return Err(error(
+                    "lower.iter_wrapper",
+                    format!(
+                        "iter accessor {}.{} requires a borrowed wrapper over {raw_item}",
+                        model.name, accessor.name
+                    ),
+                ));
+            }
+        }
+    }
+
     let mut resources = Vec::new();
     for (module, resource_config) in &definition.resources {
         let path = resource_config
