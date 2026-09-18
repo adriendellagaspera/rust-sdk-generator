@@ -77,22 +77,28 @@ fn legacy_fixtures_match_checked_in_bindings_contract() {
 }
 
 #[test]
-fn menagerie_manifest_preserves_the_historical_common_contract() {
-    let root = fixtures().join("menagerie");
-    let manifest = parse_binding_manifest(
-        &fs::read_to_string(root.join(MANIFEST_NAME)).expect("read manifest fixture"),
-    )
-    .expect("normalize manifest");
-    assert_eq!(manifest.as_value()["schema_version"], Value::from(3));
-    assert_eq!(
-        historical_common_contract(&manifest),
-        expected("menagerie").to_value()
-    );
+fn manifest_fixtures_preserve_the_historical_common_contract() {
+    for name in ["menagerie", "library"] {
+        let root = fixtures().join(name);
+        let manifest = parse_binding_manifest(
+            &fs::read_to_string(root.join(MANIFEST_NAME)).expect("read manifest fixture"),
+        )
+        .expect("normalize manifest");
+        assert_eq!(manifest.as_value()["schema_version"], Value::from(3));
+        assert_eq!(
+            historical_common_contract(&manifest),
+            expected(name).to_value(),
+            "{name} manifest/common contract diverged from the legacy parser"
+        );
 
-    let read = read_bindings(&root).expect("prefer manifest metadata");
-    assert_eq!(read, manifest);
+        let read = read_bindings(&root).expect("prefer manifest metadata");
+        assert_eq!(read, manifest);
+    }
+
+    let menagerie =
+        read_bindings(fixtures().join("menagerie")).expect("read menagerie manifest");
     assert_eq!(
-        read.as_value()["operations"]["adopt"]["metadata"]["source_operation"],
+        menagerie.as_value()["operations"]["adopt"]["metadata"]["source_operation"],
         serde_json::json!({
             "operation_id": "adopt",
             "method": "POST",
@@ -100,17 +106,51 @@ fn menagerie_manifest_preserves_the_historical_common_contract() {
         })
     );
     assert_eq!(
-        read.as_value()["operations"]["adopt"]["metadata"]["representation"]["kind"],
+        menagerie.as_value()["operations"]["adopt"]["metadata"]["representation"]["kind"],
         "json"
     );
 }
 
 #[test]
-fn library_legacy_sidecar_remains_first_class_during_migration() {
-    let root = fixtures().join("library");
+fn legacy_sidecar_remains_first_class_during_migration() {
+    let root = TestDir::new();
+    fs::copy(
+        fixtures().join("library/rust-bindings.json"),
+        root.path().join("rust-bindings.json"),
+    )
+    .expect("copy sidecar");
     assert_eq!(
-        read_bindings(&root).expect("read library sidecar"),
+        read_bindings(root.path()).expect("read library sidecar"),
         expected("library")
+    );
+}
+
+#[test]
+fn manifest_path_does_not_parse_cfg_exclusive_legacy_aliases() {
+    let root = TestDir::new();
+    fs::copy(
+        fixtures().join("transport").join(MANIFEST_NAME),
+        root.path().join(MANIFEST_NAME),
+    )
+    .expect("copy transport manifest");
+    fs::write(
+        root.path().join("types.rs"),
+        r#"
+#[cfg(not(target_arch = "wasm32"))]
+pub type HttpResponseByteStream =
+    futures_util::stream::BoxStream<'static, Result<bytes::Bytes, reqwest::Error>>;
+#[cfg(target_arch = "wasm32")]
+pub type HttpResponseByteStream =
+    futures_util::stream::LocalBoxStream<'static, Result<bytes::Bytes, reqwest::Error>>;
+"#,
+    )
+    .expect("write cfg-exclusive aliases");
+    fs::write(root.path().join("client.rs"), "this is not Rust").expect("write client source");
+
+    let bindings = read_bindings(root.path()).expect("manifest must bypass generated-source parser");
+    assert_eq!(
+        bindings.as_value()["operations"]["render_stream_2"]["metadata"]["stream_abi"]["alias"],
+        "HttpResponseByteStream"
     );
 }
 
