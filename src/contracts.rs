@@ -342,6 +342,8 @@ pub struct OperationDefinition {
     pub stream: Option<StreamDefinition>,
     #[serde(default)]
     pub request_overrides: Option<IndexMap<String, Option<bool>>>,
+    #[serde(default)]
+    pub multipart_filenames: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

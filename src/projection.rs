@@ -13,8 +13,8 @@ use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, parse_type};
 use crate::structural::{
     ScalarFieldShape, ScalarKind as StructuralScalarKind, inline_array_object_item,
-    inline_object_union_mapping, raw_scalar_struct_shape, request_object_matches,
-    request_union_mapping, rust_type_matches_schema, scalar_object_shape,
+    inline_object_union_mapping, multipart_filenames_binding, raw_scalar_struct_shape,
+    request_object_matches, request_union_mapping, rust_type_matches_schema, scalar_object_shape,
 };
 use crate::symbols::field_identifier;
 
@@ -1420,6 +1420,11 @@ pub(crate) fn project_operation(
                 .map(|body| body.media)
         });
     let response = response_projection(openapi, bindings, operation, binding, &path, &public_name)?;
+    let multipart_filenames = match multipart_filenames_binding(bindings, binding)? {
+        Some(_) if request_media == Some(RequestMediaDefinition::MultipartFormData) => Some(true),
+        Some(_) => return Err("capability.multipart_filenames_requires_multipart"),
+        None => None,
+    };
     let canonical_response = bindings.operations[binding]
         .metadata
         .as_ref()
@@ -1463,6 +1468,7 @@ pub(crate) fn project_operation(
             binary_response: None,
             stream: None,
             request_overrides: None,
+            multipart_filenames,
         },
     })
 }

@@ -13,9 +13,9 @@ use crate::ir::*;
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, TypeKind, parse_type};
 use crate::structural::{
-    inline_object_union_mapping, raw_scalar_struct_shape, request_object_matches,
-    request_optional_boolean_field, request_union_mapping, rust_type_matches_schema,
-    scalar_object_shape,
+    inline_object_union_mapping, multipart_filenames_binding, raw_scalar_struct_shape,
+    request_object_matches, request_optional_boolean_field, request_union_mapping,
+    rust_type_matches_schema, scalar_object_shape,
 };
 use crate::symbols::{SymbolProvider, field_identifier};
 
@@ -1597,6 +1597,80 @@ fn operation_call(
     })
 }
 
+fn multipart_filenames_call(
+    operation: &OperationSpec,
+    helper: &OperationBinding,
+    bindings: &Bindings,
+) -> Result<OperationCall> {
+    let RequestProjection::Model {
+        media,
+        model,
+        raw,
+        overrides,
+    } = &operation.request_projection
+    else {
+        return Err(error(
+            "lower.multipart_filenames_request",
+            "multipart filenames require a structured request model",
+        ));
+    };
+    if *media != RequestMediaDefinition::MultipartFormData {
+        return Err(error(
+            "lower.multipart_filenames_request",
+            "multipart filenames require multipart/form-data",
+        ));
+    }
+
+    let mut body = "request.into_raw()".to_owned();
+    if !overrides.is_empty() {
+        let assignments = overrides
+            .iter()
+            .map(|(field, configured)| {
+                let value = match configured {
+                    Some(true) => "Some(true)",
+                    Some(false) => "Some(false)",
+                    None => "None",
+                };
+                format!("raw.{field} = {value};")
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        body = format!("{{ let mut raw = request.into_raw(); {assignments} raw }}");
+    }
+
+    let mut declarations = Vec::new();
+    let mut values = Vec::new();
+    for parameter in &helper.parameters {
+        if parameter.name == "multipart_filenames" {
+            if parameter.type_name != "&[(&str, &str)]" {
+                return Err(error(
+                    "lower.multipart_filenames_signature",
+                    "multipart filename parameter type drift",
+                ));
+            }
+            declarations.push("multipart_filenames: &[(&str, &str)]".into());
+            values.push("multipart_filenames".into());
+        } else if parameter.type_name == *raw {
+            declarations.push(format!("request: {model}"));
+            values.push(body.clone());
+        } else {
+            let parameter = RawParameter {
+                name: parameter.name.clone(),
+                type_name: parameter.type_name.clone(),
+            };
+            let (declaration, value) = direct_parameter(&parameter, bindings)?;
+            declarations.push(declaration);
+            values.push(value);
+        }
+    }
+
+    Ok(OperationCall {
+        arguments: declarations.join(", "),
+        raw_arguments: values.join(", "),
+        default_raw_arguments: None,
+    })
+}
+
 fn validate_symbols(ir: &FacadeIr, bindings: &Bindings) -> Result<()> {
     let mut symbols = SymbolProvider::default();
     symbols.claim(&ir.client_name, "sdk", "client", "")?;
@@ -1657,6 +1731,14 @@ fn validate_symbols(ir: &FacadeIr, bindings: &Bindings) -> Result<()> {
         }
         for operation in &resource.operations {
             symbols.claim(&operation.name, &resource.name, &operation.operation_id, "")?;
+            if operation.multipart_filenames.is_some() {
+                symbols.claim(
+                    &format!("{}_with_filenames", operation.name),
+                    &resource.name,
+                    &operation.operation_id,
+                    "",
+                )?;
+            }
             if !matches!(
                 operation.request_projection,
                 RequestProjection::Model { .. } | RequestProjection::Raw { .. }
@@ -2373,9 +2455,29 @@ pub(crate) fn lower(
                     raw_arguments: String::new(),
                     default_raw_arguments: None,
                 },
+                multipart_filenames: None,
                 parameter_request: None,
             };
             operation.call = operation_call(&operation, &resource, bindings)?;
+            if item.multipart_filenames == Some(true) {
+                let (helper_name, helper) = multipart_filenames_binding(bindings, raw_method)
+                    .map_err(|code| {
+                        error(
+                            code,
+                            format!("multipart filename helper drift for {operation_id}"),
+                        )
+                    })?
+                    .ok_or_else(|| {
+                        error(
+                            "lower.multipart_filenames_missing",
+                            format!("multipart filename helper missing for {operation_id}"),
+                        )
+                    })?;
+                operation.multipart_filenames = Some(MultipartFilenamesSpec {
+                    raw_method: helper_name.into(),
+                    call: multipart_filenames_call(&operation, helper, bindings)?,
+                });
+            }
             operation.parameter_request = parameter_request(&resource, &operation, bindings)?;
             resource.operations.push(operation);
         }

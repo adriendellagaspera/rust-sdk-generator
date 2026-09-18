@@ -625,6 +625,27 @@ impl SdkDefinition {
                         "request overrides require a request model",
                     ));
                 }
+                if let Some(enabled) = operation.multipart_filenames {
+                    if !enabled {
+                        return Err(invalid(
+                            format!(
+                                "definition.resources.{module}.operations.{name}.multipart_filenames"
+                            ),
+                            "multipart_filenames must be true when present",
+                        ));
+                    }
+                    if operation.request.is_none()
+                        || operation.request_media
+                            != Some(crate::RequestMediaDefinition::MultipartFormData)
+                    {
+                        return Err(invalid(
+                            format!(
+                                "definition.resources.{module}.operations.{name}.multipart_filenames"
+                            ),
+                            "multipart filenames require a structured multipart request model",
+                        ));
+                    }
+                }
             }
         }
         Ok(())

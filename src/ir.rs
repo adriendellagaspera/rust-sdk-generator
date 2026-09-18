@@ -195,7 +195,14 @@ pub(crate) struct OperationSpec {
     pub request_projection: RequestProjection,
     pub response_projection: ResponseProjection,
     pub call: OperationCall,
+    pub multipart_filenames: Option<MultipartFilenamesSpec>,
     pub parameter_request: Option<ParameterRequestSpec>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MultipartFilenamesSpec {
+    pub raw_method: String,
+    pub call: OperationCall,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
