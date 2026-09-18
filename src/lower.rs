@@ -12,8 +12,8 @@ use crate::ir::*;
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, TypeKind, parse_type};
 use crate::structural::{
-    inline_object_union_mapping, raw_scalar_struct_shape, rust_type_matches_schema,
-    scalar_object_shape,
+    inline_object_union_mapping, raw_scalar_struct_shape, request_object_matches,
+    rust_type_matches_schema, scalar_object_shape,
 };
 use crate::symbols::{SymbolProvider, field_identifier};
 
@@ -1498,7 +1498,8 @@ pub(crate) fn lower(
             }
             ModelRenderSpec::View(resolve_view(&raw, config, bindings)?)
         } else {
-            let wire_schema = index.object_schema(&raw)?;
+            let schema_name = config.schema.as_deref().unwrap_or(&raw);
+            let wire_schema = index.object_schema(schema_name)?;
             let wire_fields: BTreeSet<_> = wire_schema
                 .get("properties")
                 .and_then(Value::as_object)
@@ -1666,7 +1667,18 @@ pub(crate) fn lower(
                     .iter()
                     .find(|model| model.name == request)
                     .expect("known model");
-                if index.request_schema(operation_id)?.as_deref() != Some(model.raw.as_str()) {
+                let model_definition = &definition.models[request];
+                let schema_name = model_definition
+                    .schema
+                    .as_deref()
+                    .unwrap_or(model.raw.as_str());
+                let request_matches = if model_definition.schema.is_some() {
+                    index.request_schema(operation_id)?.as_deref() == Some(schema_name)
+                        && request_object_matches(&index, schema_name, &model.raw, bindings)
+                } else {
+                    index.request_schema(operation_id)?.as_deref() == Some(model.raw.as_str())
+                };
+                if !request_matches {
                     return Err(error(
                         "lower.request_drift",
                         format!("OpenAPI request drift for {operation_id}"),
@@ -1696,7 +1708,7 @@ pub(crate) fn lower(
                         let inner = raw_syntax
                             .unary("Option")
                             .map(|inner| inner.spelling.as_str());
-                        let wire_schema = index.object_schema(&model.raw)?;
+                        let wire_schema = index.object_schema(schema_name)?;
                         let wire_type = wire_schema
                             .get("properties")
                             .and_then(Value::as_object)

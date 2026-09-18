@@ -1,0 +1,53 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title": "Nested request fixture", "version": "1"},
+  "paths": {
+    "/tenants/{tenant_id}/widgets": {
+      "post": {
+        "operationId": "create_widget",
+        "parameters": [
+          {"name": "tenant_id", "in": "path", "required": true, "schema": {"type": "string"}},
+          {"name": "dry-run", "in": "query", "required": false, "schema": {"type": "boolean"}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/CreateWidgetRequest"}
+            }
+          }
+        },
+        "responses": {
+          "204": {"description": "Created"}
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CreateWidgetRequest": {
+        "type": "object",
+        "required": ["name", "config"],
+        "properties": {
+          "name": {"type": "string"},
+          "config": {"$ref": "#/components/schemas/WidgetConfig"},
+          "metadata": {"$ref": "#/components/schemas/WidgetMetadata"}
+        }
+      },
+      "WidgetConfig": {
+        "type": "object",
+        "required": ["mode"],
+        "properties": {
+          "mode": {"type": "string"},
+          "retries": {"type": "integer"}
+        }
+      },
+      "WidgetMetadata": {
+        "type": "object",
+        "properties": {
+          "note": {"type": "string"}
+        }
+      }
+    }
+  }
+}

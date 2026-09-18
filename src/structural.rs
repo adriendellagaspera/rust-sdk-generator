@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::Value;
 
 use crate::contracts::Bindings;
+use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, parse_type};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -179,6 +180,105 @@ pub(crate) fn rust_type_matches_schema(
     parse_type(type_name)
         .ok()
         .is_some_and(|syntax| type_matches_schema(schema, &syntax, bindings, &mut BTreeSet::new()))
+}
+
+fn rust_option_core(type_name: &str) -> Option<(Type, usize)> {
+    let mut syntax = parse_type(type_name).ok()?;
+    let mut depth = 0;
+    while let Some(inner) = syntax.unary("Option") {
+        depth += 1;
+        syntax = inner.clone();
+    }
+    Some((syntax, depth))
+}
+
+fn request_object_matches_inner(
+    openapi: &OpenApiIndex,
+    schema_name: &str,
+    raw: &str,
+    bindings: &Bindings,
+    seen: &mut BTreeSet<(String, String)>,
+) -> bool {
+    let pair = (schema_name.to_owned(), raw.to_owned());
+    if !seen.insert(pair.clone()) {
+        return false;
+    }
+
+    let matched = (|| {
+        let schema = openapi.object_schema(schema_name).ok()?;
+        let properties = schema.get("properties").and_then(Value::as_object)?;
+        let required_values = schema
+            .get("required")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let required: BTreeSet<_> = required_values.iter().filter_map(Value::as_str).collect();
+        if required.len() != required_values.len()
+            || required
+                .iter()
+                .any(|field| !properties.contains_key(*field))
+        {
+            return None;
+        }
+
+        let fields = bindings.structs.get(raw)?;
+        let by_name: BTreeMap<_, _> = fields
+            .iter()
+            .map(|field| (field.name.strip_prefix("r#").unwrap_or(&field.name), field))
+            .collect();
+        if by_name.len() != fields.len()
+            || by_name.keys().copied().collect::<BTreeSet<_>>()
+                != properties
+                    .keys()
+                    .map(String::as_str)
+                    .collect::<BTreeSet<_>>()
+        {
+            return None;
+        }
+
+        for (name, property) in properties {
+            let field = by_name[name.as_str()];
+            let (core, option_depth) = rust_option_core(&field.type_name)?;
+            let (wire, nullable) = nullable_schema(property)
+                .map(|schema| (schema, true))
+                .unwrap_or((property, false));
+            let expected_depth =
+                usize::from(!required.contains(name.as_str())) + usize::from(nullable);
+            if option_depth != expected_depth {
+                return None;
+            }
+
+            if let Some(reference) = ref_name(wire) {
+                if core.kind != crate::rust_type::TypeKind::Opaque
+                    || !request_object_matches_inner(
+                        openapi,
+                        reference,
+                        &core.spelling,
+                        bindings,
+                        seen,
+                    )
+                {
+                    return None;
+                }
+            } else if !type_matches_schema(wire, &core, bindings, &mut BTreeSet::new()) {
+                return None;
+            }
+        }
+        Some(())
+    })()
+    .is_some();
+
+    seen.remove(&pair);
+    matched
+}
+
+pub(crate) fn request_object_matches(
+    openapi: &OpenApiIndex,
+    schema_name: &str,
+    raw: &str,
+    bindings: &Bindings,
+) -> bool {
+    request_object_matches_inner(openapi, schema_name, raw, bindings, &mut BTreeSet::new())
 }
 
 fn expand_alias_syntax(
