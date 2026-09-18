@@ -224,7 +224,6 @@ pub(crate) fn raw_scalar_struct_shape(
     Some(result)
 }
 
-
 pub(crate) fn inline_object_union_mapping(
     schema: &Value,
     raw_union: &str,
@@ -243,7 +242,8 @@ pub(crate) fn inline_object_union_mapping(
         .map(scalar_object_shape)
         .collect::<Option<Vec<_>>>()?;
     let variants = bindings.enums.get(raw_union)?;
-    if variants.len() != wire_shapes.len() || variants.iter().any(|variant| variant.payload.is_none())
+    if variants.len() != wire_shapes.len()
+        || variants.iter().any(|variant| variant.payload.is_none())
     {
         return None;
     }
