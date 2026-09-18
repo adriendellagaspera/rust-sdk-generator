@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value};
 
-use crate::contracts::{Bindings, OpenApi, OperationBinding};
+use crate::contracts::{Bindings, OpenApi, OperationBinding, RequestMediaDefinition};
 use crate::error::{GenerationError, Result};
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::parse_type;
@@ -20,7 +20,7 @@ pub(crate) struct OperationMatch {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RequestShape {
     parameters: BTreeSet<String>,
-    body: Option<String>,
+    body: Option<(RequestMediaDefinition, String)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -121,14 +121,21 @@ fn request_shape(operation: &Value) -> std::result::Result<RequestShape, &'stati
     {
         None => None,
         Some(content) if content.is_empty() => None,
-        Some(content) if content.len() == 1 && content.contains_key("application/json") => Some(
-            content
-                .get("application/json")
-                .and_then(|payload| payload.get("schema"))
+        Some(content) if content.len() == 1 => {
+            let (media_type, payload) = content.iter().next().expect("one request media");
+            let media = match media_type.as_str() {
+                "application/json" => RequestMediaDefinition::Json,
+                "multipart/form-data" => RequestMediaDefinition::MultipartFormData,
+                "application/x-www-form-urlencoded" => RequestMediaDefinition::FormUrlencoded,
+                _ => return Err("request.media_projection_unsupported"),
+            };
+            let schema = payload
+                .get("schema")
                 .and_then(ref_name)
                 .map(str::to_owned)
-                .ok_or("request.inline_or_unresolved")?,
-        ),
+                .ok_or("request.inline_or_unresolved")?;
+            Some((media, schema))
+        }
         Some(_) => return Err("request.media_projection_unsupported"),
     };
 
@@ -261,7 +268,7 @@ fn binding_matches(
     bindings: &Bindings,
 ) -> bool {
     let mut body_index = None;
-    if let Some(body) = &request.body {
+    if let Some((_, body)) = &request.body {
         let matching: Vec<_> = binding
             .parameters
             .iter()

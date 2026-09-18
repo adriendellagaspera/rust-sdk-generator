@@ -119,6 +119,14 @@ fn rust_scalar(type_name: &str) -> Option<(ScalarKind, usize)> {
     Some((kind, option_depth))
 }
 
+fn binary_rust_type(syntax: &Type) -> bool {
+    syntax.spelling == "String"
+        || syntax.spelling == "bytes::Bytes"
+        || syntax
+            .unary("Vec")
+            .is_some_and(|inner| inner.spelling == "u8")
+}
+
 fn type_matches_schema(
     schema: &Value,
     syntax: &Type,
@@ -146,7 +154,13 @@ fn type_matches_schema(
     }
 
     match schema.get("type").and_then(Value::as_str) {
-        Some("string") => syntax.spelling == "String",
+        Some("string") => {
+            if schema.get("format").and_then(Value::as_str) == Some("binary") {
+                binary_rust_type(syntax)
+            } else {
+                syntax.spelling == "String"
+            }
+        }
         Some("boolean") => syntax.spelling == "bool",
         Some("integer") => integer_rust_type(&syntax.spelling),
         Some("number") => matches!(syntax.spelling.as_str(), "f32" | "f64"),

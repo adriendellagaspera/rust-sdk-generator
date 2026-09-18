@@ -210,6 +210,14 @@ pub struct ResourceDefinition {
     pub operations: IndexMap<String, OperationDefinition>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RequestMediaDefinition {
+    Json,
+    MultipartFormData,
+    FormUrlencoded,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OperationDefinition {
@@ -218,6 +226,8 @@ pub struct OperationDefinition {
     pub raw_method: Option<String>,
     #[serde(default)]
     pub request: Option<String>,
+    #[serde(default)]
+    pub request_media: Option<RequestMediaDefinition>,
     #[serde(default)]
     pub response: Option<String>,
     #[serde(default)]

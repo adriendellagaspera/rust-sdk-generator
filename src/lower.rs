@@ -4,8 +4,8 @@ use indexmap::IndexMap;
 use serde_json::Value;
 
 use crate::contracts::{
-    AccessorKindDefinition, Bindings, FieldBinding, ModelDefinition, OpenApi, SdkDefinition,
-    SimpleUnionVariant,
+    AccessorKindDefinition, Bindings, FieldBinding, ModelDefinition, OpenApi,
+    RequestMediaDefinition, SdkDefinition, SimpleUnionVariant,
 };
 use crate::error::{GenerationError, Result};
 use crate::ir::*;
@@ -1136,8 +1136,10 @@ fn parameter_request(
     operation: &OperationSpec,
     bindings: &Bindings,
 ) -> Result<Option<ParameterRequestSpec>> {
-    if matches!(operation.request_projection, RequestProjection::Json { .. })
-        || operation.raw_signature.parameters.is_empty()
+    if matches!(
+        operation.request_projection,
+        RequestProjection::Model { .. }
+    ) || operation.raw_signature.parameters.is_empty()
         || !operation
             .raw_signature
             .parameters
@@ -1201,7 +1203,8 @@ fn operation_call(
     bindings: &Bindings,
 ) -> Result<OperationCall> {
     let parameters = &operation.raw_signature.parameters;
-    if let RequestProjection::Json {
+    if let RequestProjection::Model {
+        media: _,
         model,
         raw,
         overrides,
@@ -1360,8 +1363,10 @@ fn validate_symbols(ir: &FacadeIr, bindings: &Bindings) -> Result<()> {
         }
         for operation in &resource.operations {
             symbols.claim(&operation.name, &resource.name, &operation.operation_id, "")?;
-            if !matches!(operation.request_projection, RequestProjection::Json { .. })
-                && !operation.raw_signature.parameters.is_empty()
+            if !matches!(
+                operation.request_projection,
+                RequestProjection::Model { .. }
+            ) && !operation.raw_signature.parameters.is_empty()
                 && operation
                     .raw_signature
                     .parameters
@@ -1696,11 +1701,26 @@ pub(crate) fn lower(
                     .schema
                     .as_deref()
                     .unwrap_or(model.raw.as_str());
+                let configured_media = item.request_media.unwrap_or(RequestMediaDefinition::Json);
+                let body = index
+                    .structured_request_body(operation_id)?
+                    .ok_or_else(|| {
+                        error(
+                            "lower.request_media_drift",
+                            format!("structured request media drift for {operation_id}"),
+                        )
+                    })?;
+                if body.media != configured_media {
+                    return Err(error(
+                        "lower.request_media_drift",
+                        format!("structured request media drift for {operation_id}"),
+                    ));
+                }
                 let request_matches = if model_definition.schema.is_some() {
-                    index.request_schema(operation_id)?.as_deref() == Some(schema_name)
+                    body.schema == schema_name
                         && request_object_matches(&index, schema_name, &model.raw, bindings)
                 } else {
-                    index.request_schema(operation_id)?.as_deref() == Some(model.raw.as_str())
+                    body.schema == model.raw
                 };
                 if !request_matches {
                     return Err(error(
@@ -1927,7 +1947,8 @@ pub(crate) fn lower(
             };
 
             let request_projection = if let Some(request) = request {
-                RequestProjection::Json {
+                RequestProjection::Model {
+                    media: item.request_media.unwrap_or(RequestMediaDefinition::Json),
                     model: request.into(),
                     raw: request_raw.expect("request raw"),
                     overrides: item

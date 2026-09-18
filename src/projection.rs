@@ -5,8 +5,8 @@ use serde_json::Value;
 
 use crate::contracts::{
     AccessorDefinition, AccessorKindDefinition, Bindings, MapDefinition, ModelDefinition,
-    OperationDefinition, ResourceDefinition, ScalarEnumDefinition, SdkDefinition,
-    SimpleUnionDefinition, SimpleUnionVariant,
+    OperationDefinition, RequestMediaDefinition, ResourceDefinition, ScalarEnumDefinition,
+    SdkDefinition, SimpleUnionDefinition, SimpleUnionVariant,
 };
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, parse_type};
@@ -437,13 +437,14 @@ fn request_model(
     binding: &str,
     resource_path: &[String],
     public_name: &str,
-) -> Result<Option<(String, ProjectedModels)>, &'static str> {
-    let Some(schema_name) = openapi
-        .request_schema(operation_id)
+) -> Result<Option<(String, ProjectedModels, RequestMediaDefinition)>, &'static str> {
+    let Some(body) = openapi
+        .structured_request_body(operation_id)
         .map_err(|_| REQUEST_MODEL_UNPROVEN)?
     else {
         return Ok(None);
     };
+    let schema_name = body.schema;
     let raw_binding = bindings
         .operations
         .get(binding)
@@ -469,7 +470,7 @@ fn request_model(
         name.clone(),
         &mut BTreeSet::new(),
     )?;
-    Ok(Some((name, models)))
+    Ok(Some((name, models, body.media)))
 }
 
 fn safe_accessor_name(name: &str) -> bool {
@@ -1249,14 +1250,15 @@ pub(crate) fn project_operation(
         &path,
         &public_name,
     )?;
-    let request = request_model.as_ref().map(|(name, _)| name.clone());
+    let request = request_model.as_ref().map(|(name, _, _)| name.clone());
+    let request_media = request_model.as_ref().map(|(_, _, media)| *media);
     let response = response_projection(openapi, bindings, operation, binding, &path, &public_name)?;
     let (response_name, empty_response, response_models) = match response {
         ProjectedResponse::Empty => (None, Some(true), Vec::new()),
         ProjectedResponse::Json { name, models } => (Some(name), None, models),
     };
     let mut models = Vec::new();
-    if let Some((_, request_models)) = request_model {
+    if let Some((_, request_models, _)) = request_model {
         models.extend(request_models);
     }
     models.extend(response_models);
@@ -1269,6 +1271,7 @@ pub(crate) fn project_operation(
             operation_id: operation_id.into(),
             raw_method: Some(binding.into()),
             request,
+            request_media,
             response: response_name,
             empty_response,
             binary_response: None,
