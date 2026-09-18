@@ -43,7 +43,7 @@ fn rejects_required_request_scalar_type_drift() {
     assert_eq!(outcome.status, DerivationStatus::Rejected);
     assert_eq!(
         outcome.reason.code,
-        "capability.request_model_not_structurally_provable"
+        "bindings.no_structural_match"
     );
 }
 
@@ -111,7 +111,7 @@ fn rejects_optional_nullable_request_with_shallow_raw_option() {
     assert_eq!(outcome.status, DerivationStatus::Rejected);
     assert_eq!(
         outcome.reason.code,
-        "capability.request_model_not_structurally_provable"
+        "bindings.no_structural_match"
     );
 }
 
