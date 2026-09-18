@@ -297,13 +297,16 @@ fn apply_operation_override(
     operation_id: &str,
     operation_override: &OperationOverride,
 ) -> Result<(), DerivationError> {
-    let location = definition.resources.iter().find_map(|(resource_name, resource)| {
-        resource
-            .operations
-            .iter()
-            .find(|(_, operation)| operation.operation_id == operation_id)
-            .map(|(public_name, _)| (resource_name.clone(), public_name.clone()))
-    });
+    let location = definition
+        .resources
+        .iter()
+        .find_map(|(resource_name, resource)| {
+            resource
+                .operations
+                .iter()
+                .find(|(_, operation)| operation.operation_id == operation_id)
+                .map(|(public_name, _)| (resource_name.clone(), public_name.clone()))
+        });
     let Some((resource_name, public_name)) = location else {
         return Err(DerivationError::at(
             "overrides.unapplied",
@@ -328,7 +331,11 @@ fn apply_operation_override(
             format!("projected request model {request_name} is missing"),
         )
     })?;
-    if request_model.schema_path.as_ref().is_some_and(|path| !path.is_empty()) {
+    if request_model
+        .schema_path
+        .as_ref()
+        .is_some_and(|path| !path.is_empty())
+    {
         return Err(DerivationError::at(
             "overrides.invalid_request_override",
             format!("overrides.operations.{operation_id}.request_overrides"),
