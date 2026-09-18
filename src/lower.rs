@@ -1721,6 +1721,24 @@ pub(crate) fn lower(
                 }
             }
 
+            let wire_parameter_names: Vec<_> = wire_operation
+                .get("parameters")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|parameter| parameter.get("name").and_then(Value::as_str))
+                .map(|name| name.replace('-', "_"))
+                .collect();
+            let is_wire_parameter = |parameter: &crate::ParameterBinding| {
+                let name = parameter
+                    .name
+                    .strip_prefix("r#")
+                    .unwrap_or(&parameter.name);
+                wire_parameter_names.iter().any(|wire| wire == name)
+            };
+
+            let mut request_raw_parameter = None;
+            let mut raw_request_public_name = None;
             let request_raw = if let Some(request) = request {
                 let model = models
                     .iter()
@@ -1761,6 +1779,7 @@ pub(crate) fn lower(
                 let body_parameters: Vec<_> = raw_operation
                     .parameters
                     .iter()
+                    .filter(|parameter| !is_wire_parameter(parameter))
                     .filter(|parameter| parameter.type_name == model.raw)
                     .collect();
                 if body_parameters.len() != 1 {
@@ -1769,6 +1788,7 @@ pub(crate) fn lower(
                         format!("raw signature drift for {raw_method}"),
                     ));
                 }
+                request_raw_parameter = Some(body_parameters[0].name.clone());
                 if let Some(overrides) = &item.request_overrides {
                     for field in overrides.keys() {
                         if !request_optional_boolean_field(
@@ -1789,6 +1809,64 @@ pub(crate) fn lower(
                     }
                 }
                 Some(model.raw.clone())
+            } else if let Some(configured_media) = item.request_media.filter(|media| {
+                matches!(
+                    media,
+                    RequestMediaDefinition::OctetStream
+                        | RequestMediaDefinition::Binary
+                        | RequestMediaDefinition::TextPlain
+                )
+            }) {
+                let body = index.raw_request_body(operation_id)?.ok_or_else(|| {
+                    error(
+                        "lower.request_media_drift",
+                        format!("raw request media drift for {operation_id}"),
+                    )
+                })?;
+                if body.media != configured_media {
+                    return Err(error(
+                        "lower.request_media_drift",
+                        format!("raw request media drift for {operation_id}"),
+                    ));
+                }
+                let body_parameters: Vec<_> = raw_operation
+                    .parameters
+                    .iter()
+                    .filter(|parameter| !is_wire_parameter(parameter))
+                    .filter(|parameter| parameter.type_name == body.type_name)
+                    .collect();
+                if body_parameters.len() != 1 {
+                    return Err(error(
+                        "lower.signature_drift",
+                        format!("raw body signature drift for {raw_method}"),
+                    ));
+                }
+                let raw_parameter = body_parameters[0];
+                request_raw_parameter = Some(raw_parameter.name.clone());
+
+                let used: BTreeSet<_> = raw_operation
+                    .parameters
+                    .iter()
+                    .filter(|parameter| parameter.name != raw_parameter.name)
+                    .map(|parameter| {
+                        parameter
+                            .name
+                            .strip_prefix("r#")
+                            .unwrap_or(&parameter.name)
+                            .to_owned()
+                    })
+                    .collect();
+                let mut public = "body".to_owned();
+                let mut suffix = 2;
+                if used.contains(&public) {
+                    public = "request_body".to_owned();
+                    while used.contains(&public) {
+                        public = format!("request_body_{suffix}");
+                        suffix += 1;
+                    }
+                }
+                raw_request_public_name = Some(public);
+                Some(body.type_name)
             } else {
                 None
             };
@@ -1796,15 +1874,9 @@ pub(crate) fn lower(
             let raw_parameters: Vec<_> = raw_operation
                 .parameters
                 .iter()
-                .filter(|parameter| request_raw.as_deref() != Some(parameter.type_name.as_str()))
-                .collect();
-            let wire_parameter_names: Vec<_> = wire_operation
-                .get("parameters")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(|parameter| parameter.get("name").and_then(Value::as_str))
-                .map(|name| name.replace('-', "_"))
+                .filter(|parameter| {
+                    request_raw_parameter.as_deref() != Some(parameter.name.as_str())
+                })
                 .collect();
             let raw_parameter_names: Vec<_> = raw_parameters
                 .iter()
