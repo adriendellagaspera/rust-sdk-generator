@@ -35,9 +35,8 @@ pub use contracts::{
     ClientBinding, ClientDefinition, FieldBinding, GenerateInput, GeneratedSdk, MapDefinition,
     ModelDefinition, OpenApi, OperationBinding, OperationDefinition, ParameterBinding,
     RequestMediaDefinition, ResourceDefinition, ResourceInventory, Runtime, ScalarEnumDefinition,
-    SdkDefinition,
-    SimpleUnionDefinition, SimpleUnionVariant, StreamBinding, StreamDefinition, UnionDefinition,
-    UnionFactoryDefinition, VariantBinding,
+    SdkDefinition, SimpleUnionDefinition, SimpleUnionVariant, StreamBinding, StreamDefinition,
+    UnionDefinition, UnionFactoryDefinition, VariantBinding,
 };
 pub use derivation::{
     Derivation, DerivationError, DerivationReason, DerivationReport, DerivationStatus, DeriveInput,
