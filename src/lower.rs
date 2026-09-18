@@ -4,8 +4,8 @@ use indexmap::IndexMap;
 use serde_json::Value;
 
 use crate::contracts::{
-    AccessorKindDefinition, Bindings, FieldBinding, ModelDefinition, OpenApi,
-    RequestMediaDefinition, SdkDefinition, SimpleUnionVariant,
+    AccessorKindDefinition, Bindings, FieldBinding, ModelDefinition, OpenApi, OperationBinding,
+    RequestMediaDefinition, ResponseRepresentationBinding, SdkDefinition, SimpleUnionVariant,
 };
 use crate::error::{GenerationError, Result};
 use crate::ir::*;
@@ -1029,14 +1029,131 @@ fn success_schema<'a>(operation: &'a Value, media: &str) -> Result<&'a Value> {
     ))
 }
 
+fn selected_response_schemas<'a>(
+    operation: &'a Value,
+    statuses: &[String],
+    media_type: &str,
+) -> Result<Vec<&'a Value>> {
+    let responses = operation
+        .get("responses")
+        .and_then(Value::as_object)
+        .ok_or_else(|| error("lower.responses", "operation has no responses"))?;
+    let selected_statuses: Vec<_> = if statuses.is_empty() {
+        responses
+            .keys()
+            .filter(|status| status.starts_with('2'))
+            .map(String::as_str)
+            .collect()
+    } else {
+        statuses.iter().map(String::as_str).collect()
+    };
+    if selected_statuses.is_empty() {
+        return Err(error(
+            "lower.responses",
+            "operation has no selected success responses",
+        ));
+    }
+    selected_statuses
+        .into_iter()
+        .map(|status| {
+            responses
+                .get(status)
+                .and_then(|response| response.get("content"))
+                .and_then(Value::as_object)
+                .and_then(|content| content.get(media_type))
+                .and_then(|payload| payload.get("schema"))
+                .ok_or_else(|| {
+                    error(
+                        "lower.response_representation_drift",
+                        format!("missing selected {media_type} response at status {status}"),
+                    )
+                })
+        })
+        .collect()
+}
+
+fn selected_responses_are_empty(operation: &Value, statuses: &[String]) -> bool {
+    let Some(responses) = operation.get("responses").and_then(Value::as_object) else {
+        return false;
+    };
+    let selected_statuses: Vec<_> = if statuses.is_empty() {
+        responses
+            .keys()
+            .filter(|status| status.starts_with('2'))
+            .map(String::as_str)
+            .collect()
+    } else {
+        statuses.iter().map(String::as_str).collect()
+    };
+    !selected_statuses.is_empty()
+        && selected_statuses.into_iter().all(|status| {
+            responses.get(status).is_some_and(|response| {
+                response
+                    .get("content")
+                    .and_then(Value::as_object)
+                    .is_none_or(|content| content.is_empty())
+            })
+        })
+}
+
+fn json_schema_for_binding<'a>(
+    operation: &'a Value,
+    binding: &OperationBinding,
+) -> Result<&'a Value> {
+    if let Some(metadata) = &binding.metadata {
+        let ResponseRepresentationBinding::Json {
+            schema_name,
+            media_type,
+        } = &metadata.representation
+        else {
+            return Err(error(
+                "lower.response_representation_drift",
+                "raw binding is not a JSON response representation",
+            ));
+        };
+        if binding.success_type != *schema_name {
+            return Err(error(
+                "lower.response_representation_drift",
+                "raw JSON success type disagrees with canonical representation",
+            ));
+        }
+        let schemas = selected_response_schemas(operation, &metadata.success_statuses, media_type)?;
+        let schema = schemas[0];
+        if schemas.iter().any(|candidate| *candidate != schema) {
+            return Err(error(
+                "lower.response_representation_drift",
+                "selected JSON response schemas disagree across statuses",
+            ));
+        }
+        return Ok(schema);
+    }
+    success_schema(operation, "application/json")
+}
+
+fn empty_response_matches(operation: &Value, binding: &OperationBinding) -> Result<bool> {
+    if let Some(metadata) = &binding.metadata {
+        return Ok(matches!(
+            metadata.representation,
+            ResponseRepresentationBinding::Empty
+        ) && binding.success_type == "()"
+            && selected_responses_are_empty(operation, &metadata.success_statuses));
+    }
+    let response = success_response(operation)?;
+    Ok(response
+        .get("content")
+        .is_none_or(|content| content.as_object().is_none_or(|object| object.is_empty()))
+        && binding.success_type == "()")
+}
+
 fn response_matches(
     openapi: &OpenApiIndex,
     operation_id: &str,
     raw: &str,
+    binding: &OperationBinding,
     bindings: &Bindings,
 ) -> Result<bool> {
     let operation = openapi.operation(operation_id)?;
-    let schema = success_schema(operation, "application/json")?;
+    let schema = json_schema_for_binding(operation, binding)?;
     if let Some(referenced) = ref_name(schema) {
         return Ok(referenced == raw);
     }
@@ -1903,11 +2020,7 @@ pub(crate) fn lower(
             }
 
             let response_projection = if item.empty_response == Some(true) {
-                let response = success_response(wire_operation)?;
-                if response.get("content").is_some_and(|content| {
-                    content.as_object().is_some_and(|object| !object.is_empty())
-                }) || raw_operation.success_type != "()"
-                {
+                if !empty_response_matches(wire_operation, raw_operation)? {
                     return Err(error(
                         "lower.empty_response_drift",
                         format!("empty response drift for {operation_id}"),
@@ -2022,7 +2135,7 @@ pub(crate) fn lower(
                     .iter()
                     .find(|model| model.name == response)
                     .expect("known model");
-                if !response_matches(&index, operation_id, &model.raw, bindings)? {
+                if !response_matches(&index, operation_id, &model.raw, raw_operation, bindings)? {
                     return Err(error(
                         "lower.response_drift",
                         format!("OpenAPI response drift for {operation_id}"),
