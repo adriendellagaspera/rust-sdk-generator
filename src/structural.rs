@@ -192,6 +192,100 @@ fn rust_option_core(type_name: &str) -> Option<(Type, usize)> {
     Some((syntax, depth))
 }
 
+pub(crate) fn request_union_mapping(
+    openapi: &OpenApiIndex,
+    schema: &Value,
+    raw_union: &str,
+    bindings: &Bindings,
+) -> Option<Vec<(String, String, String)>> {
+    let branches = schema
+        .get("oneOf")
+        .or_else(|| schema.get("anyOf"))
+        .and_then(Value::as_array)?;
+    if branches.len() < 2 {
+        return None;
+    }
+
+    let references = branches
+        .iter()
+        .map(ref_name)
+        .collect::<Option<Vec<_>>>()?;
+    let reference_set: BTreeSet<_> = references.iter().copied().collect();
+    if reference_set.len() != references.len() {
+        return None;
+    }
+
+    let variants = bindings.enums.get(raw_union)?;
+    if variants.len() != references.len() || variants.iter().any(|variant| variant.payload.is_none())
+    {
+        return None;
+    }
+
+    let branch_matches = references
+        .iter()
+        .map(|reference| {
+            variants
+                .iter()
+                .enumerate()
+                .filter_map(|(index, variant)| {
+                    let payload = variant.payload.as_deref()?;
+                    request_object_matches_inner(
+                        openapi,
+                        reference,
+                        payload,
+                        bindings,
+                        &mut BTreeSet::new(),
+                    )
+                    .then_some(index)
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+
+    if branch_matches.iter().any(|matches| matches.len() != 1) {
+        return None;
+    }
+    for raw_index in 0..variants.len() {
+        if branch_matches
+            .iter()
+            .filter(|matches| matches[0] == raw_index)
+            .count()
+            != 1
+        {
+            return None;
+        }
+    }
+
+    Some(
+        references
+            .into_iter()
+            .zip(branch_matches)
+            .map(|(reference, matches)| {
+                let variant = &variants[matches[0]];
+                (
+                    reference.to_owned(),
+                    variant.name.clone(),
+                    variant.payload.clone().expect("payload checked"),
+                )
+            })
+            .collect(),
+    )
+}
+
+fn request_union_raw<'a>(schema: &'a Value, syntax: &'a Type) -> Option<(&'a Value, &'a str)> {
+    if schema.get("oneOf").is_some() || schema.get("anyOf").is_some() {
+        return (syntax.kind == TypeKind::Opaque).then_some((schema, syntax.spelling.as_str()));
+    }
+    if schema.get("type").and_then(Value::as_str) == Some("array") {
+        let items = schema.get("items")?;
+        if items.get("oneOf").is_some() || items.get("anyOf").is_some() {
+            let inner = syntax.unary("Vec")?;
+            return (inner.kind == TypeKind::Opaque).then_some((items, inner.spelling.as_str()));
+        }
+    }
+    None
+}
+
 fn request_object_value_matches(
     openapi: &OpenApiIndex,
     schema: &Value,
@@ -250,6 +344,13 @@ fn request_object_value_matches(
             if core.kind != TypeKind::Opaque
                 || !request_object_matches_inner(openapi, reference, &core.spelling, bindings, seen)
             {
+                return false;
+            }
+            continue;
+        }
+
+        if let Some((union_schema, raw_union)) = request_union_raw(wire, &core) {
+            if request_union_mapping(openapi, union_schema, raw_union, bindings).is_none() {
                 return false;
             }
             continue;
