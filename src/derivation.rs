@@ -299,6 +299,55 @@ fn validate_evidence(
     Ok(())
 }
 
+fn validate_closed_world_projection(
+    definition: &SdkDefinition,
+    operations: &BTreeMap<String, OperationDerivation>,
+) -> Result<(), DerivationError> {
+    let mut projected = BTreeSet::new();
+    for resource in definition.resources.values() {
+        for operation in resource.operations.values() {
+            if !projected.insert(operation.operation_id.clone()) {
+                return Err(DerivationError::new(
+                    "derivation.closed_world_mismatch",
+                    format!(
+                        "operation {} appears more than once in SdkDefinition",
+                        operation.operation_id
+                    ),
+                ));
+            }
+        }
+    }
+
+    for (operation_id, outcome) in operations {
+        let should_project = matches!(
+            outcome.status,
+            DerivationStatus::Derived | DerivationStatus::Overridden
+        );
+        let is_projected = projected.remove(operation_id);
+        if should_project != is_projected {
+            return Err(DerivationError::at(
+                "derivation.closed_world_mismatch",
+                format!("report.operations.{operation_id}"),
+                format!(
+                    "operation {operation_id} has status {:?} but SdkDefinition projection presence is {is_projected}",
+                    outcome.status
+                ),
+            ));
+        }
+    }
+
+    if let Some(operation_id) = projected.into_iter().next() {
+        return Err(DerivationError::new(
+            "derivation.closed_world_mismatch",
+            format!(
+                "SdkDefinition contains operation {operation_id} that is absent from DerivationReport"
+            ),
+        ));
+    }
+
+    Ok(())
+}
+
 fn apply_operation_override(
     index: &OpenApiIndex,
     bindings: &Bindings,
@@ -565,14 +614,13 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
     definition
         .validate()
         .map_err(DerivationError::from_generation)?;
+    let report = DerivationReport {
+        schema_version: 1,
+        operations,
+    };
+    validate_closed_world_projection(&definition, &report.operations)?;
 
-    Ok(Derivation {
-        definition,
-        report: DerivationReport {
-            schema_version: 1,
-            operations,
-        },
-    })
+    Ok(Derivation { definition, report })
 }
 
 #[cfg(test)]
@@ -808,6 +856,54 @@ mod tests {
             derivation.report.operations["archive"].reason.code,
             "transport.source_operation_identity_required"
         );
+    }
+
+    #[test]
+    fn closed_world_projection_matches_report_statuses_exactly() {
+        let api: OpenApi = serde_json::from_str(include_str!(
+            "../tests/fixtures/derivation-update/openapi.json"
+        ))
+        .expect("fixture OpenAPI");
+        let raw: Bindings = serde_json::from_str(include_str!(
+            "../tests/fixtures/derivation-update/rust-bindings.json"
+        ))
+        .expect("fixture bindings");
+        let surface: PublicSdkSurface = serde_json::from_str(include_str!(
+            "../tests/fixtures/derivation-update/surface.json"
+        ))
+        .expect("fixture surface");
+
+        let derivation = derive(DeriveInput {
+            openapi: api,
+            bindings: raw,
+            surface,
+            overrides: SdkOverrides::default(),
+        })
+        .expect("derive");
+
+        validate_closed_world_projection(&derivation.definition, &derivation.report.operations)
+            .expect("derived operation projection matches report");
+
+        let mut rejected_report = derivation.report.operations.clone();
+        rejected_report
+            .get_mut("revise_job")
+            .expect("derived outcome")
+            .status = DerivationStatus::Rejected;
+        let error = validate_closed_world_projection(&derivation.definition, &rejected_report)
+            .expect_err("rejected operation must not remain projected");
+        assert_eq!(error.diagnostic.code, "derivation.closed_world_mismatch");
+
+        let mut missing_definition = derivation.definition.clone();
+        missing_definition
+            .resources
+            .get_mut("work_jobs")
+            .expect("work jobs resource")
+            .operations
+            .shift_remove("update");
+        let error =
+            validate_closed_world_projection(&missing_definition, &derivation.report.operations)
+                .expect_err("derived operation must remain projected");
+        assert_eq!(error.diagnostic.code, "derivation.closed_world_mismatch");
     }
 
     #[test]
