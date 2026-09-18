@@ -103,6 +103,12 @@ fn derives_request_union_by_structure_not_raw_names_or_order() {
     assert!(types.contains("pub enum SendDeliveryCommandsRequestCommands"));
     assert!(types.contains("EmailCommand(SendDeliveryCommandsRequestCommandsEmailCommand)"));
     assert!(types.contains("SmsCommand(SendDeliveryCommandsRequestCommandsSmsCommand)"));
+    assert!(types.contains(
+        "impl From<SendDeliveryCommandsRequestCommandsEmailCommand> for SendDeliveryCommandsRequestCommands"
+    ));
+    assert!(types.contains(
+        "impl From<SendDeliveryCommandsRequestCommandsSmsCommand> for SendDeliveryCommandsRequestCommands"
+    ));
     assert!(types.contains("impl From<SendDeliveryCommandsRequestCommands> for OpaqueCommand7"));
     assert!(types.contains(
         "SendDeliveryCommandsRequestCommands::EmailCommand(value) => Self::VariantA(value.into())"
