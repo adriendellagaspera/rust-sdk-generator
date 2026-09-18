@@ -37,7 +37,8 @@ pub use contracts::{
     ModelDefinition, OpenApi, OperationBinding, OperationBindingKind, OperationDefinition,
     OperationMetadataBinding, ParameterBinding, RequestDiscriminatorBinding,
     RequestDiscriminatorValue, RequestMediaDefinition, ResourceDefinition, ResourceInventory,
-    ResponseRepresentationBinding, Runtime, ScalarEnumDefinition, SdkDefinition,
+    ResponseRepresentationBinding, ResponseRepresentationDefinition, Runtime, ScalarEnumDefinition,
+    SdkDefinition,
     SimpleUnionDefinition, SimpleUnionVariant, SourceOperationBinding, StreamAbiBinding,
     StreamBinding, StreamDefinition, UnionDefinition, UnionFactoryDefinition, VariantBinding,
 };
