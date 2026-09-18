@@ -2311,7 +2311,6 @@ pub(crate) fn lower(
     Ok(ir)
 }
 
-
 #[cfg(test)]
 mod stream_abi_tests {
     use super::validate_owned_byte_stream;
