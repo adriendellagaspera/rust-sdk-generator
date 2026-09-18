@@ -13,9 +13,8 @@ use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, parse_type};
 use crate::structural::{
     ScalarFieldShape, ScalarKind as StructuralScalarKind, inline_array_object_item,
-    inline_object_union_mapping, raw_scalar_struct_shape, request_object_matches,
-    multipart_filenames_binding, request_union_mapping, rust_type_matches_schema,
-    scalar_object_shape,
+    inline_object_union_mapping, multipart_filenames_binding, raw_scalar_struct_shape,
+    request_object_matches, request_union_mapping, rust_type_matches_schema, scalar_object_shape,
 };
 use crate::symbols::field_identifier;
 
