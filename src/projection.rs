@@ -1291,15 +1291,19 @@ fn event_stream_projection(
     bindings: &Bindings,
     operation: &Value,
     raw_binding: &crate::contracts::OperationBinding,
-    statuses: &[String],
-    media_type: &str,
     resource_path: &[String],
     public_name: &str,
 ) -> Result<ProjectedResponse, &'static str> {
-    let abi = raw_binding
+    let metadata = raw_binding
         .metadata
         .as_ref()
-        .and_then(|metadata| metadata.stream_abi.as_ref())
+        .ok_or("capability.event_stream_abi_required")?;
+    let ResponseRepresentationBinding::EventStream { media_type } = &metadata.representation else {
+        return Err("capability.event_stream_abi_required");
+    };
+    let abi = metadata
+        .stream_abi
+        .as_ref()
         .ok_or("capability.event_stream_abi_required")?;
     if raw_binding.success_type != abi.alias
         || abi.item_type != "bytes::Bytes"
@@ -1308,7 +1312,8 @@ fn event_stream_projection(
         return Err("capability.event_stream_abi_required");
     }
 
-    let schemas = selected_success_response_schemas(operation, statuses, media_type)?;
+    let schemas =
+        selected_success_response_schemas(operation, &metadata.success_statuses, media_type)?;
     if schemas.is_empty() {
         return Err("capability.event_stream_payload_not_structurally_provable");
     }
@@ -1501,13 +1506,11 @@ fn response_projection(
                     Err("capability.buffered_binary_response_not_structurally_provable")
                 }
             }
-            ResponseRepresentationBinding::EventStream { media_type } => event_stream_projection(
+            ResponseRepresentationBinding::EventStream { .. } => event_stream_projection(
                 openapi,
                 bindings,
                 operation,
                 raw_binding,
-                &metadata.success_statuses,
-                media_type,
                 resource_path,
                 public_name,
             ),
