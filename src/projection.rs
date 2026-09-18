@@ -13,10 +13,10 @@ use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, parse_type};
 use crate::structural::{
     ScalarFieldShape, ScalarKind as StructuralScalarKind, inline_array_object_item,
-    inline_object_union_mapping, multipart_filenames_binding, raw_scalar_struct_shape,
-    request_object_matches, request_optional_boolean_field, request_union_mapping,
-    rust_type_matches_schema, scalar_named_object_matches, scalar_object_shape,
-    sse_payload_schema_name,
+    inline_object_union_mapping, multipart_filenames_binding, object_field_names_match,
+    raw_scalar_struct_shape, request_object_matches, request_optional_boolean_field,
+    request_union_mapping, rust_type_matches_schema, scalar_named_object_matches,
+    scalar_object_shape, sse_payload_schema_name,
 };
 use crate::symbols::field_identifier;
 
@@ -542,12 +542,17 @@ fn response_view_for_schema_named(
     let schema = openapi
         .object_schema(schema_name)
         .map_err(|_| RESPONSE_VIEW_UNPROVEN)?;
-    let wire = scalar_object_shape(&schema).ok_or(RESPONSE_VIEW_UNPROVEN)?;
-    let raw_shape = raw_scalar_struct_shape(bindings, raw).ok_or(RESPONSE_VIEW_UNPROVEN)?;
-    if wire != raw_shape {
+    let accessors = if let Some(wire) = scalar_object_shape(&schema) {
+        let raw_shape = raw_scalar_struct_shape(bindings, raw).ok_or(RESPONSE_VIEW_UNPROVEN)?;
+        if wire != raw_shape {
+            return Err(RESPONSE_VIEW_UNPROVEN);
+        }
+        scalar_view_accessors(wire)?
+    } else if object_field_names_match(&schema, raw, bindings) {
+        IndexMap::new()
+    } else {
         return Err(RESPONSE_VIEW_UNPROVEN);
-    }
-    let accessors = scalar_view_accessors(wire)?;
+    };
 
     if !public_model_name_available(&name, bindings) {
         return Err("capability.public_model_name_collision");
@@ -605,13 +610,17 @@ fn inline_response_view_named(
     raw: &str,
     name: String,
 ) -> Result<(String, ModelDefinition), &'static str> {
-    let wire = scalar_object_shape(schema).ok_or(RESPONSE_VIEW_UNPROVEN)?;
-    let raw_shape = raw_scalar_struct_shape(bindings, raw).ok_or(RESPONSE_VIEW_UNPROVEN)?;
-    if wire != raw_shape {
+    let accessors = if let Some(wire) = scalar_object_shape(schema) {
+        let raw_shape = raw_scalar_struct_shape(bindings, raw).ok_or(RESPONSE_VIEW_UNPROVEN)?;
+        if wire != raw_shape {
+            return Err(RESPONSE_VIEW_UNPROVEN);
+        }
+        scalar_view_accessors(wire)?
+    } else if object_field_names_match(schema, raw, bindings) {
+        IndexMap::new()
+    } else {
         return Err(RESPONSE_VIEW_UNPROVEN);
-    }
-
-    let accessors = scalar_view_accessors(wire)?;
+    };
 
     if !public_model_name_available(&name, bindings) {
         return Err("capability.public_model_name_collision");
@@ -1254,6 +1263,18 @@ fn project_json_response_schema(
     if let Some(raw) = ref_name(schema) {
         if raw_success != raw {
             return Err(RESPONSE_VIEW_UNPROVEN);
+        }
+        let resolved = openapi.schema(raw).map_err(|_| RESPONSE_VIEW_UNPROVEN)?;
+        if resolved.get("oneOf").is_some() || resolved.get("anyOf").is_some() {
+            let (name, models) = union_response_model(
+                openapi,
+                bindings,
+                resolved,
+                raw_success,
+                resource_path,
+                public_name,
+            )?;
+            return Ok(ProjectedResponse::Json { name, models });
         }
         let (name, model) = response_model(openapi, bindings, raw, resource_path, public_name)?;
         return Ok(ProjectedResponse::Json {

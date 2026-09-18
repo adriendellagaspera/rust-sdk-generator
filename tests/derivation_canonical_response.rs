@@ -41,6 +41,16 @@ fn derives_and_generates_canonical_json_and_empty_representations() {
     assert_eq!(purge.reason.code, "inference.structurally_proven");
     assert_eq!(purge.binding.as_deref(), Some("raw_purge_reports"));
 
+    let response = &derivation.definition.models["CurrentReportsResponse"];
+    assert_eq!(response.raw.as_deref(), Some("Report"));
+    assert_eq!(response.borrowed, Some(false));
+    assert!(
+        response
+            .accessors
+            .as_ref()
+            .is_some_and(indexmap::IndexMap::is_empty)
+    );
+
     let read_operation = &derivation.definition.resources["reports"].operations["current"];
     assert_eq!(
         read_operation.raw_method.as_deref(),

@@ -13,10 +13,10 @@ use crate::ir::*;
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, TypeKind, parse_type};
 use crate::structural::{
-    inline_object_union_mapping, multipart_filenames_binding, raw_scalar_struct_shape,
-    request_object_matches, request_optional_boolean_field, request_union_mapping,
-    rust_type_matches_schema, scalar_named_object_matches, scalar_object_shape,
-    sse_payload_schema_name,
+    inline_object_union_mapping, multipart_filenames_binding, object_field_names_match,
+    raw_scalar_struct_shape, request_object_matches, request_optional_boolean_field,
+    request_union_mapping, rust_type_matches_schema, scalar_named_object_matches,
+    scalar_object_shape, sse_payload_schema_name,
 };
 use crate::symbols::{SymbolProvider, field_identifier};
 
@@ -1326,6 +1326,11 @@ fn response_matches(
     }
     if let Some(wire) = scalar_object_shape(schema) {
         return Ok(raw_scalar_struct_shape(bindings, raw).is_some_and(|actual| actual == wire));
+    }
+    if schema.get("type").and_then(Value::as_str) == Some("object")
+        && object_field_names_match(schema, raw, bindings)
+    {
+        return Ok(true);
     }
     if schema.get("type").and_then(Value::as_str) == Some("array")
         && bindings.aliases.contains_key(raw)

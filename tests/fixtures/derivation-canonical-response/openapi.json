@@ -1,6 +1,9 @@
 {
   "openapi": "3.1.0",
-  "info": {"title": "Canonical response projection fixture", "version": "1"},
+  "info": {
+    "title": "Canonical response projection fixture",
+    "version": "1"
+  },
   "paths": {
     "/reports/current": {
       "get": {
@@ -9,14 +12,27 @@
           "200": {
             "description": "report",
             "content": {
-              "application/json": {"schema": {"$ref": "#/components/schemas/Report"}},
-              "application/octet-stream": {"schema": {"type": "string", "format": "binary"}}
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Report"
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
             }
           },
           "206": {
             "description": "partial report",
             "content": {
-              "application/json": {"schema": {"$ref": "#/components/schemas/Report"}}
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Report"
+                }
+              }
             }
           }
         }
@@ -26,8 +42,12 @@
       "delete": {
         "operationId": "purge_reports",
         "responses": {
-          "202": {"description": "accepted"},
-          "204": {"description": "purged"}
+          "202": {
+            "description": "accepted"
+          },
+          "204": {
+            "description": "purged"
+          }
         }
       }
     }
@@ -36,10 +56,38 @@
     "schemas": {
       "Report": {
         "type": "object",
-        "required": ["name", "count"],
+        "required": [
+          "name",
+          "count",
+          "details"
+        ],
         "properties": {
-          "name": {"type": "string"},
-          "count": {"type": "integer"}
+          "name": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "details": {
+            "$ref": "#/components/schemas/ReportDetails"
+          }
+        }
+      },
+      "ReportDetails": {
+        "type": "object",
+        "required": [
+          "label"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "flags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         }
       }
     }
