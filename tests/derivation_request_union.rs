@@ -129,6 +129,7 @@ fn rejects_ambiguous_request_union_branch_matching() {
         "OpaqueHook8".into(),
         vec![rust_sdk_generator::FieldBinding {
             name: "address".into(),
+            wire_name: None,
             type_name: "String".into(),
         }],
     );
