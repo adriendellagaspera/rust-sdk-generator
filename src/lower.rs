@@ -2268,12 +2268,7 @@ pub(crate) fn lower(
                         )
                     })?;
                     if payloads.iter().any(|candidate| candidate != payload)
-                        || !scalar_named_object_matches(
-                            &index,
-                            payload,
-                            &stream.item,
-                            bindings,
-                        )
+                        || !scalar_named_object_matches(&index, payload, &stream.item, bindings)
                     {
                         return Err(error(
                             "lower.stream_drift",
