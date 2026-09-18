@@ -1268,8 +1268,11 @@ fn response_projection(
                 if raw_binding.success_type != *schema_name {
                     return Err(RESPONSE_VIEW_UNPROVEN);
                 }
-                let schemas =
-                    selected_success_response_schemas(operation, &metadata.success_statuses, media_type)?;
+                let schemas = selected_success_response_schemas(
+                    operation,
+                    &metadata.success_statuses,
+                    media_type,
+                )?;
                 let Some(schema) = schemas.first().copied() else {
                     return Err("response.multiple_success_contracts");
                 };
