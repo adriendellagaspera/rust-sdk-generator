@@ -174,7 +174,6 @@ fn safe_accessor_name(name: &str) -> bool {
     valid && field_identifier(name).is_ok_and(|public| public == name)
 }
 
-
 fn scalar_view_accessors(
     wire: BTreeMap<String, ScalarFieldShape>,
 ) -> Result<IndexMap<String, AccessorDefinition>, &'static str> {
