@@ -1,6 +1,6 @@
 # rust-sdk-generator
 
-Backend-neutral Rust SDK generator. The root crate consumes OpenAPI, normalized Rust Bindings, an explicit complete SDK definition and runtime integration data, then emits deterministic idiomatic Rust source.
+Backend-neutral Rust SDK derivation and generation. The root crate derives a complete SDK definition from OpenAPI, normalized Rust Bindings, optional public-surface evidence and explicit overrides, then validates and deterministically emits idiomatic Rust source from that definition.
 
 The repository is a Cargo workspace with two deliberately independent Rust crates:
 
@@ -14,6 +14,12 @@ The root generator has no dependency on `openapi-to-rust` or the adapter impleme
 The canonical generator exposes equivalent library and CLI surfaces over the same implementation:
 
 ```text
+rust-sdk-generator derive \
+  --openapi openapi.json \
+  --bindings rust-bindings.json \
+  [--surface public-sdk-surface.json] \
+  [--overrides sdk-overrides.json]
+
 rust-sdk-generator generate \
   --openapi openapi.json \
   --bindings rust-bindings.json \
@@ -73,7 +79,7 @@ openapi-to-rust-bindings
 
 ## Ownership boundaries
 
-Owned by the root Rust generator: backend-neutral OpenAPI indexing, the normalized `Bindings` consumer contract, structural Rust-type reasoning, closed IR/lowering, deterministic Rust emission, runtime integration contracts, complete-definition validation, canonical API inventory, and generic fixtures/tests.
+Owned by the root Rust generator: backend-neutral OpenAPI indexing, the normalized `Bindings` consumer contract, public-surface naming/fallback, closed-world SDK derivation and derivation reporting, explicit SDK overrides, structural Rust-type reasoning, complete-definition validation, closed IR/lowering, deterministic Rust emission, canonical API inventory, runtime integration contracts, and generic fixtures/tests.
 
 Owned by `openapi-to-rust-bindings/`: generated-source parsing, sidecar-first loading, `openapi-to-rust` source-layout assumptions, producer-side Bindings v2 validation, generic Menagerie/Library normalization fixtures, and the backend compatibility tracker. The adapter has no runtime dependency on the generator implementation. Issue #8 evolves this boundary toward generator-owned binding metadata and defines source-parser retirement.
 
