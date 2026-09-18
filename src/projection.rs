@@ -13,7 +13,7 @@ use crate::rust_type::{Type, parse_type};
 use crate::structural::{
     ScalarFieldShape, ScalarKind as StructuralScalarKind, inline_array_object_item,
     inline_object_union_mapping, raw_scalar_struct_shape, request_object_matches,
-    rust_type_matches_schema, scalar_object_shape,
+    request_union_mapping, request_union_raw, rust_type_matches_schema, scalar_object_shape,
 };
 use crate::symbols::field_identifier;
 
@@ -144,6 +144,81 @@ struct RequestModelContext<'a> {
     bindings: &'a Bindings,
 }
 
+fn request_union_models(
+    context: &RequestModelContext<'_>,
+    schema: &Value,
+    raw: &Type,
+    public_name: String,
+    seen: &mut BTreeSet<(String, String)>,
+) -> Result<Option<ProjectedModels>, &'static str> {
+    let Some((union_schema, raw_union)) = request_union_raw(schema, raw) else {
+        return Ok(None);
+    };
+    let mapping =
+        request_union_mapping(context.openapi, union_schema, raw_union, context.bindings)
+            .ok_or(REQUEST_MODEL_UNPROVEN)?;
+
+    if !public_model_name_available(&public_name, context.bindings) {
+        return Err("capability.public_model_name_collision");
+    }
+
+    let mut models = Vec::new();
+    let mut variants = IndexMap::new();
+    let mut public_variants = BTreeSet::new();
+    for (reference, raw_variant, raw_payload) in mapping {
+        let public_variant =
+            semantic_pascal_identifier(&reference).map_err(|_| REQUEST_MODEL_UNPROVEN)?;
+        if !public_variants.insert(public_variant.clone()) {
+            return Err(REQUEST_MODEL_UNPROVEN);
+        }
+        let branch_name = format!("{public_name}{public_variant}");
+        models.extend(request_object_models(
+            context.openapi,
+            context.bindings,
+            &reference,
+            &raw_payload,
+            branch_name.clone(),
+            seen,
+        )?);
+        if variants
+            .insert(
+                raw_variant,
+                SimpleUnionVariant::Adapted {
+                    name: public_variant,
+                    adapter: branch_name,
+                },
+            )
+            .is_some()
+        {
+            return Err(REQUEST_MODEL_UNPROVEN);
+        }
+    }
+
+    models.push((
+        public_name,
+        ModelDefinition {
+            schema: None,
+            schema_path: None,
+            raw: Some(raw_union.into()),
+            constructor: None,
+            exclude: None,
+            adapters: None,
+            union: None,
+            simple_union: Some(SimpleUnionDefinition {
+                bidirectional: false,
+                variants,
+            }),
+            type_alias: None,
+            map: None,
+            scalar_enum: None,
+            union_factory: None,
+            borrowed: None,
+            accessors: None,
+        },
+    ));
+    Ok(Some(models))
+}
+
 fn request_object_models_value(
     context: &RequestModelContext<'_>,
     schema: &Value,
@@ -200,6 +275,14 @@ fn request_object_models_value(
                 child_name.clone(),
                 seen,
             )?);
+            adapters.insert(field_name.clone(), child_name);
+            continue;
+        }
+
+        if let Some(union_models) =
+            request_union_models(context, wire, &core, child_name.clone(), seen)?
+        {
+            models.extend(union_models);
             adapters.insert(field_name.clone(), child_name);
             continue;
         }
