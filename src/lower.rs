@@ -1139,7 +1139,7 @@ fn parameter_request(
 ) -> Result<Option<ParameterRequestSpec>> {
     if matches!(
         operation.request_projection,
-        RequestProjection::Model { .. }
+        RequestProjection::Model { .. } | RequestProjection::Raw { .. }
     ) || operation.raw_signature.parameters.is_empty()
         || !operation
             .raw_signature
@@ -1233,6 +1233,35 @@ fn operation_call(
             if parameter.type_name == *raw {
                 declarations.push(format!("request: {model}"));
                 values.push(body.clone());
+            } else {
+                let (declaration, value) = direct_parameter(parameter, bindings)?;
+                declarations.push(declaration);
+                values.push(value);
+            }
+        }
+        return Ok(OperationCall {
+            arguments: declarations.join(", "),
+            raw_arguments: values.join(", "),
+            default_raw_arguments: None,
+        });
+    }
+    if let RequestProjection::Raw {
+        media: _,
+        raw_parameter,
+        public_name,
+    } = &operation.request_projection
+    {
+        let mut declarations = Vec::new();
+        let mut values = Vec::new();
+        for parameter in parameters {
+            if parameter.name == *raw_parameter {
+                let public = RawParameter {
+                    name: public_name.clone(),
+                    type_name: parameter.type_name.clone(),
+                };
+                let (declaration, value) = direct_parameter(&public, bindings)?;
+                declarations.push(declaration);
+                values.push(value);
             } else {
                 let (declaration, value) = direct_parameter(parameter, bindings)?;
                 declarations.push(declaration);
@@ -1366,7 +1395,7 @@ fn validate_symbols(ir: &FacadeIr, bindings: &Bindings) -> Result<()> {
             symbols.claim(&operation.name, &resource.name, &operation.operation_id, "")?;
             if !matches!(
                 operation.request_projection,
-                RequestProjection::Model { .. }
+                RequestProjection::Model { .. } | RequestProjection::Raw { .. }
             ) && !operation.raw_signature.parameters.is_empty()
                 && operation
                     .raw_signature
@@ -1692,6 +1721,24 @@ pub(crate) fn lower(
                 }
             }
 
+            let wire_parameter_names: Vec<_> = wire_operation
+                .get("parameters")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|parameter| parameter.get("name").and_then(Value::as_str))
+                .map(|name| name.replace('-', "_"))
+                .collect();
+            let is_wire_parameter = |parameter: &crate::ParameterBinding| {
+                let name = parameter
+                    .name
+                    .strip_prefix("r#")
+                    .unwrap_or(&parameter.name);
+                wire_parameter_names.iter().any(|wire| wire == name)
+            };
+
+            let mut request_raw_parameter = None;
+            let mut raw_request_public_name = None;
             let request_raw = if let Some(request) = request {
                 let model = models
                     .iter()
@@ -1732,6 +1779,7 @@ pub(crate) fn lower(
                 let body_parameters: Vec<_> = raw_operation
                     .parameters
                     .iter()
+                    .filter(|parameter| !is_wire_parameter(parameter))
                     .filter(|parameter| parameter.type_name == model.raw)
                     .collect();
                 if body_parameters.len() != 1 {
@@ -1740,6 +1788,7 @@ pub(crate) fn lower(
                         format!("raw signature drift for {raw_method}"),
                     ));
                 }
+                request_raw_parameter = Some(body_parameters[0].name.clone());
                 if let Some(overrides) = &item.request_overrides {
                     for field in overrides.keys() {
                         if !request_optional_boolean_field(
@@ -1760,6 +1809,64 @@ pub(crate) fn lower(
                     }
                 }
                 Some(model.raw.clone())
+            } else if let Some(configured_media) = item.request_media.filter(|media| {
+                matches!(
+                    media,
+                    RequestMediaDefinition::OctetStream
+                        | RequestMediaDefinition::Binary
+                        | RequestMediaDefinition::TextPlain
+                )
+            }) {
+                let body = index.raw_request_body(operation_id)?.ok_or_else(|| {
+                    error(
+                        "lower.request_media_drift",
+                        format!("raw request media drift for {operation_id}"),
+                    )
+                })?;
+                if body.media != configured_media {
+                    return Err(error(
+                        "lower.request_media_drift",
+                        format!("raw request media drift for {operation_id}"),
+                    ));
+                }
+                let body_parameters: Vec<_> = raw_operation
+                    .parameters
+                    .iter()
+                    .filter(|parameter| !is_wire_parameter(parameter))
+                    .filter(|parameter| parameter.type_name == body.type_name)
+                    .collect();
+                if body_parameters.len() != 1 {
+                    return Err(error(
+                        "lower.signature_drift",
+                        format!("raw body signature drift for {raw_method}"),
+                    ));
+                }
+                let raw_parameter = body_parameters[0];
+                request_raw_parameter = Some(raw_parameter.name.clone());
+
+                let used: BTreeSet<_> = raw_operation
+                    .parameters
+                    .iter()
+                    .filter(|parameter| parameter.name != raw_parameter.name)
+                    .map(|parameter| {
+                        parameter
+                            .name
+                            .strip_prefix("r#")
+                            .unwrap_or(&parameter.name)
+                            .to_owned()
+                    })
+                    .collect();
+                let mut public = "body".to_owned();
+                let mut suffix = 2;
+                if used.contains(&public) {
+                    public = "request_body".to_owned();
+                    while used.contains(&public) {
+                        public = format!("request_body_{suffix}");
+                        suffix += 1;
+                    }
+                }
+                raw_request_public_name = Some(public);
+                Some(body.type_name)
             } else {
                 None
             };
@@ -1767,15 +1874,9 @@ pub(crate) fn lower(
             let raw_parameters: Vec<_> = raw_operation
                 .parameters
                 .iter()
-                .filter(|parameter| request_raw.as_deref() != Some(parameter.type_name.as_str()))
-                .collect();
-            let wire_parameter_names: Vec<_> = wire_operation
-                .get("parameters")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(|parameter| parameter.get("name").and_then(Value::as_str))
-                .map(|name| name.replace('-', "_"))
+                .filter(|parameter| {
+                    request_raw_parameter.as_deref() != Some(parameter.name.as_str())
+                })
                 .collect();
             let raw_parameter_names: Vec<_> = raw_parameters
                 .iter()
@@ -1854,7 +1955,7 @@ pub(crate) fn lower(
                 validate_owned_byte_stream(raw_method, &raw_operation.success_type)?;
                 ResponseProjection::Binary
             } else if let Some(stream) = &item.stream {
-                if request.is_none() {
+                if request.is_none() && request_raw_parameter.is_none() {
                     return Err(error(
                         "lower.stream_request",
                         format!("stream requires a request projection: {raw_method}"),
@@ -1958,6 +2059,19 @@ pub(crate) fn lower(
                         .unwrap_or_default()
                         .into_iter()
                         .collect(),
+                }
+            } else if let Some(media) = item.request_media.filter(|media| {
+                matches!(
+                    media,
+                    RequestMediaDefinition::OctetStream
+                        | RequestMediaDefinition::Binary
+                        | RequestMediaDefinition::TextPlain
+                )
+            }) {
+                RequestProjection::Raw {
+                    media,
+                    raw_parameter: request_raw_parameter.expect("raw request parameter"),
+                    public_name: raw_request_public_name.expect("raw request public name"),
                 }
             } else if raw_operation.parameters.is_empty() {
                 RequestProjection::None
