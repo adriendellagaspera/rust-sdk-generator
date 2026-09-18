@@ -1,0 +1,65 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title": "Request union fixture", "version": "1"},
+  "paths": {
+    "/workspaces/{workspace_id}/deliveries": {
+      "post": {
+        "operationId": "create_delivery",
+        "parameters": [
+          {"name": "workspace_id", "in": "path", "required": true, "schema": {"type": "string"}},
+          {"name": "dry-run", "in": "query", "required": false, "schema": {"type": "boolean"}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/CreateDeliveryRequest"}
+            }
+          }
+        },
+        "responses": {
+          "204": {"description": "Created"}
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CreateDeliveryRequest": {
+        "type": "object",
+        "required": ["label", "destination"],
+        "properties": {
+          "label": {"type": "string"},
+          "destination": {"$ref": "#/components/schemas/DeliveryDestination"},
+          "fallback": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/EmailTarget"},
+              {"$ref": "#/components/schemas/WebhookTarget"}
+            ]
+          }
+        }
+      },
+      "DeliveryDestination": {
+        "oneOf": [
+          {"$ref": "#/components/schemas/EmailTarget"},
+          {"$ref": "#/components/schemas/WebhookTarget"}
+        ]
+      },
+      "EmailTarget": {
+        "type": "object",
+        "required": ["address"],
+        "properties": {
+          "address": {"type": "string"}
+        }
+      },
+      "WebhookTarget": {
+        "type": "object",
+        "required": ["url"],
+        "properties": {
+          "url": {"type": "string"},
+          "retries": {"type": "integer"}
+        }
+      }
+    }
+  }
+}

@@ -13,7 +13,7 @@ use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, TypeKind, parse_type};
 use crate::structural::{
     inline_object_union_mapping, raw_scalar_struct_shape, request_object_matches,
-    rust_type_matches_schema, scalar_object_shape,
+    request_union_mapping, rust_type_matches_schema, scalar_object_shape,
 };
 use crate::symbols::{SymbolProvider, field_identifier};
 
@@ -1481,6 +1481,25 @@ pub(crate) fn lower(
                     "lower.simple_union_drift",
                     format!("raw union {raw} variant drift"),
                 ));
+            }
+            if let Some(root) = config.schema.as_deref() {
+                let path = config.schema_path.as_deref().unwrap_or(&[]);
+                let schema = schema_at(&index, root, path)?;
+                let mapping =
+                    request_union_mapping(&index, schema, &raw, bindings).ok_or_else(|| {
+                        error(
+                            "lower.request_union_drift",
+                            format!("OpenAPI/raw request union drift for {raw}"),
+                        )
+                    })?;
+                let proven: BTreeSet<_> =
+                    mapping.iter().map(|branch| &branch.raw_variant).collect();
+                if configured != proven {
+                    return Err(error(
+                        "lower.request_union_drift",
+                        format!("OpenAPI/raw request union drift for {raw}"),
+                    ));
+                }
             }
             ModelRenderSpec::SimpleUnion(resolve_simple_union(&raw, config, bindings)?)
         } else if config.type_alias == Some(true) {

@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "client": "DeliveryClient",
+  "operations": {
+    "create_delivery": ["delivery.targets.create"]
+  }
+}

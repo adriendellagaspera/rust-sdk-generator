@@ -13,7 +13,7 @@ use crate::rust_type::{Type, parse_type};
 use crate::structural::{
     ScalarFieldShape, ScalarKind as StructuralScalarKind, inline_array_object_item,
     inline_object_union_mapping, raw_scalar_struct_shape, request_object_matches,
-    rust_type_matches_schema, scalar_object_shape,
+    request_union_mapping, rust_type_matches_schema, scalar_object_shape,
 };
 use crate::symbols::field_identifier;
 
@@ -144,6 +144,81 @@ struct RequestModelContext<'a> {
     bindings: &'a Bindings,
 }
 
+fn request_union_models(
+    context: &RequestModelContext<'_>,
+    schema: &Value,
+    source_root: &str,
+    source_path: &[String],
+    raw_union: &str,
+    public_name: String,
+    seen: &mut BTreeSet<(String, String)>,
+) -> Result<ProjectedModels, &'static str> {
+    let mapping = request_union_mapping(context.openapi, schema, raw_union, context.bindings)
+        .ok_or(REQUEST_MODEL_UNPROVEN)?;
+    if !public_model_name_available(&public_name, context.bindings) {
+        return Err("capability.public_model_name_collision");
+    }
+
+    let mut models = Vec::new();
+    let mut variants = IndexMap::new();
+    let mut public_variants = BTreeSet::new();
+    for branch in mapping {
+        let public_variant =
+            semantic_pascal_identifier(&branch.schema).map_err(|_| REQUEST_MODEL_UNPROVEN)?;
+        if !public_variants.insert(public_variant.clone()) {
+            return Err("capability.public_model_name_collision");
+        }
+        let adapter = format!("{public_name}{public_variant}");
+        models.extend(request_object_models(
+            context.openapi,
+            context.bindings,
+            &branch.schema,
+            &branch.raw_payload,
+            adapter.clone(),
+            seen,
+        )?);
+        variants.insert(
+            branch.raw_variant,
+            SimpleUnionVariant::Adapted {
+                name: public_variant,
+                adapter,
+            },
+        );
+    }
+
+    models.push((
+        public_name,
+        ModelDefinition {
+            schema: Some(source_root.into()),
+            schema_path: (!source_path.is_empty()).then(|| source_path.to_vec()),
+            raw: Some(raw_union.into()),
+            constructor: None,
+            exclude: None,
+            adapters: None,
+            union: None,
+            simple_union: Some(SimpleUnionDefinition {
+                bidirectional: false,
+                variants,
+            }),
+            type_alias: None,
+            map: None,
+            scalar_enum: None,
+            union_factory: None,
+            borrowed: None,
+            accessors: None,
+        },
+    ));
+    Ok(models)
+}
+
+fn request_union_schema(schema: &Value) -> bool {
+    schema
+        .get("oneOf")
+        .or_else(|| schema.get("anyOf"))
+        .and_then(Value::as_array)
+        .is_some_and(|branches| branches.len() >= 2)
+}
+
 fn request_object_models_value(
     context: &RequestModelContext<'_>,
     schema: &Value,
@@ -192,10 +267,42 @@ fn request_object_models_value(
         let child_name = format!("{public_name}{segment}");
 
         if let Some(reference) = ref_name(wire) {
-            models.extend(request_object_models(
-                context.openapi,
-                context.bindings,
-                reference,
+            let referenced = context
+                .openapi
+                .schema(reference)
+                .map_err(|_| REQUEST_MODEL_UNPROVEN)?;
+            if request_union_schema(referenced) {
+                models.extend(request_union_models(
+                    context,
+                    referenced,
+                    reference,
+                    &[],
+                    &core.spelling,
+                    child_name.clone(),
+                    seen,
+                )?);
+            } else {
+                models.extend(request_object_models(
+                    context.openapi,
+                    context.bindings,
+                    reference,
+                    &core.spelling,
+                    child_name.clone(),
+                    seen,
+                )?);
+            }
+            adapters.insert(field_name.clone(), child_name);
+            continue;
+        }
+
+        if request_union_schema(wire) {
+            let mut child_path = source_path.to_vec();
+            child_path.push(field_name.clone());
+            models.extend(request_union_models(
+                context,
+                wire,
+                source_root,
+                &child_path,
                 &core.spelling,
                 child_name.clone(),
                 seen,
