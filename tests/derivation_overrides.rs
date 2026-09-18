@@ -26,6 +26,7 @@ fn fixture() -> (OpenApi, Bindings, PublicSdkSurface) {
         .expect("request binding")
         .push(rust_sdk_generator::FieldBinding {
             name: "archived".into(),
+            wire_name: None,
             type_name: "Option<bool>".into(),
         });
 
