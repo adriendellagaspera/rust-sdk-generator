@@ -309,6 +309,17 @@ pub enum RequestMediaDefinition {
     TextPlain,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResponseRepresentationDefinition {
+    Json,
+    Empty,
+    Text,
+    BinaryBuffered,
+    EventStream,
+    BinaryStream,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OperationDefinition {
@@ -321,6 +332,8 @@ pub struct OperationDefinition {
     pub request_media: Option<RequestMediaDefinition>,
     #[serde(default)]
     pub response: Option<String>,
+    #[serde(default)]
+    pub response_representation: Option<ResponseRepresentationDefinition>,
     #[serde(default)]
     pub empty_response: Option<bool>,
     #[serde(default)]
