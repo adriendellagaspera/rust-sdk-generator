@@ -560,11 +560,38 @@ impl SdkDefinition {
                     &format!("definition.resources.{module}.operations.{name}.operation_id"),
                     &operation.operation_id,
                 )?;
-                let responses = usize::from(operation.response.is_some())
+                let legacy_responses = usize::from(operation.response.is_some())
                     + usize::from(operation.stream.is_some())
                     + usize::from(operation.empty_response == Some(true))
                     + usize::from(operation.binary_response == Some(true));
-                if responses != 1 {
+                if let Some(representation) = operation.response_representation {
+                    let compatible = match representation {
+                        crate::ResponseRepresentationDefinition::Json => {
+                            operation.response.is_some() && legacy_responses == 1
+                        }
+                        crate::ResponseRepresentationDefinition::Empty => {
+                            operation.empty_response == Some(true) && legacy_responses == 1
+                        }
+                        crate::ResponseRepresentationDefinition::Text
+                        | crate::ResponseRepresentationDefinition::BinaryBuffered => {
+                            legacy_responses == 0
+                        }
+                        crate::ResponseRepresentationDefinition::EventStream => {
+                            operation.stream.is_some() && legacy_responses == 1
+                        }
+                        crate::ResponseRepresentationDefinition::BinaryStream => {
+                            operation.binary_response == Some(true) && legacy_responses == 1
+                        }
+                    };
+                    if !compatible {
+                        return Err(invalid(
+                            format!(
+                                "definition.resources.{module}.operations.{name}.response_representation"
+                            ),
+                            "response representation disagrees with configured response projection",
+                        ));
+                    }
+                } else if legacy_responses != 1 {
                     return Err(invalid(
                         format!("definition.resources.{module}.operations.{name}"),
                         "operation must select exactly one response projection",
