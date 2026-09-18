@@ -410,7 +410,6 @@ fn response_view(
 fn inline_response_view_named(
     bindings: &Bindings,
     schema: &Value,
-    schema_path: None,
     raw: &str,
     name: String,
 ) -> Result<(String, ModelDefinition), &'static str> {
@@ -449,7 +448,6 @@ fn inline_response_view_named(
 fn inline_response_view(
     bindings: &Bindings,
     schema: &Value,
-    schema_path: None,
     raw: &str,
     resource_path: &[String],
     public_name: &str,
@@ -465,7 +463,6 @@ fn inline_response_view(
 fn inline_array_response_model(
     bindings: &Bindings,
     schema: &Value,
-    schema_path: None,
     raw: &str,
     resource_path: &[String],
     public_name: &str,
