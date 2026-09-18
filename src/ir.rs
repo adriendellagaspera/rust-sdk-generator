@@ -1,4 +1,4 @@
-use crate::AccessorKindDefinition;
+use crate::{AccessorKindDefinition, RequestMediaDefinition};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FacadeIr {
@@ -215,7 +215,8 @@ pub(crate) struct RawParameter {
 pub(crate) enum RequestProjection {
     None,
     Parameters,
-    Json {
+    Model {
+        media: RequestMediaDefinition,
         model: String,
         raw: String,
         overrides: Vec<(String, Option<bool>)>,
