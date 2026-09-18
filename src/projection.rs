@@ -11,8 +11,9 @@ use crate::contracts::{
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, parse_type};
 use crate::structural::{
-    ScalarKind as StructuralScalarKind, inline_array_object_item, inline_object_union_mapping,
-    raw_scalar_struct_shape, rust_type_matches_schema, scalar_object_shape,
+    ScalarFieldShape, ScalarKind as StructuralScalarKind, inline_array_object_item,
+    inline_object_union_mapping, raw_scalar_struct_shape, rust_type_matches_schema,
+    scalar_object_shape,
 };
 use crate::symbols::field_identifier;
 
@@ -22,14 +23,6 @@ const RESPONSE_UNION_REQUIRED: &str = "capability.response_union_derivation_requ
 const BINARY_RESPONSE_REQUIRED: &str = "capability.binary_response_derivation_required";
 
 type ProjectedModels = Vec<(String, ModelDefinition)>;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ScalarKind {
-    String,
-    Boolean,
-    Integer,
-    Number,
-}
 
 #[derive(Debug, Clone)]
 enum ProjectedResponse {
@@ -130,18 +123,9 @@ fn request_model(
     let schema = openapi
         .object_schema(&raw)
         .map_err(|_| REQUEST_MODEL_UNPROVEN)?;
-    let properties = schema
-        .get("properties")
-        .and_then(Value::as_object)
-        .ok_or(REQUEST_MODEL_UNPROVEN)?;
-    let fields = bindings.structs.get(&raw).ok_or(REQUEST_MODEL_UNPROVEN)?;
-
-    let wire_fields: BTreeSet<_> = properties.keys().map(String::as_str).collect();
-    let raw_fields: BTreeSet<_> = fields
-        .iter()
-        .map(|field| field.name.strip_prefix("r#").unwrap_or(&field.name))
-        .collect();
-    if wire_fields != raw_fields {
+    let wire = scalar_object_shape(schema).ok_or(REQUEST_MODEL_UNPROVEN)?;
+    let raw_shape = raw_scalar_struct_shape(bindings, &raw).ok_or(REQUEST_MODEL_UNPROVEN)?;
+    if wire != raw_shape {
         return Err(REQUEST_MODEL_UNPROVEN);
     }
 
@@ -153,18 +137,6 @@ fn request_model(
         .filter_map(Value::as_str)
         .map(str::to_owned)
         .collect();
-    let required_set: BTreeSet<_> = required.iter().map(String::as_str).collect();
-    for field in fields {
-        let name = field.name.strip_prefix("r#").unwrap_or(&field.name);
-        if !required_set.contains(name)
-            && parse_type(&field.type_name)
-                .map_err(|_| REQUEST_MODEL_UNPROVEN)?
-                .unary("Option")
-                .is_none()
-        {
-            return Err(REQUEST_MODEL_UNPROVEN);
-        }
-    }
 
     let name = request_model_name(resource_path, public_name);
     if !public_model_name_available(&name, bindings) {
@@ -189,64 +161,38 @@ fn request_model(
     )))
 }
 
-fn scalar_schema(schema: &Value) -> Option<(ScalarKind, bool)> {
-    if let Some(kind) = direct_scalar_schema(schema) {
-        return Some((kind, false));
-    }
-    let branches = schema.get("anyOf").and_then(Value::as_array)?;
-    if branches.len() != 2 {
-        return None;
-    }
-    let mut scalar = None;
-    let mut nulls = 0;
-    for branch in branches {
-        if branch.get("type").and_then(Value::as_str) == Some("null") {
-            nulls += 1;
-        } else if scalar.is_none() {
-            scalar = direct_scalar_schema(branch);
-        } else {
-            return None;
-        }
-    }
-    (nulls == 1).then_some((scalar?, true))
-}
-
-fn direct_scalar_schema(schema: &Value) -> Option<ScalarKind> {
-    match schema.get("type").and_then(Value::as_str)? {
-        "string" => Some(ScalarKind::String),
-        "boolean" => Some(ScalarKind::Boolean),
-        "integer" => Some(ScalarKind::Integer),
-        "number" => Some(ScalarKind::Number),
-        _ => None,
-    }
-}
-
-fn rust_scalar(type_name: &str) -> Result<(ScalarKind, bool), &'static str> {
-    let syntax = parse_type(type_name).map_err(|_| RESPONSE_VIEW_UNPROVEN)?;
-    let (inner, optional) = if let Some(inner) = syntax.unary("Option") {
-        if inner.unary("Option").is_some() {
-            return Err(RESPONSE_VIEW_UNPROVEN);
-        }
-        (inner.spelling.as_str(), true)
-    } else {
-        (syntax.spelling.as_str(), false)
-    };
-    let kind = match inner {
-        "String" => ScalarKind::String,
-        "bool" => ScalarKind::Boolean,
-        "i8" | "i16" | "i32" | "i64" | "i128" | "isize" | "u8" | "u16" | "u32" | "u64" | "u128"
-        | "usize" => ScalarKind::Integer,
-        "f32" | "f64" => ScalarKind::Number,
-        _ => return Err(RESPONSE_VIEW_UNPROVEN),
-    };
-    Ok((kind, optional))
-}
-
 fn safe_accessor_name(name: &str) -> bool {
     let mut chars = name.chars();
     let valid = matches!(chars.next(), Some(first) if first.is_ascii_alphabetic() || first == '_')
         && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_');
     valid && field_identifier(name).is_ok_and(|public| public == name)
+}
+
+
+fn scalar_view_accessors(
+    wire: BTreeMap<String, ScalarFieldShape>,
+) -> Result<IndexMap<String, AccessorDefinition>, &'static str> {
+    let mut accessors = IndexMap::new();
+    for (field_name, shape) in wire {
+        if !safe_accessor_name(&field_name) {
+            return Err(RESPONSE_VIEW_UNPROVEN);
+        }
+        let kind = match (shape.kind, shape.option_depth) {
+            (StructuralScalarKind::String, 0) => AccessorKindDefinition::Ref,
+            (StructuralScalarKind::String, _) => AccessorKindDefinition::OptionalRef,
+            (_, 0) => AccessorKindDefinition::Copy,
+            (_, _) => AccessorKindDefinition::OptionalCopy,
+        };
+        accessors.insert(
+            field_name.clone(),
+            AccessorDefinition {
+                kind,
+                path: vec![field_name],
+                wrapper: None,
+            },
+        );
+    }
+    Ok(accessors)
 }
 
 fn response_view_named(
@@ -258,62 +204,12 @@ fn response_view_named(
     let schema = openapi
         .object_schema(raw)
         .map_err(|_| RESPONSE_VIEW_UNPROVEN)?;
-    let properties = schema
-        .get("properties")
-        .and_then(Value::as_object)
-        .ok_or(RESPONSE_VIEW_UNPROVEN)?;
-    let fields = bindings.structs.get(raw).ok_or(RESPONSE_VIEW_UNPROVEN)?;
-    let by_name: BTreeMap<_, _> = fields
-        .iter()
-        .map(|field| (field.name.strip_prefix("r#").unwrap_or(&field.name), field))
-        .collect();
-    let wire_fields: BTreeSet<_> = properties.keys().map(String::as_str).collect();
-    let raw_fields: BTreeSet<_> = by_name.keys().copied().collect();
-    if wire_fields != raw_fields || by_name.len() != fields.len() {
+    let wire = scalar_object_shape(schema).ok_or(RESPONSE_VIEW_UNPROVEN)?;
+    let raw_shape = raw_scalar_struct_shape(bindings, raw).ok_or(RESPONSE_VIEW_UNPROVEN)?;
+    if wire != raw_shape {
         return Err(RESPONSE_VIEW_UNPROVEN);
     }
-
-    let required: BTreeSet<_> = schema
-        .get("required")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .collect();
-    if !required.iter().all(|field| wire_fields.contains(field)) {
-        return Err(RESPONSE_VIEW_UNPROVEN);
-    }
-
-    let mut accessors = IndexMap::new();
-    let mut names: Vec<_> = properties.keys().collect();
-    names.sort();
-    for field_name in names {
-        if !safe_accessor_name(field_name) {
-            return Err(RESPONSE_VIEW_UNPROVEN);
-        }
-        let (wire_kind, nullable) =
-            scalar_schema(&properties[field_name]).ok_or(RESPONSE_VIEW_UNPROVEN)?;
-        let field = by_name[field_name.as_str()];
-        let (raw_kind, optional) = rust_scalar(&field.type_name)?;
-        let expected_optional = !required.contains(field_name.as_str()) || nullable;
-        if wire_kind != raw_kind || expected_optional != optional {
-            return Err(RESPONSE_VIEW_UNPROVEN);
-        }
-        let kind = match (raw_kind, optional) {
-            (ScalarKind::String, false) => AccessorKindDefinition::Ref,
-            (ScalarKind::String, true) => AccessorKindDefinition::OptionalRef,
-            (_, false) => AccessorKindDefinition::Copy,
-            (_, true) => AccessorKindDefinition::OptionalCopy,
-        };
-        accessors.insert(
-            field_name.clone(),
-            AccessorDefinition {
-                kind,
-                path: vec![field_name.clone()],
-                wrapper: None,
-            },
-        );
-    }
+    let accessors = scalar_view_accessors(wire)?;
 
     if !public_model_name_available(&name, bindings) {
         return Err("capability.public_model_name_collision");
@@ -364,26 +260,7 @@ fn inline_response_view_named(
         return Err(RESPONSE_VIEW_UNPROVEN);
     }
 
-    let mut accessors = IndexMap::new();
-    for (field_name, shape) in wire {
-        if !safe_accessor_name(&field_name) {
-            return Err(RESPONSE_VIEW_UNPROVEN);
-        }
-        let kind = match (shape.kind, shape.optional) {
-            (StructuralScalarKind::String, false) => AccessorKindDefinition::Ref,
-            (StructuralScalarKind::String, true) => AccessorKindDefinition::OptionalRef,
-            (_, false) => AccessorKindDefinition::Copy,
-            (_, true) => AccessorKindDefinition::OptionalCopy,
-        };
-        accessors.insert(
-            field_name.clone(),
-            AccessorDefinition {
-                kind,
-                path: vec![field_name],
-                wrapper: None,
-            },
-        );
-    }
+    let accessors = scalar_view_accessors(wire)?;
 
     if !public_model_name_available(&name, bindings) {
         return Err("capability.public_model_name_collision");
