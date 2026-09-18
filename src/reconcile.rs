@@ -181,7 +181,9 @@ fn response_shape(operation: &Value) -> std::result::Result<ResponseShape, &'sta
         }
         if branches.len() >= 2
             && references.is_empty()
-            && branches.iter().all(|branch| scalar_object_shape(branch).is_some())
+            && branches
+                .iter()
+                .all(|branch| scalar_object_shape(branch).is_some())
         {
             return Ok(ResponseShape::JsonInlineObjectUnion(schema.clone()));
         }
