@@ -145,7 +145,7 @@ fn lowering_revalidates_inline_schema_path_drift() {
         runtime: Runtime::default(),
     })
     .expect_err("inline schema drift must fail lowering");
-    assert_eq!(error.code, "lower.field_drift");
+    assert_eq!(error.diagnostic.code, "lower.field_drift");
 }
 
 #[test]
