@@ -160,7 +160,7 @@ fn type_matches_schema(
             } else {
                 syntax.spelling == "String"
             }
-        },
+        }
         Some("boolean") => syntax.spelling == "bool",
         Some("integer") => integer_rust_type(&syntax.spelling),
         Some("number") => matches!(syntax.spelling.as_str(), "f32" | "f64"),
