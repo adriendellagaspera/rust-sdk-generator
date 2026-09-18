@@ -133,9 +133,10 @@ fn explicit_sse_accepts_exact_named_non_scalar_payload() {
         .type_name = "Vec<String>".into();
     bindings.structs.insert("JobChunk".into(), fields);
     if let Some(path) = bindings.symbol_paths.remove("OpaqueJobChunk4") {
-        bindings
-            .symbol_paths
-            .insert("JobChunk".into(), path.replace("OpaqueJobChunk4", "JobChunk"));
+        bindings.symbol_paths.insert(
+            "JobChunk".into(),
+            path.replace("OpaqueJobChunk4", "JobChunk"),
+        );
     }
 
     definition.models["WatchJobsStreamItem"].raw = Some("JobChunk".into());
