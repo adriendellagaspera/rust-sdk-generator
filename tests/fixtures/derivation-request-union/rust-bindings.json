@@ -1,0 +1,53 @@
+{
+  "schema_version": 2,
+  "structs": {
+    "OpaqueBatch9": [
+      {"name": "note", "type": "Option<String>"},
+      {"name": "commands", "type": "Vec<OpaqueCommand7>"},
+      {"name": "label", "type": "String"}
+    ],
+    "OpaqueEmail3": [
+      {"name": "cc", "type": "Option<String>"},
+      {"name": "subject", "type": "String"},
+      {"name": "address", "type": "String"}
+    ],
+    "OpaqueSms4": [
+      {"name": "message", "type": "String"},
+      {"name": "number", "type": "String"}
+    ]
+  },
+  "enums": {
+    "OpaqueCommand7": [
+      {"name": "VariantB", "payload": "OpaqueSms4", "wire_name": null},
+      {"name": "VariantA", "payload": "OpaqueEmail3", "wire_name": null}
+    ]
+  },
+  "aliases": {},
+  "operations": {
+    "opaque_send_31": {
+      "name": "unrelated_send_method",
+      "parameters": [
+        {"name": "dry_run", "type": "Option<bool>"},
+        {"name": "request", "type": "OpaqueBatch9"},
+        {"name": "tenant_id", "type": "impl AsRef<str>"}
+      ],
+      "return_type": "Result<(), Error>",
+      "success_type": "()"
+    }
+  },
+  "symbol_paths": {
+    "OpaqueBatch9": "crate::generated::types::OpaqueBatch9",
+    "OpaqueCommand7": "crate::generated::types::OpaqueCommand7",
+    "OpaqueEmail3": "crate::generated::types::OpaqueEmail3",
+    "OpaqueSms4": "crate::generated::types::OpaqueSms4"
+  },
+  "binding": {
+    "client": {
+      "type_path": "crate::generated::client::HttpClient",
+      "constructor": "new",
+      "api_key_builder": "with_api_key",
+      "base_url_builder": "with_base_url"
+    },
+    "type_preludes": ["crate::generated::types::*"]
+  }
+}
