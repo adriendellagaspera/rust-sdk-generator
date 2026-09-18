@@ -760,11 +760,11 @@ mod tests {
     }
 
     #[test]
-    fn ignores_trace_operations_to_match_existing_contract() {
+    fn indexes_trace_operations_for_closed_world_derivation() {
         let value = serde_json::json!({
             "paths": {"/trace": {"trace": {"operationId": "trace_only"}}}
         });
         let index = OpenApiIndex::new(&OpenApi(value)).expect("valid index");
-        assert!(!index.operations.contains_key("trace_only"));
+        assert!(index.operations.contains_key("trace_only"));
     }
 }
