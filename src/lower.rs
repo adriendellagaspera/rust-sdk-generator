@@ -1731,6 +1731,14 @@ fn validate_symbols(ir: &FacadeIr, bindings: &Bindings) -> Result<()> {
         }
         for operation in &resource.operations {
             symbols.claim(&operation.name, &resource.name, &operation.operation_id, "")?;
+            if operation.multipart_filenames.is_some() {
+                symbols.claim(
+                    &format!("{}_with_filenames", operation.name),
+                    &resource.name,
+                    &operation.operation_id,
+                    "",
+                )?;
+            }
             if !matches!(
                 operation.request_projection,
                 RequestProjection::Model { .. } | RequestProjection::Raw { .. }
