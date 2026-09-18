@@ -173,7 +173,10 @@ fn operation_ids(openapi: &OpenApi) -> Result<BTreeSet<String>, DerivationError>
     })?;
     let mut result = BTreeSet::new();
     if let Some(paths) = root.get("paths").and_then(serde_json::Value::as_object) {
-        for path_item in paths.values().filter_map(serde_json::Value::as_object) {
+        for (route, path_item) in paths {
+            let Some(path_item) = path_item.as_object() else {
+                continue;
+            };
             for method in [
                 "get", "put", "post", "delete", "patch", "head", "options", "trace",
             ] {
@@ -181,12 +184,20 @@ fn operation_ids(openapi: &OpenApi) -> Result<BTreeSet<String>, DerivationError>
                 else {
                     continue;
                 };
-                if let Some(operation_id) = operation
+                let operation_id = operation
                     .get("operationId")
                     .and_then(serde_json::Value::as_str)
-                {
-                    result.insert(operation_id.to_owned());
-                }
+                    .filter(|operation_id| !operation_id.trim().is_empty())
+                    .ok_or_else(|| {
+                        DerivationError::at(
+                            "openapi.operation_id_required",
+                            format!("openapi.paths.{route}.{method}.operationId"),
+                            format!(
+                                "closed-world SDK derivation requires operationId for {method} {route}"
+                            ),
+                        )
+                    })?;
+                result.insert(operation_id.to_owned());
             }
         }
     }
