@@ -15,8 +15,8 @@ use crate::structural::{
     ScalarFieldShape, ScalarKind as StructuralScalarKind, inline_array_object_item,
     inline_object_union_mapping, multipart_filenames_binding, object_field_names_match,
     raw_scalar_struct_shape, request_object_matches, request_optional_boolean_field,
-    request_union_mapping, rust_type_matches_schema, scalar_named_object_matches,
-    scalar_object_shape, sse_payload_schema_name,
+    request_union_mapping, request_union_matches, rust_type_matches_schema,
+    scalar_named_object_matches, scalar_object_shape, sse_payload_schema_name,
 };
 use crate::symbols::field_identifier;
 
@@ -298,16 +298,33 @@ fn request_object_models_value(
                 .schema(reference)
                 .map_err(|_| REQUEST_MODEL_UNPROVEN)?;
             if request_union_schema(referenced) {
-                models.extend(request_union_models(
-                    context,
+                if request_union_mapping(
+                    context.openapi,
                     referenced,
-                    reference,
-                    &[],
                     &core.spelling,
-                    child_name.clone(),
-                    seen,
-                )?);
-            } else {
+                    context.bindings,
+                )
+                .is_some()
+                {
+                    models.extend(request_union_models(
+                        context,
+                        referenced,
+                        reference,
+                        &[],
+                        &core.spelling,
+                        child_name.clone(),
+                        seen,
+                    )?);
+                    adapters.insert(field_name.clone(), child_name);
+                } else if !request_union_matches(
+                    context.openapi,
+                    referenced,
+                    &core.spelling,
+                    context.bindings,
+                ) {
+                    return Err(REQUEST_MODEL_UNPROVEN);
+                }
+            } else if referenced.get("properties").is_some() {
                 models.extend(request_object_models(
                     context.openapi,
                     context.bindings,
@@ -316,24 +333,35 @@ fn request_object_models_value(
                     child_name.clone(),
                     seen,
                 )?);
+                adapters.insert(field_name.clone(), child_name);
             }
-            adapters.insert(field_name.clone(), child_name);
             continue;
         }
 
         if request_union_schema(wire) {
-            let mut child_path = source_path.to_vec();
-            child_path.push(field_name.clone());
-            models.extend(request_union_models(
-                context,
+            if request_union_mapping(context.openapi, wire, &core.spelling, context.bindings)
+                .is_some()
+            {
+                let mut child_path = source_path.to_vec();
+                child_path.push(field_name.clone());
+                models.extend(request_union_models(
+                    context,
+                    wire,
+                    source_root,
+                    &child_path,
+                    &core.spelling,
+                    child_name.clone(),
+                    seen,
+                )?);
+                adapters.insert(field_name.clone(), child_name);
+            } else if !request_union_matches(
+                context.openapi,
                 wire,
-                source_root,
-                &child_path,
                 &core.spelling,
-                child_name.clone(),
-                seen,
-            )?);
-            adapters.insert(field_name.clone(), child_name);
+                context.bindings,
+            ) {
+                return Err(REQUEST_MODEL_UNPROVEN);
+            }
             continue;
         }
 
@@ -377,9 +405,7 @@ fn request_object_models_value(
             }
         }
 
-        let inline_object = matches!(wire.get("type").and_then(Value::as_str), Some("object"))
-            || wire.get("properties").is_some();
-        if inline_object {
+        if wire.get("properties").is_some() {
             let mut child_path = source_path.to_vec();
             child_path.push(field_name.clone());
             models.extend(request_object_models_value(
