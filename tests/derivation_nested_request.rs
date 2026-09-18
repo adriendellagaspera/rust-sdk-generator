@@ -136,6 +136,7 @@ fn rejects_recursive_named_request_shapes_deterministically() {
         "OpaqueMeta7".into(),
         vec![rust_sdk_generator::FieldBinding {
             name: "parent".into(),
+            wire_name: None,
             type_name: "OpaqueRequest9".into(),
         }],
     );
