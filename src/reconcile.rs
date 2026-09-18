@@ -7,7 +7,7 @@ use crate::error::{GenerationError, Result};
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::parse_type;
 use crate::structural::{
-    ScalarFieldShape, inline_object_union_mapping, raw_scalar_struct_shape,
+    ScalarFieldShape, inline_object_union_mapping, raw_scalar_struct_shape, request_object_matches,
     rust_type_matches_schema, scalar_object_shape,
 };
 
@@ -254,6 +254,7 @@ fn response_matches(
 }
 
 fn binding_matches(
+    openapi: &OpenApiIndex,
     request: &RequestShape,
     response: &ResponseShape,
     binding: &OperationBinding,
@@ -265,7 +266,12 @@ fn binding_matches(
             .parameters
             .iter()
             .enumerate()
-            .filter(|(_, parameter)| parameter.type_name == *body)
+            .filter(|(_, parameter)| {
+                request_object_matches(openapi, body, &parameter.type_name, bindings)
+                    || (parameter.type_name == *body
+                        && (!bindings.structs.contains_key(body)
+                            || openapi.object_schema(body).is_err()))
+            })
             .map(|(index, _)| index)
             .collect();
         if matching.len() != 1 {
@@ -292,6 +298,7 @@ pub(crate) fn reconcile(
     bindings: &Bindings,
 ) -> Result<BTreeMap<String, OperationMatch>> {
     let operations = normalized_operations(openapi)?;
+    let index = OpenApiIndex::new(openapi)?;
     let mut candidates: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut reasons = BTreeMap::new();
 
@@ -315,7 +322,9 @@ pub(crate) fn reconcile(
             bindings
                 .operations
                 .iter()
-                .filter(|(_, binding)| binding_matches(&request, &response, binding, bindings))
+                .filter(|(_, binding)| {
+                    binding_matches(&index, &request, &response, binding, bindings)
+                })
                 .map(|(name, _)| name.clone())
                 .collect(),
         );
