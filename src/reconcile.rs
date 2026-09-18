@@ -2,7 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value};
 
-use crate::contracts::{Bindings, OpenApi, OperationBinding, RequestMediaDefinition};
+use crate::contracts::{
+    Bindings, OpenApi, OperationBinding, OperationBindingKind, RequestMediaDefinition,
+};
 use crate::error::{GenerationError, Result};
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::parse_type;
@@ -318,6 +320,40 @@ fn response_matches(
     }
 }
 
+fn canonical_source_identity_matches(
+    operation_id: &str,
+    operation: &Value,
+    binding: &OperationBinding,
+) -> bool {
+    let Some(metadata) = &binding.metadata else {
+        return true;
+    };
+    if metadata.kind != OperationBindingKind::CallShape {
+        return false;
+    }
+    let Some(method) = operation.get("x-sdk-method").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(path) = operation.get("x-sdk-path").and_then(Value::as_str) else {
+        return false;
+    };
+    metadata.source_operation.operation_id == operation_id
+        && metadata
+            .source_operation
+            .method
+            .eq_ignore_ascii_case(method)
+        && metadata.source_operation.path == path
+}
+
+fn has_source_operation_id(bindings: &Bindings, operation_id: &str) -> bool {
+    bindings.operations.values().any(|binding| {
+        binding.metadata.as_ref().is_some_and(|metadata| {
+            metadata.kind == OperationBindingKind::CallShape
+                && metadata.source_operation.operation_id == operation_id
+        })
+    })
+}
+
 fn binding_matches(
     openapi: &OpenApiIndex,
     request: &RequestShape,
@@ -383,11 +419,28 @@ pub(crate) fn reconcile(
                 continue;
             }
         };
+        let canonical_operation = index.operation(operation_id)?;
+        let source_candidates: Vec<_> = bindings
+            .operations
+            .iter()
+            .filter(|(_, binding)| {
+                canonical_source_identity_matches(operation_id, canonical_operation, binding)
+            })
+            .collect();
+        if bindings.schema_version == 3
+            && has_source_operation_id(bindings, operation_id)
+            && source_candidates.is_empty()
+        {
+            reasons.insert(
+                operation_id.clone(),
+                "bindings.source_operation_identity_mismatch",
+            );
+            continue;
+        }
         candidates.insert(
             operation_id.clone(),
-            bindings
-                .operations
-                .iter()
+            source_candidates
+                .into_iter()
                 .filter(|(_, binding)| {
                     binding_matches(&index, &request, &response, binding, bindings)
                 })
