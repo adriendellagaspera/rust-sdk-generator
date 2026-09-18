@@ -541,6 +541,14 @@ fn emit_operation(operation: &OperationSpec, runtime: &Runtime) -> Result<String
             "pub async fn {}(&self{separator}{arguments}) -> Result<(), {error_type}> {{\n    self.raw.{}({call}).await.map_err(Into::into)\n}}",
             operation.name, operation.raw_method
         ),
+        ResponseProjection::Text => format!(
+            "pub async fn {}(&self{separator}{arguments}) -> Result<String, {error_type}> {{\n    self.raw.{}({call}).await.map_err(Into::into)\n}}",
+            operation.name, operation.raw_method
+        ),
+        ResponseProjection::BinaryBuffered { type_name } => format!(
+            "pub async fn {}(&self{separator}{arguments}) -> Result<{type_name}, {error_type}> {{\n    self.raw.{}({call}).await.map_err(Into::into)\n}}",
+            operation.name, operation.raw_method
+        ),
         ResponseProjection::Binary => format!(
             "pub async fn {}(&self{separator}{arguments}) -> Result<BinaryStream, {error_type}> {{\n    let bytes = self.raw.{}({call}).await.map_err({error_type}::from)?;\n    let chunks = bytes.map(|chunk| chunk.map_err(Into::into));\n    Ok(Box::pin(chunks))\n}}",
             operation.name, operation.raw_method

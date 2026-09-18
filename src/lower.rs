@@ -5,7 +5,8 @@ use serde_json::Value;
 
 use crate::contracts::{
     AccessorKindDefinition, Bindings, FieldBinding, ModelDefinition, OpenApi, OperationBinding,
-    RequestMediaDefinition, ResponseRepresentationBinding, SdkDefinition, SimpleUnionVariant,
+    RequestMediaDefinition, ResponseRepresentationBinding, ResponseRepresentationDefinition,
+    SdkDefinition, SimpleUnionVariant,
 };
 use crate::error::{GenerationError, Result};
 use crate::ir::*;
@@ -1225,6 +1226,72 @@ fn empty_response_matches(operation: &Value, binding: &OperationBinding) -> Resu
         && binding.success_type == "()")
 }
 
+fn text_response_schema(schema: &Value) -> bool {
+    schema.get("type").and_then(Value::as_str) == Some("string") && schema.get("format").is_none()
+}
+
+fn buffered_binary_response_schema(schema: &Value) -> bool {
+    schema.get("type").and_then(Value::as_str) == Some("string")
+        && schema.get("format").and_then(Value::as_str) == Some("binary")
+}
+
+fn buffered_scalar_response_projection(
+    operation: &Value,
+    binding: &OperationBinding,
+    representation: ResponseRepresentationDefinition,
+    bindings: &Bindings,
+) -> Result<ResponseProjection> {
+    let metadata = binding.metadata.as_ref().ok_or_else(|| {
+        error(
+            "lower.response_representation_drift",
+            "buffered scalar response requires canonical binding metadata",
+        )
+    })?;
+    match (representation, &metadata.representation) {
+        (
+            ResponseRepresentationDefinition::Text,
+            ResponseRepresentationBinding::Text { media_type },
+        ) => {
+            let schemas =
+                selected_response_schemas(operation, &metadata.success_statuses, media_type)?;
+            if binding.success_type != "String"
+                || !schemas.iter().all(|schema| text_response_schema(schema))
+            {
+                return Err(error(
+                    "lower.response_representation_drift",
+                    "text response disagrees with canonical binding metadata",
+                ));
+            }
+            Ok(ResponseProjection::Text)
+        }
+        (
+            ResponseRepresentationDefinition::BinaryBuffered,
+            ResponseRepresentationBinding::BinaryBuffered { media_type, .. },
+        ) => {
+            let schemas =
+                selected_response_schemas(operation, &metadata.success_statuses, media_type)?;
+            if binding.stream.is_some()
+                || !matches!(binding.success_type.as_str(), "bytes::Bytes" | "Vec<u8>")
+                || !schemas
+                    .iter()
+                    .all(|schema| buffered_binary_response_schema(schema))
+            {
+                return Err(error(
+                    "lower.response_representation_drift",
+                    "buffered binary response disagrees with canonical binding metadata",
+                ));
+            }
+            Ok(ResponseProjection::BinaryBuffered {
+                type_name: bindings.qualified_type(&binding.success_type)?,
+            })
+        }
+        _ => Err(error(
+            "lower.response_representation_drift",
+            "response representation disagrees with canonical binding metadata",
+        )),
+    }
+}
+
 fn response_matches(
     openapi: &OpenApiIndex,
     operation_id: &str,
@@ -2099,7 +2166,21 @@ pub(crate) fn lower(
                 ));
             }
 
-            let response_projection = if item.empty_response == Some(true) {
+            let response_projection = if matches!(
+                item.response_representation,
+                Some(
+                    ResponseRepresentationDefinition::Text
+                        | ResponseRepresentationDefinition::BinaryBuffered
+                )
+            ) {
+                buffered_scalar_response_projection(
+                    wire_operation,
+                    raw_operation,
+                    item.response_representation
+                        .expect("matched representation"),
+                    bindings,
+                )?
+            } else if item.empty_response == Some(true) {
                 if !empty_response_matches(wire_operation, raw_operation)? {
                     return Err(error(
                         "lower.empty_response_drift",

@@ -1,0 +1,39 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title": "Buffered response fixture", "version": "1"},
+  "paths": {
+    "/payload/message": {
+      "get": {
+        "operationId": "read_message",
+        "responses": {
+          "200": {
+            "description": "message",
+            "content": {"text/plain": {"schema": {"type": "string"}}}
+          },
+          "206": {
+            "description": "partial message",
+            "content": {"text/plain": {"schema": {"type": "string"}}}
+          }
+        }
+      }
+    },
+    "/payload/blob": {
+      "get": {
+        "operationId": "read_blob",
+        "responses": {
+          "200": {
+            "description": "blob",
+            "content": {
+              "application/octet-stream": {
+                "schema": {"type": "string", "format": "binary"}
+              },
+              "application/json": {
+                "schema": {"type": "object", "properties": {"ignored": {"type": "string"}}}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
