@@ -123,7 +123,7 @@ fn request_model(
     let schema = openapi
         .object_schema(&raw)
         .map_err(|_| REQUEST_MODEL_UNPROVEN)?;
-    let wire = scalar_object_shape(schema).ok_or(REQUEST_MODEL_UNPROVEN)?;
+    let wire = scalar_object_shape(&schema).ok_or(REQUEST_MODEL_UNPROVEN)?;
     let raw_shape = raw_scalar_struct_shape(bindings, &raw).ok_or(REQUEST_MODEL_UNPROVEN)?;
     if wire != raw_shape {
         return Err(REQUEST_MODEL_UNPROVEN);
@@ -209,7 +209,7 @@ fn response_view_named(
     let schema = openapi
         .object_schema(raw)
         .map_err(|_| RESPONSE_VIEW_UNPROVEN)?;
-    let wire = scalar_object_shape(schema).ok_or(RESPONSE_VIEW_UNPROVEN)?;
+    let wire = scalar_object_shape(&schema).ok_or(RESPONSE_VIEW_UNPROVEN)?;
     let raw_shape = raw_scalar_struct_shape(bindings, raw).ok_or(RESPONSE_VIEW_UNPROVEN)?;
     if wire != raw_shape {
         return Err(RESPONSE_VIEW_UNPROVEN);
