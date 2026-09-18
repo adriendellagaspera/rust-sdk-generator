@@ -266,6 +266,12 @@ pub(crate) struct StructuredRequestBody {
     pub schema: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RawRequestBody {
+    pub media: RequestMediaDefinition,
+    pub type_name: String,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct OpenApiIndex {
     schemas: BTreeMap<String, Value>,
@@ -388,6 +394,48 @@ impl OpenApiIndex {
             media,
             schema: schema.into(),
         }))
+    }
+
+    pub fn raw_request_body(&self, operation_id: &str) -> Result<Option<RawRequestBody>> {
+        let operation = self.operation(operation_id)?;
+        let Some(request_body) = operation.get("requestBody") else {
+            return Ok(None);
+        };
+        let required = request_body
+            .get("required")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let Some(content) = request_body
+            .get("content")
+            .and_then(Value::as_object)
+            .filter(|content| content.len() == 1)
+        else {
+            return Ok(None);
+        };
+        let (media_type, payload) = content.iter().next().expect("one request media");
+        let Some(schema) = payload.get("schema") else {
+            return Ok(None);
+        };
+        let binary = schema.get("type").and_then(Value::as_str) == Some("string")
+            && schema.get("format").and_then(Value::as_str) == Some("binary");
+        let string = schema.get("type").and_then(Value::as_str) == Some("string")
+            && schema.get("format").is_none();
+
+        let (media, inner) = if media_type == "application/octet-stream" && binary {
+            (RequestMediaDefinition::OctetStream, "Vec<u8>")
+        } else if media_type == "text/plain" && string {
+            (RequestMediaDefinition::TextPlain, "String")
+        } else if binary {
+            (RequestMediaDefinition::Binary, "Vec<u8>")
+        } else {
+            return Ok(None);
+        };
+        let type_name = if required {
+            inner.to_owned()
+        } else {
+            format!("Option<{inner}>")
+        };
+        Ok(Some(RawRequestBody { media, type_name }))
     }
 
     pub fn request_schema(&self, operation_id: &str) -> Result<Option<String>> {
