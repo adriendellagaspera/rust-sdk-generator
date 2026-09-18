@@ -263,10 +263,7 @@ pub(crate) fn raw_scalar_struct_shape(
         let name = field.name.strip_prefix("r#").unwrap_or(&field.name);
         let (kind, option_depth) = rust_scalar(&field.type_name)?;
         if result
-            .insert(
-                name.to_owned(),
-                ScalarFieldShape { kind, option_depth },
-            )
+            .insert(name.to_owned(), ScalarFieldShape { kind, option_depth })
             .is_some()
         {
             return None;
