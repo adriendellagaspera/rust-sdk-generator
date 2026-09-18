@@ -454,18 +454,18 @@ pub(crate) fn request_optional_boolean_field(
     }
 
     let Some(raw_field) = bindings.structs.get(raw).and_then(|fields| {
-        fields.iter().find(|field| {
-            field.name.strip_prefix("r#").unwrap_or(&field.name) == field_name
-        })
+        fields
+            .iter()
+            .find(|field| field.name.strip_prefix("r#").unwrap_or(&field.name) == field_name)
     }) else {
         return false;
     };
     let Ok(syntax) = parse_type(&raw_field.type_name) else {
         return false;
     };
-    syntax.unary("Option").is_some_and(|inner| {
-        inner.spelling == "bool" && inner.unary("Option").is_none()
-    })
+    syntax
+        .unary("Option")
+        .is_some_and(|inner| inner.spelling == "bool" && inner.unary("Option").is_none())
 }
 
 pub(crate) fn request_object_matches(
