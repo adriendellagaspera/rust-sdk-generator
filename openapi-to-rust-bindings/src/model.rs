@@ -173,13 +173,22 @@ fn validate_representation(value: &Value, context: &str) -> Result<bool, Error> 
                 &[],
                 context,
             )?;
-            nonempty_string(&representation["schema_name"], &format!("{context}.schema_name"))?;
-            nonempty_string(&representation["media_type"], &format!("{context}.media_type"))?;
+            nonempty_string(
+                &representation["schema_name"],
+                &format!("{context}.schema_name"),
+            )?;
+            nonempty_string(
+                &representation["media_type"],
+                &format!("{context}.media_type"),
+            )?;
             Ok(false)
         }
         "text" | "event_stream" => {
             exact_keys(representation, &["kind", "media_type"], &[], context)?;
-            nonempty_string(&representation["media_type"], &format!("{context}.media_type"))?;
+            nonempty_string(
+                &representation["media_type"],
+                &format!("{context}.media_type"),
+            )?;
             Ok(kind == "event_stream")
         }
         "binary_buffered" | "binary_stream" => {
@@ -189,7 +198,10 @@ fn validate_representation(value: &Value, context: &str) -> Result<bool, Error> 
                 &[],
                 context,
             )?;
-            nonempty_string(&representation["media_type"], &format!("{context}.media_type"))?;
+            nonempty_string(
+                &representation["media_type"],
+                &format!("{context}.media_type"),
+            )?;
             boolean(&representation["wildcard"], &format!("{context}.wildcard"))?;
             Ok(kind == "binary_stream")
         }
@@ -259,10 +271,7 @@ fn validate_discriminator(value: &Value, context: &str) -> Result<(), Error> {
         )));
     }
     for (index, segment) in access_path.iter().enumerate() {
-        nonempty_string(
-            segment,
-            &format!("{context}.rust_access_path[{index}]"),
-        )?;
+        nonempty_string(segment, &format!("{context}.rust_access_path[{index}]"))?;
     }
 
     let discriminator_value = &discriminator["value"];
@@ -355,8 +364,10 @@ fn validate_metadata(
         &format!("{context}.emitted_operation_id"),
     )?;
 
-    let streaming =
-        validate_representation(&metadata["representation"], &format!("{context}.representation"))?;
+    let streaming = validate_representation(
+        &metadata["representation"],
+        &format!("{context}.representation"),
+    )?;
 
     let statuses = array(
         &metadata["success_statuses"],
@@ -364,10 +375,7 @@ fn validate_metadata(
     )?;
     let mut seen_statuses = BTreeSet::new();
     for (index, status) in statuses.iter().enumerate() {
-        let status = string(
-            status,
-            &format!("{context}.success_statuses[{index}]"),
-        )?;
+        let status = string(status, &format!("{context}.success_statuses[{index}]"))?;
         if !seen_statuses.insert(status) {
             return Err(invalid(format!(
                 "{context}.success_statuses must contain unique values"
