@@ -796,6 +796,57 @@ mod tests {
     }
 
     #[test]
+    fn validates_required_fields_after_all_of_siblings_are_composed() {
+        let value = serde_json::json!({
+            "components": {"schemas": {
+                "Combined": {
+                    "allOf": [
+                        {
+                            "type": "object",
+                            "properties": {"id": {"type": "string"}}
+                        },
+                        {
+                            "type": "object",
+                            "properties": {"value": {"type": "integer"}},
+                            "required": ["id", "value"]
+                        }
+                    ]
+                }
+            }}
+        });
+        let index = OpenApiIndex::new(&OpenApi(value)).expect("valid index");
+        let schema = index.object_schema("Combined").expect("composed object");
+        assert_eq!(schema["required"], serde_json::json!(["id", "value"]));
+        assert!(schema["properties"].get("id").is_some());
+        assert!(schema["properties"].get("value").is_some());
+    }
+
+    #[test]
+    fn still_rejects_required_fields_missing_after_full_composition() {
+        let value = serde_json::json!({
+            "components": {"schemas": {
+                "Invalid": {
+                    "allOf": [
+                        {
+                            "type": "object",
+                            "properties": {"id": {"type": "string"}}
+                        },
+                        {
+                            "type": "object",
+                            "required": ["missing"]
+                        }
+                    ]
+                }
+            }}
+        });
+        let index = OpenApiIndex::new(&OpenApi(value)).expect("valid index");
+        let error = index
+            .object_schema("Invalid")
+            .expect_err("undefined required field");
+        assert_eq!(error.diagnostic.code, "openapi.undefined_required");
+    }
+
+    #[test]
     fn rejects_recursive_composition() {
         let error = composed()
             .object_schema("RecursiveA")
