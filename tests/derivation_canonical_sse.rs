@@ -166,6 +166,48 @@ fn explicit_sse_accepts_exact_named_non_scalar_payload() {
 }
 
 #[test]
+fn derives_inline_standard_sse_envelope_with_optional_data() {
+    let (mut openapi, bindings, surface) = fixture();
+    let envelope = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "event": {"type": "string"},
+            "data": {"$ref": "#/components/schemas/NotificationChunk"},
+            "id": {"type": "string"},
+            "retry": {"type": "integer"}
+        }
+    });
+    for status in ["200", "206"] {
+        *openapi
+            .0
+            .pointer_mut(&format!(
+                "/paths/~1notifications/get/responses/{status}/content/text~1event-stream/schema"
+            ))
+            .expect("notification SSE schema") = envelope.clone();
+    }
+
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("inline standard SSE envelope should derive");
+
+    let outcome = &derivation.report.operations["subscribe_notifications"];
+    assert_eq!(outcome.status, DerivationStatus::Derived);
+    assert_eq!(outcome.reason.code, "inference.structurally_proven");
+
+    generate(GenerateInput {
+        openapi,
+        bindings,
+        definition: derivation.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("inline standard SSE envelope should lower");
+}
+
+#[test]
 fn lowering_revalidates_sse_envelope_payload() {
     let (mut openapi, bindings, surface) = fixture();
     let derivation = derive(DeriveInput {
