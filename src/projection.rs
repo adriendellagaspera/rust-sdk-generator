@@ -1481,9 +1481,10 @@ fn event_stream_projection(
         raw_candidates[0].clone()
     } else if raw_candidates.is_empty()
         && bindings.structs.contains_key(first)
-        && openapi.object_schema(first).ok().is_some_and(|schema| {
-            object_field_names_match(&schema, first, bindings)
-        })
+        && openapi
+            .object_schema(first)
+            .ok()
+            .is_some_and(|schema| object_field_names_match(&schema, first, bindings))
     {
         first.clone()
     } else {
