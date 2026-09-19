@@ -748,3 +748,68 @@ fn proven_nested_required_nullable_object_stays_raw_without_a_lossy_wrapper() {
         DerivationStatus::Rejected
     );
 }
+
+#[test]
+fn provable_root_with_unsafe_constructor_retains_owned_raw_request_view() {
+    let (mut openapi, mut bindings, surface) = fixture();
+    openapi.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["name"] =
+        serde_json::json!({
+            "anyOf": [{"type": "string"}, {"type": "null"}]
+        });
+    bindings
+        .structs
+        .get_mut("OpaqueRequest9")
+        .expect("request")
+        .iter_mut()
+        .find(|field| field.name == "name")
+        .expect("required nullable name")
+        .type_name = "Option<String>".into();
+
+    let derived = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface: surface.clone(),
+        overrides: SdkOverrides::default(),
+    })
+    .expect("structurally exact request");
+    assert_eq!(
+        derived.report.operations["create_widget"].status,
+        DerivationStatus::Derived
+    );
+    let root = &derived.definition.models["CreatePlatformWidgetsRequest"];
+    assert_eq!(root.raw.as_deref(), Some("OpaqueRequest9"));
+    assert_eq!(root.borrowed, Some(false));
+    assert!(root.constructor.is_none());
+    assert!(root.accessors.as_ref().is_some_and(indexmap::IndexMap::is_empty));
+    let generated = generate(GenerateInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        definition: derived.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("generate owned raw-view request");
+    let types = &generated.files["facade_types.rs"];
+    assert!(types.contains("pub struct CreatePlatformWidgetsRequest { raw: OpaqueRequest9 }"));
+    assert!(types.contains("pub fn into_raw(self) -> OpaqueRequest9"));
+    assert!(!types.contains("impl CreatePlatformWidgetsRequest {\\n    pub fn new("));
+
+    bindings
+        .structs
+        .get_mut("OpaqueRequest9")
+        .expect("request")
+        .iter_mut()
+        .find(|field| field.name == "name")
+        .expect("required nullable name")
+        .type_name = "String".into();
+    let rejected = derive(DeriveInput {
+        openapi,
+        bindings,
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("fail-closed derivation");
+    assert_eq!(
+        rejected.report.operations["create_widget"].status,
+        DerivationStatus::Rejected
+    );
+}
