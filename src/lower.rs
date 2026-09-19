@@ -14,7 +14,8 @@ use crate::openapi::{OpenApiIndex, ref_name};
 use crate::reconcile::unconstrained_json_alias_matches;
 use crate::rust_type::{Type, TypeKind, parse_type};
 use crate::structural::{
-    inline_object_union_mapping, multipart_filenames_binding, object_field_names_match,
+    constant_enum_response_object_matches, inline_object_union_mapping,
+    multipart_filenames_binding, object_field_names_match,
     plain_string_json_alias_matches, raw_scalar_struct_shape, request_object_matches,
     request_optional_boolean_field, request_union_mapping, rust_type_matches_schema,
     scalar_named_object_matches, scalar_object_shape, sse_payload_schema_name,
@@ -1294,6 +1295,14 @@ fn buffered_scalar_response_projection(
     }
 }
 
+fn rust_option_core_name(raw_type: &str) -> Option<String> {
+    let mut syntax = parse_type(raw_type).ok()?;
+    while let Some(inner) = syntax.unary("Option") {
+        syntax = inner.clone();
+    }
+    Some(syntax.spelling)
+}
+
 fn response_matches(
     openapi: &OpenApiIndex,
     operation_id: &str,
@@ -1336,6 +1345,16 @@ fn response_matches(
     if schema.get("type").and_then(Value::as_str) == Some("object")
         && object_field_names_match(schema, raw, bindings)
     {
+        if schema.get("properties").and_then(Value::as_object).is_some_and(|properties| {
+            properties.values().any(|field| field.get("const").is_some())
+        }) && bindings.structs.get(raw).is_some_and(|fields| {
+            fields.iter().any(|field| {
+                rust_option_core_name(&field.type_name)
+                    .is_some_and(|name| bindings.enums.contains_key(&name))
+            })
+        }) {
+            return Ok(constant_enum_response_object_matches(schema, raw, bindings));
+        }
         return Ok(true);
     }
     if schema.get("type").and_then(Value::as_str) == Some("array")
