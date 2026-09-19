@@ -11,7 +11,7 @@ use crate::error::{Diagnostic, GenerationError};
 use crate::naming::derive_public_paths;
 use crate::openapi::OpenApiIndex;
 use crate::projection::{insert_projection, project_operation};
-use crate::reconcile::reconcile;
+use crate::reconcile::{OperationMatch, reconcile};
 use crate::structural::request_optional_boolean_field;
 
 /// Consumer-provided public resource/method naming evidence.
@@ -471,6 +471,53 @@ fn apply_operation_override(
     Ok(())
 }
 
+fn canonical_representation(
+    binding: &ResponseRepresentationBinding,
+) -> ResponseRepresentationDefinition {
+    match binding {
+        ResponseRepresentationBinding::Json { .. } => ResponseRepresentationDefinition::Json,
+        ResponseRepresentationBinding::Empty => ResponseRepresentationDefinition::Empty,
+        ResponseRepresentationBinding::Text { .. } => ResponseRepresentationDefinition::Text,
+        ResponseRepresentationBinding::BinaryBuffered { .. } => {
+            ResponseRepresentationDefinition::BinaryBuffered
+        }
+        ResponseRepresentationBinding::EventStream { .. } => {
+            ResponseRepresentationDefinition::EventStream
+        }
+        ResponseRepresentationBinding::BinaryStream { .. } => {
+            ResponseRepresentationDefinition::BinaryStream
+        }
+    }
+}
+
+fn selected_binding(
+    matched: &OperationMatch,
+    requested: Option<ResponseRepresentationDefinition>,
+    bindings: &Bindings,
+) -> std::result::Result<String, &'static str> {
+    let Some(requested) = requested else {
+        return matched
+            .binding
+            .clone()
+            .ok_or("bindings.source_operation_identity_required");
+    };
+    let matching: Vec<_> = matched
+        .candidates
+        .iter()
+        .filter(|candidate| {
+            bindings.operations[*candidate]
+                .metadata
+                .as_ref()
+                .is_some_and(|metadata| canonical_representation(&metadata.representation) == requested)
+        })
+        .collect();
+    if matching.len() == 1 {
+        Ok(matching[0].clone())
+    } else {
+        Err("bindings.response_representation_identity_required")
+    }
+}
+
 /// Derive a complete SDK definition and exhaustive operation report.
 ///
 /// Public naming is selected independently from wire reconciliation. Surface
@@ -546,20 +593,34 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                     format!("operation {operation_id} was not reconciled"),
                 )
             })?;
-            if matched.binding.is_none() {
+            let operation_override = overrides.operations.get(&operation_id);
+            if let Some(public_path) = operation_override
+                .into_iter()
+                .flat_map(|operation| operation.response_representations.keys())
+                .find(|path| !public_paths.contains(path))
+            {
+                return Err(DerivationError::at(
+                    "overrides.unknown_public_path",
+                    format!("overrides.operations.{operation_id}.response_representations.{public_path}"),
+                    "response representation selection must name a public path of its source operation",
+                ));
+            }
+            let ambiguous_canonical_representations = matched.binding.is_none()
+                && bindings.schema_version == 3
+                && matched.candidates.len() > 1
+                && matched.reason == Some("bindings.source_operation_identity_required");
+
+            if matched.binding.is_none() && !ambiguous_canonical_representations {
                 OperationDerivation {
                     status: DerivationStatus::Rejected,
                     reason: DerivationReason {
-                        code: matched
-                            .reason
-                            .unwrap_or("bindings.no_structural_match")
-                            .into(),
+                        code: matched.reason.unwrap_or("bindings.no_structural_match").into(),
                         detail: None,
                     },
                     public_paths,
                     public_path,
                     binding: None,
-                public_bindings: BTreeMap::new(),
+                    public_bindings: BTreeMap::new(),
                 }
             } else if let Some(reason) = named.reason {
                 OperationDerivation {
@@ -589,15 +650,36 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                     public_bindings: BTreeMap::new(),
                 }
             } else {
-                let binding = matched.binding.as_deref().expect("matched binding");
+                let selections: std::result::Result<BTreeMap<String, String>, &'static str> =
+                    public_paths
+                        .iter()
+                        .map(|path| {
+                            let requested = operation_override
+                                .and_then(|operation| operation.response_representations.get(path))
+                                .copied();
+                            selected_binding(matched, requested, &bindings)
+                                .map(|binding| (path.clone(), binding))
+                        })
+                        .collect();
                 let mut candidate = definition.clone();
-                let projection = public_paths.iter().try_for_each(|path| {
-                    project_operation(&index, &bindings, &operation_id, binding, path)
-                        .and_then(|projected| insert_projection(&mut candidate, projected))
+                let projection = selections.and_then(|selections| {
+                    for (path, binding) in &selections {
+                        let projected = project_operation(
+                            &index, &bindings, &operation_id, binding, path,
+                        )?;
+                        insert_projection(&mut candidate, projected)?;
+                    }
+                    Ok(selections)
                 });
                 match projection {
-                    Ok(()) => {
+                    Ok(selections) => {
                         definition = candidate;
+                        let unique: BTreeSet<_> = selections.values().cloned().collect();
+                        let binding = (unique.len() == 1)
+                            .then(|| unique.into_iter().next().expect("single binding"));
+                        let public_bindings = operation_override
+                            .filter(|operation| !operation.response_representations.is_empty())
+                            .map_or_else(BTreeMap::new, |_| selections);
                         OperationDerivation {
                             status: DerivationStatus::Derived,
                             reason: DerivationReason {
@@ -606,8 +688,8 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                             },
                             public_paths,
                             public_path,
-                            binding: matched.binding.clone(),
-                    public_bindings: BTreeMap::new(),
+                            binding,
+                            public_bindings,
                         }
                     }
                     Err(reason) => OperationDerivation {
@@ -619,7 +701,7 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                         public_paths,
                         public_path,
                         binding: matched.binding.clone(),
-                    public_bindings: BTreeMap::new(),
+                        public_bindings: BTreeMap::new(),
                     },
                 }
             }
@@ -644,11 +726,17 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
             )?;
             outcome.status = DerivationStatus::Overridden;
             outcome.reason = DerivationReason {
-                code: "override.request_overrides".into(),
+                code: if operation_override.response_representations.is_empty() {
+                    "override.request_overrides"
+                } else {
+                    "override.response_representations"
+                }
+                .into(),
                 detail: Some(
                     operation_override
                         .request_overrides
                         .keys()
+                        .chain(operation_override.response_representations.keys())
                         .cloned()
                         .collect::<Vec<_>>()
                         .join(","),
