@@ -185,8 +185,8 @@ fn unsupported_request_media_is_rejected_deterministically() {
 fn derives_exact_inline_multipart_request_as_owned_raw_view() {
     let (mut openapi, bindings, surface) = fixture();
     let inline = openapi.0["components"]["schemas"]["UploadRequest"].clone();
-    openapi.0["paths"]["/projects/{project_id}/uploads"]["post"]["requestBody"]["content"]
-        ["multipart/form-data"]["schema"] = inline;
+    openapi.0["paths"]["/projects/{project_id}/uploads"]["post"]["requestBody"]["content"]["multipart/form-data"]
+        ["schema"] = inline;
 
     let derivation = derive(DeriveInput {
         openapi: openapi.clone(),
@@ -216,15 +216,12 @@ fn derives_exact_inline_multipart_request_as_owned_raw_view() {
         runtime: Runtime::default(),
     })
     .expect("generate inline multipart request");
-    assert!(
-        generated.files.values().any(|source| {
-            source.contains("self.raw.raw_upload_17(") && source.contains("request.into_raw()")
-        })
-    );
+    assert!(generated.files.values().any(|source| {
+        source.contains("self.raw.raw_upload_17(") && source.contains("request.into_raw()")
+    }));
 
-    openapi.0["paths"]["/projects/{project_id}/uploads"]["post"]["requestBody"]["content"]
-        ["multipart/form-data"]["schema"]["properties"]["publish"]["type"] =
-        serde_json::json!("string");
+    openapi.0["paths"]["/projects/{project_id}/uploads"]["post"]["requestBody"]["content"]["multipart/form-data"]
+        ["schema"]["properties"]["publish"]["type"] = serde_json::json!("string");
     let error = generate(GenerateInput {
         openapi,
         bindings,
