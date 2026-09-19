@@ -968,6 +968,46 @@ pub(crate) fn constant_enum_response_object_matches(
     constants > 0 && seen.len() == properties.len()
 }
 
+/// An object may carry additional JSON members through a flattened raw map.
+pub(crate) fn flattened_json_response_object_matches(
+    schema: &Value,
+    raw: &str,
+    bindings: &Bindings,
+) -> bool {
+    if schema.get("type").and_then(Value::as_str) != Some("object")
+        || schema.get("additionalProperties") != Some(&Value::Bool(true))
+    {
+        return false;
+    }
+    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
+        return false;
+    };
+    let Some(fields) = bindings.structs.get(raw) else {
+        return false;
+    };
+    let mut seen = BTreeSet::new();
+    let mut flattened = false;
+    for field in fields {
+        if field.name == "additional_properties" && field.wire_name.is_none() {
+            if flattened
+                || field.type_name != "std::collections::BTreeMap<String, serde_json::Value>"
+            {
+                return false;
+            }
+            flattened = true;
+            continue;
+        }
+        let wire_name = field
+            .wire_name
+            .as_deref()
+            .unwrap_or(field.name.strip_prefix("r#").unwrap_or(&field.name));
+        if !seen.insert(wire_name) || !properties.contains_key(wire_name) {
+            return false;
+        }
+    }
+    flattened && seen.len() == properties.len()
+}
+
 pub(crate) fn object_field_names_match(schema: &Value, raw: &str, bindings: &Bindings) -> bool {
     let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
         return false;
