@@ -489,8 +489,14 @@ pub(crate) fn response_array_union_matches(
     if object.keys().any(|key| {
         !matches!(
             key.as_str(),
-            "anyOf" | "oneOf" | "title" | "description" | "deprecated" | "example"
-                | "examples" | "default"
+            "anyOf"
+                | "oneOf"
+                | "title"
+                | "description"
+                | "deprecated"
+                | "example"
+                | "examples"
+                | "default"
         )
     }) {
         return false;
@@ -506,7 +512,8 @@ pub(crate) fn response_array_union_matches(
     let Some(variants) = bindings.enums.get(raw_union) else {
         return false;
     };
-    if variants.len() != branches.len() || variants.iter().any(|variant| variant.payload.is_none()) {
+    if variants.len() != branches.len() || variants.iter().any(|variant| variant.payload.is_none())
+    {
         return false;
     }
     let mut used = BTreeSet::new();
@@ -1869,19 +1876,39 @@ mod referenced_array_union_tests {
     #[test]
     fn proves_renamed_reference_and_canonical_raw_map_array_bijectively() {
         let (openapi, bindings, schema) = fixture();
-        assert!(response_array_union_matches(&openapi, &schema, "OpaqueUnion", &bindings));
+        assert!(response_array_union_matches(
+            &openapi,
+            &schema,
+            "OpaqueUnion",
+            &bindings
+        ));
     }
 
     #[test]
     fn rejects_ambiguous_or_drifted_array_payloads_and_extra_constraints() {
         let (openapi, bindings, mut schema) = fixture();
         schema["anyOf"][1]["items"] = schema["anyOf"][0]["items"].clone();
-        assert!(!response_array_union_matches(&openapi, &schema, "OpaqueUnion", &bindings));
+        assert!(!response_array_union_matches(
+            &openapi,
+            &schema,
+            "OpaqueUnion",
+            &bindings
+        ));
         let (openapi, mut bindings, schema) = fixture();
         bindings.structs.get_mut("OpaqueGroup").expect("group")[0].type_name = "bool".into();
-        assert!(!response_array_union_matches(&openapi, &schema, "OpaqueUnion", &bindings));
+        assert!(!response_array_union_matches(
+            &openapi,
+            &schema,
+            "OpaqueUnion",
+            &bindings
+        ));
         let (openapi, bindings, mut schema) = fixture();
         schema["anyOf"][0]["minItems"] = serde_json::json!(1);
-        assert!(!response_array_union_matches(&openapi, &schema, "OpaqueUnion", &bindings));
+        assert!(!response_array_union_matches(
+            &openapi,
+            &schema,
+            "OpaqueUnion",
+            &bindings
+        ));
     }
 }
