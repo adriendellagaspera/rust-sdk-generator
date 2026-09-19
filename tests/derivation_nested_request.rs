@@ -457,3 +457,82 @@ fn derives_nested_flattened_json_as_a_proven_raw_request_field() {
         DerivationStatus::Rejected
     );
 }
+
+
+#[test]
+fn derives_nested_all_of_request_objects_by_composed_wire_shape() {
+    let (mut openapi, bindings, surface) = fixture();
+    let config = openapi.0["components"]["schemas"]["WidgetConfig"].clone();
+    openapi.0["components"]["schemas"]["WidgetConfigBase"] = serde_json::json!({
+        "type": "object",
+        "required": ["mode"],
+        "properties": {"mode": config["properties"]["mode"].clone()}
+    });
+    openapi.0["components"]["schemas"]["WidgetConfig"] = serde_json::json!({
+        "allOf": [
+            {"$ref": "#/components/schemas/WidgetConfigBase"},
+            {"type": "object", "properties": {
+                "retries": config["properties"]["retries"].clone(),
+                "labels": config["properties"]["labels"].clone()
+            }}
+        ]
+    });
+
+    let result = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface: surface.clone(),
+        overrides: SdkOverrides::default(),
+    })
+    .expect("composed named request derivation");
+    assert_eq!(
+        result.report.operations["create_widget"].status,
+        DerivationStatus::Derived
+    );
+    let root = &result.definition.models["CreatePlatformWidgetsRequest"];
+    assert_eq!(
+        root.adapters.as_ref().expect("adapters")["config"],
+        "CreatePlatformWidgetsRequestConfig"
+    );
+    let nested = &result.definition.models["CreatePlatformWidgetsRequestConfig"];
+    assert_eq!(nested.schema.as_deref(), Some("WidgetConfig"));
+    assert_eq!(nested.constructor.as_deref(), Some(&["mode".to_owned()][..]));
+    assert!(generate(GenerateInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        definition: result.definition,
+        runtime: Runtime::default(),
+    })
+    .is_ok());
+
+    let mut type_drift = openapi.clone();
+    type_drift.0["components"]["schemas"]["WidgetConfig"]["allOf"][1]["properties"]["retries"] =
+        serde_json::json!({"type": "string"});
+    let drifted = derive(DeriveInput {
+        openapi: type_drift,
+        bindings: bindings.clone(),
+        surface: surface.clone(),
+        overrides: SdkOverrides::default(),
+    })
+    .expect("closed-world request derivation");
+    assert_eq!(
+        drifted.report.operations["create_widget"].status,
+        DerivationStatus::Rejected
+    );
+
+    let mut recursion = openapi;
+    recursion.0["components"]["schemas"]["WidgetConfigBase"] = serde_json::json!({
+        "allOf": [{"$ref": "#/components/schemas/WidgetConfig"}]
+    });
+    let rejected = derive(DeriveInput {
+        openapi: recursion,
+        bindings,
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("closed-world request derivation");
+    assert_eq!(
+        rejected.report.operations["create_widget"].status,
+        DerivationStatus::Rejected
+    );
+}
