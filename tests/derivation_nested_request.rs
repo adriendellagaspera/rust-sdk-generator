@@ -171,6 +171,7 @@ fn rejects_recursive_named_request_shapes_deterministically() {
     assert_eq!(outcome.status, DerivationStatus::Rejected);
     assert_eq!(outcome.reason.code, "bindings.no_structural_match");
 }
+
 #[test]
 fn derives_annotation_only_json_request_field_without_guessing_a_scalar_type() {
     let (mut openapi, mut bindings, surface) = fixture();
@@ -217,6 +218,10 @@ fn rejects_typed_request_field_against_unconstrained_raw_json_value() {
     let (mut openapi, mut bindings, surface) = fixture();
     openapi.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["payload"] =
         serde_json::json!({"type": "string"});
+    openapi.0["components"]["schemas"]["CreateWidgetRequest"]["required"]
+        .as_array_mut()
+        .expect("required fields")
+        .push(serde_json::json!("payload"));
     bindings
         .structs
         .get_mut("OpaqueRequest9")
