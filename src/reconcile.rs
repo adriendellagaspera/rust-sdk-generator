@@ -10,7 +10,7 @@ use crate::error::{GenerationError, Result};
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::parse_type;
 use crate::structural::{
-    ScalarFieldShape, inline_object_union_mapping, object_field_names_match,
+    ScalarFieldShape, inline_object_union_mapping, object_field_names_match, object_value_matches,
     raw_scalar_struct_shape, request_object_matches, rust_type_matches_schema, scalar_object_shape,
 };
 
@@ -30,6 +30,7 @@ struct RequestShape {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum RequestBodyShape {
     Model(RequestMediaDefinition, String),
+    InlineModel(RequestMediaDefinition, Value),
     Raw(RequestMediaDefinition, String),
 }
 
@@ -152,10 +153,13 @@ fn request_shape(operation: &Value) -> std::result::Result<RequestShape, &'stati
                         }
                         _ => unreachable!(),
                     };
-                    let schema = ref_name(schema)
-                        .map(str::to_owned)
-                        .ok_or("request.inline_or_unresolved")?;
-                    Some(RequestBodyShape::Model(media, schema))
+                    if let Some(schema) = ref_name(schema) {
+                        Some(RequestBodyShape::Model(media, schema.to_owned()))
+                    } else if schema.get("type").and_then(Value::as_str) == Some("object") {
+                        Some(RequestBodyShape::InlineModel(media, schema.clone()))
+                    } else {
+                        return Err("request.inline_or_unresolved");
+                    }
                 }
                 "application/octet-stream"
                     if schema.get("type").and_then(Value::as_str) == Some("string")
@@ -529,6 +533,9 @@ fn binding_matches(
                 RequestBodyShape::Model(_, schema) => {
                     parameter.type_name == *schema
                         || request_object_matches(openapi, schema, &parameter.type_name, bindings)
+                }
+                RequestBodyShape::InlineModel(_, schema) => {
+                    object_value_matches(openapi, schema, &parameter.type_name, bindings)
                 }
                 RequestBodyShape::Raw(_, type_name) => parameter.type_name == *type_name,
             })
