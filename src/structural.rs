@@ -290,6 +290,18 @@ fn type_matches_schema(
         return false;
     }
 
+    // Annotation-only OpenAPI schemas place no constraints on the JSON value.
+    if schema.as_object().is_some_and(|object| {
+        object.keys().all(|key| {
+            matches!(
+                key.as_str(),
+                "title" | "description" | "example" | "examples" | "deprecated" | "$comment"
+            )
+        })
+    }) {
+        return syntax.spelling == "serde_json::Value";
+    }
+
     match schema.get("type").and_then(Value::as_str) {
         Some("string") => {
             let format = schema.get("format").and_then(Value::as_str);
