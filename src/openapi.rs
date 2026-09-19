@@ -267,6 +267,12 @@ pub(crate) struct StructuredRequestBody {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InlineStructuredRequestBody {
+    pub media: RequestMediaDefinition,
+    pub schema: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RawRequestBody {
     pub media: RequestMediaDefinition,
     pub type_name: String,
@@ -393,6 +399,40 @@ impl OpenApiIndex {
         Ok(Some(StructuredRequestBody {
             media,
             schema: schema.into(),
+        }))
+    }
+
+    pub fn inline_structured_request_body(
+        &self,
+        operation_id: &str,
+    ) -> Result<Option<InlineStructuredRequestBody>> {
+        let operation = self.operation(operation_id)?;
+        let Some(content) = operation
+            .get("requestBody")
+            .and_then(|body| body.get("content"))
+            .and_then(Value::as_object)
+            .filter(|content| content.len() == 1)
+        else {
+            return Ok(None);
+        };
+        let (media_type, payload) = content.iter().next().expect("one request media");
+        let media = match media_type.as_str() {
+            "application/json" => RequestMediaDefinition::Json,
+            "multipart/form-data" => RequestMediaDefinition::MultipartFormData,
+            "application/x-www-form-urlencoded" => RequestMediaDefinition::FormUrlencoded,
+            _ => return Ok(None),
+        };
+        let Some(schema) = payload.get("schema") else {
+            return Ok(None);
+        };
+        if ref_name(schema).is_some()
+            || schema.get("type").and_then(Value::as_str) != Some("object")
+        {
+            return Ok(None);
+        }
+        Ok(Some(InlineStructuredRequestBody {
+            media,
+            schema: schema.clone(),
         }))
     }
 
