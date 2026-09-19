@@ -143,7 +143,12 @@ fn preserves_required_nullable_request_as_owned_raw_view() {
     let request = &derivation.definition.models["UpdateWorkJobsRequest"];
     assert_eq!(request.raw.as_deref(), Some("UpdateJobRequest"));
     assert!(request.constructor.is_none());
-    assert!(request.accessors.as_ref().is_some_and(indexmap::IndexMap::is_empty));
+    assert!(
+        request
+            .accessors
+            .as_ref()
+            .is_some_and(indexmap::IndexMap::is_empty)
+    );
 
     let generated = generate(GenerateInput {
         openapi,
