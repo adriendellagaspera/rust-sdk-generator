@@ -45,7 +45,9 @@ fn fixture() -> (OpenApi, Bindings, PublicSdkSurface) {
         media_type: "application/json".into(),
     };
     meta.success_statuses = vec!["200".into()];
-    bindings.operations.insert("raw_read_tool_result".into(), raw);
+    bindings
+        .operations
+        .insert("raw_read_tool_result".into(), raw);
     bindings.structs.insert(
         "ToolResult".into(),
         serde_json::from_value(serde_json::json!([
@@ -60,10 +62,9 @@ fn fixture() -> (OpenApi, Bindings, PublicSdkSurface) {
         "ToolResult".into(),
         "crate::generated::types::ToolResult".into(),
     );
-    surface.operations.insert(
-        "read_tool_result".into(),
-        vec!["tools.read_result".into()],
-    );
+    surface
+        .operations
+        .insert("read_tool_result".into(), vec!["tools.read_result".into()]);
     (openapi, bindings, surface)
 }
 
