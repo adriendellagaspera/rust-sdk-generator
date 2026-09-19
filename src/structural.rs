@@ -902,7 +902,8 @@ pub(crate) fn constant_enum_response_object_matches(
     };
     if schema
         .get("additionalProperties")
-        .is_some_and(|extra| extra != &Value::Bool(false)) {
+        .is_some_and(|extra| extra != &Value::Bool(false))
+    {
         return false;
     }
     let Some(fields) = bindings.structs.get(raw) else {
@@ -915,7 +916,9 @@ pub(crate) fn constant_enum_response_object_matches(
         .unwrap_or_default();
     let required: BTreeSet<_> = required_values.iter().filter_map(Value::as_str).collect();
     if required.len() != required_values.len()
-        || required.iter().any(|field| !properties.contains_key(*field))
+        || required
+            .iter()
+            .any(|field| !properties.contains_key(*field))
     {
         return false;
     }
