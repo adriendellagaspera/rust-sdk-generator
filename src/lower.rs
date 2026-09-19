@@ -2160,6 +2160,12 @@ pub(crate) fn lower(
                 }
                 request_raw_parameter = Some(body_parameters[0].name.clone());
                 if let Some(overrides) = &item.request_overrides {
+                    let schema_name = model_definition.schema.as_deref().ok_or_else(|| {
+                        error(
+                            "lower.request_override",
+                            "inline request bodies do not support request overrides",
+                        )
+                    })?;
                     for field in overrides.keys() {
                         if !request_optional_boolean_field(
                             &index,
