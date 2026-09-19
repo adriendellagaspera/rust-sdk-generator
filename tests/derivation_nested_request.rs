@@ -244,3 +244,101 @@ fn rejects_typed_request_field_against_unconstrained_raw_json_value() {
         DerivationStatus::Rejected
     );
 }
+
+#[test]
+fn derives_one_variant_string_const_request_fields_without_name_inference() {
+    let (mut openapi, mut bindings, surface) = fixture();
+    openapi.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["kind"] =
+        serde_json::json!({"type": "string", "const": "widget", "title": "Kind"});
+    bindings
+        .structs
+        .get_mut("OpaqueRequest9")
+        .expect("request")
+        .push(rust_sdk_generator::FieldBinding {
+            name: "kind".into(),
+            wire_name: Some("kind".into()),
+            type_name: "Option<OpaqueKind>".into(),
+        });
+    bindings.enums.insert(
+        "OpaqueKind".into(),
+        serde_json::from_value(serde_json::json!([{
+            "name": "Widget",
+            "wire_name": "widget",
+            "payload": null
+        }]))
+        .expect("single-variant enum"),
+    );
+    bindings.symbol_paths.insert(
+        "OpaqueKind".into(),
+        "crate::generated::types::OpaqueKind".into(),
+    );
+
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface: surface.clone(),
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive const enum");
+    assert_eq!(
+        derivation.report.operations["create_widget"].status,
+        DerivationStatus::Derived
+    );
+    generate(GenerateInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        definition: derivation.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("generate const enum");
+
+    let mut bad_value = openapi.clone();
+    bad_value.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["kind"]["const"] =
+        serde_json::json!("other");
+    let outcome = derive(DeriveInput {
+        openapi: bad_value,
+        bindings: bindings.clone(),
+        surface: surface.clone(),
+        overrides: SdkOverrides::default(),
+    })
+    .expect("closed-world derivation");
+    assert_eq!(
+        outcome.report.operations["create_widget"].status,
+        DerivationStatus::Rejected
+    );
+
+    let mut unconstrained = bindings.clone();
+    unconstrained
+        .structs
+        .get_mut("OpaqueRequest9")
+        .expect("request")
+        .last_mut()
+        .expect("kind")
+        .type_name = "Option<String>".into();
+    let outcome = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: unconstrained,
+        surface: surface.clone(),
+        overrides: SdkOverrides::default(),
+    })
+    .expect("closed-world derivation");
+    assert_eq!(
+        outcome.report.operations["create_widget"].status,
+        DerivationStatus::Rejected
+    );
+
+    let mut bad_format = openapi;
+    bad_format.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["kind"]["format"] =
+        serde_json::json!("binary");
+    let outcome = derive(DeriveInput {
+        openapi: bad_format,
+        bindings,
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("closed-world derivation");
+    assert_eq!(
+        outcome.report.operations["create_widget"].status,
+        DerivationStatus::Rejected
+    );
+}
