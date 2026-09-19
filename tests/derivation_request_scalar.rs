@@ -292,4 +292,3 @@ fn preserves_root_flattened_request_as_owned_raw_view() {
     .expect_err("flattened request drift must fail lowering");
     assert_eq!(error.diagnostic.code, "lower.request_drift");
 }
-
