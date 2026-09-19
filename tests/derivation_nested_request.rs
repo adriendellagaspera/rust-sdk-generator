@@ -828,3 +828,110 @@ fn provable_root_with_unsafe_constructor_retains_owned_raw_request_view() {
         DerivationStatus::Rejected
     );
 }
+
+#[test]
+fn derives_lossless_unchecked_json_attributes_map_without_claiming_typed_values() {
+    let (mut openapi, mut bindings, surface) = fixture();
+    openapi.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["attributes"] = serde_json::json!({
+        "anyOf": [
+            {
+                "type": "object",
+                "additionalProperties": {
+                    "anyOf": [
+                        {"type": "boolean"},
+                        {"type": "string"},
+                        {"type": "integer"},
+                        {"type": "number"},
+                        {"type": "string", "format": "date-time"},
+                        {"type": "array", "items": {"type": "string"}},
+                        {"type": "array", "items": {"type": "integer"}},
+                        {"type": "array", "items": {"type": "number"}},
+                        {"type": "array", "items": {"type": "boolean"}}
+                    ]
+                }
+            },
+            {"type": "null"}
+        ]
+    });
+    bindings
+        .structs
+        .get_mut("OpaqueRequest9")
+        .expect("request")
+        .push(rust_sdk_generator::FieldBinding {
+            name: "attributes".into(),
+            wire_name: Some("attributes".into()),
+            type_name: "Option<Option<OpaqueAttributes>>".into(),
+        });
+    bindings.structs.insert(
+        "OpaqueAttributes".into(),
+        serde_json::from_value(serde_json::json!([{
+            "name": "additional_properties",
+            "wire_name": null,
+            "type": "std::collections::BTreeMap<String, serde_json::Value>"
+        }]))
+        .expect("canonical raw JSON map"),
+    );
+    bindings.symbol_paths.insert(
+        "OpaqueAttributes".into(),
+        "crate::generated::types::OpaqueAttributes".into(),
+    );
+
+    let derived = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface: surface.clone(),
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive lossless raw request");
+    assert_eq!(
+        derived.report.operations["create_widget"].status,
+        DerivationStatus::Derived
+    );
+    let root = &derived.definition.models["CreatePlatformWidgetsRequest"];
+    assert!(
+        root.adapters
+            .as_ref()
+            .is_none_or(|items| !items.contains_key("attributes"))
+    );
+    let generated = generate(GenerateInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        definition: derived.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("preserve the raw JSON map without generating a constrained value enum");
+    assert!(generated.files["facade_types.rs"].contains("OpaqueAttributes"));
+
+    let mut wrong_raw = bindings.clone();
+    wrong_raw
+        .structs
+        .get_mut("OpaqueAttributes")
+        .expect("raw map")[0]
+        .type_name = "std::collections::BTreeMap<String, String>".into();
+    let rejected = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: wrong_raw,
+        surface: surface.clone(),
+        overrides: SdkOverrides::default(),
+    })
+    .expect("reject narrowing the raw JSON value representation");
+    assert_eq!(
+        rejected.report.operations["create_widget"].status,
+        DerivationStatus::Rejected
+    );
+
+    openapi.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["attributes"]["anyOf"]
+        [0]["additionalProperties"]["anyOf"][5]["items"] =
+        serde_json::json!({"type": "object", "additionalProperties": true});
+    let rejected = derive(DeriveInput {
+        openapi,
+        bindings,
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("reject unreviewed nested map value shapes");
+    assert_eq!(
+        rejected.report.operations["create_widget"].status,
+        DerivationStatus::Rejected
+    );
+}

@@ -286,6 +286,73 @@ fn map_value_type<'a>(syntax: &'a Type, bindings: &'a Bindings) -> Option<Type> 
         .then(|| field.arguments[1].clone())
 }
 
+/// The generated raw fallback for a map of primitive JSON values is intentionally
+/// broader than the OpenAPI validation schema. It is a lossless transport
+/// representation, not a claim that Rust types enforce server-side validation.
+/// Keep this fallback restricted to a canonical flattened JSON map and a
+/// fully inspected finite union of JSON scalar/flat-array alternatives.
+fn lossless_primitive_json_map(schema: &Value, syntax: &Type, bindings: &Bindings) -> bool {
+    let Some(fields) = bindings.structs.get(&syntax.spelling) else {
+        return false;
+    };
+    if fields.len() != 1
+        || fields[0].name != "additional_properties"
+        || fields[0].wire_name.is_some()
+        || fields[0].type_name != "std::collections::BTreeMap<String, serde_json::Value>"
+    {
+        return false;
+    }
+    let Some(schema) = schema.as_object() else {
+        return false;
+    };
+    if schema.keys().any(|key| {
+        !matches!(
+            key.as_str(),
+            "anyOf" | "title" | "description" | "deprecated" | "example" | "examples"
+        )
+    }) {
+        return false;
+    }
+    let Some(branches) = schema
+        .get("anyOf")
+        .and_then(Value::as_array)
+        .filter(|branches| branches.len() >= 2)
+    else {
+        return false;
+    };
+    branches.iter().all(|branch| {
+        let Some(object) = branch.as_object() else {
+            return false;
+        };
+        let scalar = |value: &Value| {
+            value.as_object().is_some_and(|object| {
+                let kind = object.get("type").and_then(Value::as_str);
+                matches!(kind, Some("boolean" | "integer" | "number" | "string"))
+                    && object.keys().all(|key| {
+                        matches!(
+                            key.as_str(),
+                            "type" | "format" | "title" | "description" | "deprecated"
+                        )
+                    })
+                    && object.get("format").is_none_or(|format| {
+                        kind == Some("string") && format.as_str() == Some("date-time")
+                    })
+            })
+        };
+        match object.get("type").and_then(Value::as_str) {
+            Some("array") => {
+                object.keys().all(|key| {
+                    matches!(
+                        key.as_str(),
+                        "type" | "items" | "title" | "description" | "deprecated"
+                    )
+                }) && object.get("items").is_some_and(scalar)
+            }
+            _ => scalar(branch),
+        }
+    })
+}
+
 fn type_matches_schema(
     schema: &Value,
     syntax: &Type,
@@ -451,6 +518,8 @@ fn type_matches_schema(
                         map_value_type(syntax, bindings).is_some_and(|value_type| {
                             if *additional == Value::Bool(true) {
                                 value_type.spelling == "serde_json::Value"
+                            } else if lossless_primitive_json_map(additional, syntax, bindings) {
+                                true
                             } else {
                                 type_matches_schema(additional, &value_type, bindings, seen_aliases)
                             }
