@@ -116,7 +116,7 @@ fn rejects_optional_nullable_request_with_shallow_raw_option() {
 }
 
 #[test]
-fn rejects_required_nullable_request_until_constructor_semantics_are_explicit() {
+fn preserves_required_nullable_request_as_owned_raw_view() {
     let (mut openapi, mut bindings, surface) = fixture();
     *openapi
         .0
@@ -130,17 +130,45 @@ fn rejects_required_nullable_request_until_constructor_semantics_are_explicit() 
     *request_field_mut(&mut bindings, "title") = "Option<String>".into();
 
     let derivation = derive(DeriveInput {
-        openapi,
-        bindings,
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
         surface,
         overrides: SdkOverrides::default(),
     })
     .expect("derive");
 
     let outcome = &derivation.report.operations["revise_job"];
-    assert_eq!(outcome.status, DerivationStatus::Rejected);
-    assert_eq!(
-        outcome.reason.code,
-        "capability.request_model_not_structurally_provable"
+    assert_eq!(outcome.status, DerivationStatus::Derived);
+
+    let request = &derivation.definition.models["UpdateWorkJobsRequest"];
+    assert_eq!(request.raw.as_deref(), Some("UpdateJobRequest"));
+    assert!(request.constructor.is_none());
+    assert!(
+        request
+            .accessors
+            .as_ref()
+            .is_some_and(indexmap::IndexMap::is_empty)
+    );
+
+    let generated = generate(GenerateInput {
+        openapi,
+        bindings,
+        definition: derivation.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("derived raw-view request generates");
+    let types = &generated.files["facade_types.rs"];
+    assert!(types.contains("pub struct UpdateWorkJobsRequest { raw: UpdateJobRequest }"));
+    assert!(types.contains("pub fn into_raw(self) -> UpdateJobRequest"));
+    let request_impl = types
+        .split("impl UpdateWorkJobsRequest {")
+        .nth(1)
+        .expect("request implementation");
+    assert!(
+        !request_impl
+            .split("impl From<UpdateJobRequest> for UpdateWorkJobsRequest")
+            .next()
+            .expect("request implementation end")
+            .contains("pub fn new(")
     );
 }

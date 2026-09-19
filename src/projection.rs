@@ -556,14 +556,46 @@ fn request_model(
         return Err(REQUEST_MODEL_UNPROVEN);
     }
     let name = request_model_name(resource_path, public_name);
-    let models = request_object_models(
+    let models = match request_object_models(
         openapi,
         bindings,
         &schema_name,
         raw,
         name.clone(),
         &mut BTreeSet::new(),
-    )?;
+    ) {
+        Ok(models) => models,
+        Err(REQUEST_MODEL_UNPROVEN)
+            if request_object_matches(openapi, &schema_name, raw, bindings) =>
+        {
+            // Do not synthesize a lossy constructor for an otherwise exact raw
+            // request shape. An owned public view still supports From<Raw>
+            // and into_raw(), without claiming that its fields are constructible.
+            if !public_model_name_available(&name, bindings) {
+                return Err("capability.public_model_name_collision");
+            }
+            vec![(
+                name.clone(),
+                ModelDefinition {
+                    schema: Some(schema_name.clone()),
+                    schema_path: None,
+                    raw: Some(raw.clone()),
+                    constructor: None,
+                    exclude: None,
+                    adapters: None,
+                    union: None,
+                    simple_union: None,
+                    type_alias: None,
+                    map: None,
+                    scalar_enum: None,
+                    union_factory: None,
+                    borrowed: Some(false),
+                    accessors: Some(IndexMap::new()),
+                },
+            )]
+        }
+        Err(reason) => return Err(reason),
+    };
     Ok(Some((name, models, body.media)))
 }
 
