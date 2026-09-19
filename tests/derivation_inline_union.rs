@@ -217,12 +217,14 @@ fn preserves_recursive_inline_union_as_owned_raw_view() {
         .insert("OpaqueList42".into(), "Vec<i64>".into());
     let variants = bindings.enums.get_mut("OpaqueUnion3").expect("raw union");
     for variant in variants {
-        variant.payload = Some(match variant.name.as_str() {
-            "RawA" => "OpaqueList17",
-            "RawB" => "OpaqueList42",
-            other => panic!("unexpected raw variant {other}"),
-        }
-        .into());
+        variant.payload = Some(
+            match variant.name.as_str() {
+                "RawA" => "OpaqueList17",
+                "RawB" => "OpaqueList42",
+                other => panic!("unexpected raw variant {other}"),
+            }
+            .into(),
+        );
     }
     bindings.symbol_paths.remove("OpaquePayload17");
     bindings.symbol_paths.remove("OpaquePayload42");
@@ -281,4 +283,3 @@ fn preserves_recursive_inline_union_as_owned_raw_view() {
     .expect_err("recursive inline union drift must fail lowering");
     assert_eq!(error.diagnostic.code, "lower.response_drift");
 }
-
