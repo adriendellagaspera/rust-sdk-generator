@@ -347,6 +347,16 @@ fn type_matches_schema(
                 )
             });
         if annotation_only_union {
+            // Exactly one oneOf alternative has precisely that alternative's
+            // validation semantics. Keep all sibling constraints fail-closed.
+            if let Some(branch) = object
+                .get("oneOf")
+                .and_then(Value::as_array)
+                .filter(|branches| branches.len() == 1)
+                .and_then(|branches| branches.first())
+            {
+                return type_matches_schema(branch, syntax, bindings, seen_aliases);
+            }
             let branches = object
                 .get("oneOf")
                 .or_else(|| object.get("anyOf"))
