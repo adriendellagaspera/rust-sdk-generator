@@ -153,10 +153,13 @@ fn request_shape(operation: &Value) -> std::result::Result<RequestShape, &'stati
                         }
                         _ => unreachable!(),
                     };
-                    let schema = ref_name(schema)
-                        .map(str::to_owned)
-                        .ok_or("request.inline_or_unresolved")?;
-                    Some(RequestBodyShape::Model(media, schema))
+                    if let Some(schema) = ref_name(schema) {
+                        Some(RequestBodyShape::Model(media, schema.to_owned()))
+                    } else if schema.get("type").and_then(Value::as_str) == Some("object") {
+                        Some(RequestBodyShape::InlineModel(media, schema.clone()))
+                    } else {
+                        return Err("request.inline_or_unresolved");
+                    }
                 }
                 "application/octet-stream"
                     if schema.get("type").and_then(Value::as_str) == Some("string")
