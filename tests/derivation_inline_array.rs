@@ -108,13 +108,17 @@ fn rejects_ambiguous_inline_array_bindings_without_name_identity() {
 #[test]
 fn wraps_referenced_array_items_without_leaking_generated_rust_symbols() {
     let (mut openapi, mut bindings, surface) = fixture();
-    openapi.0["components"]["schemas"]["Record"] = serde_json::json!({
-        "type": "object",
-        "properties": {"name": {"type": "string"}},
-        "required": ["name"]
+    openapi.0["components"] = serde_json::json!({
+        "schemas": {
+            "Record": {
+                "type": "object",
+                "properties": {"name": {"type": "string"}},
+                "required": ["name"]
+            }
+        }
     });
-    openapi.0["paths"]["/reports/tags"]["get"]["responses"]["200"]["content"]
-        ["application/json"]["schema"]["items"] =
+    openapi.0["paths"]["/reports/tags"]["get"]["responses"]["200"]["content"]["application/json"]
+        ["schema"]["items"] =
         serde_json::json!({"$ref": "#/components/schemas/Record"});
     bindings.aliases.insert("OpaqueList7".into(), "Vec<Record>".into());
     bindings.structs.insert(
@@ -161,8 +165,8 @@ fn wraps_referenced_array_items_without_leaking_generated_rust_symbols() {
     assert!(types.contains("pub struct TagsReportsResponseItem<'a>"));
     assert!(!types.contains("pub type TagsReportsResponse = Vec<Record>;"));
 
-    openapi.0["paths"]["/reports/tags"]["get"]["responses"]["200"]["content"]
-        ["application/json"]["schema"]["items"] =
+    openapi.0["paths"]["/reports/tags"]["get"]["responses"]["200"]["content"]["application/json"]
+        ["schema"]["items"] =
         serde_json::json!({"$ref": "#/components/schemas/OtherRecord"});
     assert!(
         generate(GenerateInput {
