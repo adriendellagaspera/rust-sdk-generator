@@ -91,8 +91,8 @@ fn derives_and_generates_only_a_proven_unconstrained_json_alias() {
 #[test]
 fn rejects_typed_or_unbound_json_schema_instead_of_guessing() {
     let (mut openapi, bindings, surface) = fixture();
-    openapi.0["paths"]["/reports/opaque"]["get"]["responses"]["200"]["content"]
-        ["application/json"]["schema"] = serde_json::json!({"type": "string"});
+    openapi.0["paths"]["/reports/opaque"]["get"]["responses"]["200"]["content"]["application/json"]
+        ["schema"] = serde_json::json!({"type": "string"});
     let derivation = derive(DeriveInput {
         openapi,
         bindings,
