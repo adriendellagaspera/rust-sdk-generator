@@ -125,8 +125,10 @@ fn rejects_constant_value_and_optional_depth_drift() {
     }
 
     let mut raw = bindings.clone();
-    raw.structs.get_mut("ArchivedReport").expect("response struct")[2].type_name =
-        "Option<Option<ArchiveTag>>".into();
+    raw.structs
+        .get_mut("ArchivedReport")
+        .expect("response struct")[2]
+        .type_name = "Option<Option<ArchiveTag>>".into();
     let derivation = derive(DeriveInput {
         openapi: openapi.clone(),
         bindings: raw,
@@ -149,11 +151,13 @@ fn rejects_constant_value_and_optional_depth_drift() {
     let mut drifted = openapi;
     drifted.0["components"]["schemas"]["ArchivedReport"]["properties"]["tag"]["const"] =
         serde_json::json!("other");
-    assert!(generate(GenerateInput {
-        openapi: drifted,
-        bindings,
-        definition: derivation.definition,
-        runtime: Runtime::default(),
-    })
-    .is_err());
+    assert!(
+        generate(GenerateInput {
+            openapi: drifted,
+            bindings,
+            definition: derivation.definition,
+            runtime: Runtime::default(),
+        })
+        .is_err()
+    );
 }
