@@ -237,6 +237,25 @@ fn scalar_enum_matches_schema(schema: &Value, raw: &str, bindings: &Bindings) ->
     })
 }
 
+fn scalar_const_enum_matches_schema(schema: &Value, raw: &str, bindings: &Bindings) -> bool {
+    let Some(value) = schema.get("const").and_then(Value::as_str) else {
+        return false;
+    };
+    schema.get("type").and_then(Value::as_str) == Some("string")
+        && schema.as_object().is_some_and(|fields| {
+            fields.keys().all(|key| matches!(
+                key.as_str(),
+                "type" | "const" | "title" | "description" | "default" | "example"
+                    | "examples" | "deprecated" | "$comment"
+            ))
+        })
+        && bindings.enums.get(raw).is_some_and(|variants| {
+            variants.len() == 1
+                && variants[0].payload.is_none()
+                && variants[0].wire_name.as_deref() == Some(value)
+        })
+}
+
 fn map_value_type<'a>(syntax: &'a Type, bindings: &'a Bindings) -> Option<Type> {
     if syntax.constructor.as_deref() == Some("std::collections::BTreeMap")
         && syntax.arguments.len() == 2
@@ -300,6 +319,10 @@ fn type_matches_schema(
         })
     }) {
         return syntax.spelling == "serde_json::Value";
+    }
+
+    if schema.get("const").is_some() {
+        return scalar_const_enum_matches_schema(schema, &syntax.spelling, bindings);
     }
 
     match schema.get("type").and_then(Value::as_str) {
