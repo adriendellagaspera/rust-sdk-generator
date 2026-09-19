@@ -12,8 +12,7 @@ use crate::rust_type::parse_type;
 use crate::structural::{
     ScalarFieldShape, inline_object_union_mapping, object_field_names_match, object_value_matches,
     raw_scalar_struct_shape, request_object_matches_with_discriminators,
-    response_array_union_matches, rust_type_matches_schema,
-    scalar_object_shape,
+    response_array_union_matches, rust_type_matches_schema, scalar_object_shape,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -407,7 +406,13 @@ fn metadata_response_matches(
             binding.success_type == *schema_name
                 && successes.iter().all(|(_, response)| {
                     response_payload(response, media_type).is_some_and(|schema| {
-                        canonical_json_schema_matches(openapi, schema, schema_name, binding, bindings)
+                        canonical_json_schema_matches(
+                            openapi,
+                            schema,
+                            schema_name,
+                            binding,
+                            bindings,
+                        )
                     })
                 })
         }
