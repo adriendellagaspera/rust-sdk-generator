@@ -172,3 +172,49 @@ fn preserves_required_nullable_request_as_owned_raw_view() {
             .contains("pub fn new(")
     );
 }
+
+#[test]
+fn derives_single_all_of_request_property_with_annotations() {
+    let (mut openapi, bindings, surface) = fixture();
+    *openapi
+        .0
+        .pointer_mut("/components/schemas/UpdateJobRequest/properties/priority")
+        .expect("priority schema") = serde_json::json!({
+        "allOf": [{"type": "integer"}],
+        "default": 0,
+        "title": "Priority"
+    });
+
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface: surface.clone(),
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive single allOf property");
+    assert_eq!(
+        derivation.report.operations["revise_job"].status,
+        DerivationStatus::Derived
+    );
+    generate(GenerateInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        definition: derivation.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("generate single allOf property");
+
+    openapi.0["components"]["schemas"]["UpdateJobRequest"]["properties"]["priority"]["minimum"] =
+        serde_json::json!(0);
+    let rejected = derive(DeriveInput {
+        openapi,
+        bindings,
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("fail closed on unmodeled sibling constraint");
+    assert_eq!(
+        rejected.report.operations["revise_job"].status,
+        DerivationStatus::Rejected
+    );
+}
