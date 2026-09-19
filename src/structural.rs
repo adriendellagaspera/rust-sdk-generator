@@ -243,11 +243,20 @@ fn scalar_const_enum_matches_schema(schema: &Value, raw: &str, bindings: &Bindin
     };
     schema.get("type").and_then(Value::as_str) == Some("string")
         && schema.as_object().is_some_and(|fields| {
-            fields.keys().all(|key| matches!(
-                key.as_str(),
-                "type" | "const" | "title" | "description" | "default" | "example"
-                    | "examples" | "deprecated" | "$comment"
-            ))
+            fields.keys().all(|key| {
+                matches!(
+                    key.as_str(),
+                    "type"
+                        | "const"
+                        | "title"
+                        | "description"
+                        | "default"
+                        | "example"
+                        | "examples"
+                        | "deprecated"
+                        | "$comment"
+                )
+            })
         })
         && bindings.enums.get(raw).is_some_and(|variants| {
             variants.len() == 1
