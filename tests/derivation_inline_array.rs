@@ -263,8 +263,7 @@ fn preserves_inline_array_of_named_union_as_owned_raw_view() {
     assert!(!types.contains("pub type TagsReportsResponse = Vec<OpaqueItemUnion>;"));
 
     openapi.0["paths"]["/reports/tags"]["get"]["responses"]["200"]["content"]["application/json"]
-        ["schema"]["items"]["anyOf"][1] =
-        serde_json::json!({"$ref": "#/components/schemas/Alpha"});
+        ["schema"]["items"]["anyOf"][1] = serde_json::json!({"$ref": "#/components/schemas/Alpha"});
     let error = generate(GenerateInput {
         openapi,
         bindings,
@@ -274,4 +273,3 @@ fn preserves_inline_array_of_named_union_as_owned_raw_view() {
     .expect_err("array union drift must fail lowering");
     assert_eq!(error.diagnostic.code, "lower.response_drift");
 }
-
