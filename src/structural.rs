@@ -1582,11 +1582,13 @@ mod transparent_box_tests {
                 "schemas": {
                     "Group": {
                         "type": "object",
-                        "properties": {}
+                        "properties": {"name": {"type": "string"}},
+                        "required": ["name"]
                     },
                     "Condition": {
                         "type": "object",
-                        "properties": {}
+                        "properties": {"ready": {"type": "boolean"}},
+                        "required": ["ready"]
                     }
                 }
             }
@@ -1595,8 +1597,8 @@ mod transparent_box_tests {
         let bindings = serde_json::from_value(serde_json::json!({
             "schema_version": 3,
             "structs": {
-                "Group": [],
-                "Condition": []
+                "Group": [{"name": "name", "type": "String"}],
+                "Condition": [{"name": "ready", "type": "bool"}]
             },
             "enums": {
                 "RecursiveUnion": [
