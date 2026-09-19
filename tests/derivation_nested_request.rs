@@ -245,7 +245,6 @@ fn rejects_typed_request_field_against_unconstrained_raw_json_value() {
     );
 }
 
-
 #[test]
 fn derives_one_variant_string_const_request_fields_without_name_inference() {
     let (mut openapi, mut bindings, surface) = fixture();
