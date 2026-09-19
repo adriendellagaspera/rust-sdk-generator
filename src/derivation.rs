@@ -3,7 +3,10 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::contracts::{Bindings, ClientDefinition, OpenApi, SdkDefinition};
+use crate::contracts::{
+    Bindings, ClientDefinition, OpenApi, ResponseRepresentationBinding,
+    ResponseRepresentationDefinition, SdkDefinition,
+};
 use crate::error::{Diagnostic, GenerationError};
 use crate::naming::derive_public_paths;
 use crate::openapi::OpenApiIndex;
@@ -45,6 +48,8 @@ impl Default for PublicSdkSurface {
 pub struct OperationOverride {
     #[serde(default)]
     pub request_overrides: BTreeMap<String, Option<bool>>,
+    #[serde(default)]
+    pub response_representations: BTreeMap<String, ResponseRepresentationDefinition>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -96,6 +101,8 @@ pub struct OperationDerivation {
     pub public_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub binding: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub public_bindings: BTreeMap<String, String>,
 }
 
 /// Exhaustive classification of every relevant OpenAPI operation.
@@ -277,11 +284,24 @@ fn validate_evidence(
                 format!("operation {operation_id} cannot be both excluded and overridden"),
             ));
         }
-        if operation_override.request_overrides.is_empty() {
+        if operation_override.request_overrides.is_empty()
+            && operation_override.response_representations.is_empty()
+        {
             return Err(DerivationError::at(
                 "overrides.empty_operation",
                 path,
                 "operation override must contain at least one decision",
+            ));
+        }
+        if let Some(public_path) = operation_override
+            .response_representations
+            .keys()
+            .find(|public_path| public_path.trim().is_empty())
+        {
+            return Err(DerivationError::at(
+                "overrides.invalid_response_representation",
+                format!("{path}.response_representations.{public_path}"),
+                "response representation public path must not be empty",
             ));
         }
         if let Some(field) = operation_override
@@ -360,6 +380,10 @@ fn apply_operation_override(
     operation_id: &str,
     operation_override: &OperationOverride,
 ) -> Result<(), DerivationError> {
+    if operation_override.request_overrides.is_empty() {
+        return Ok(());
+    }
+
     let locations: Vec<_> = definition
         .resources
         .iter()
@@ -513,6 +537,7 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                 public_paths,
                 public_path,
                 binding: None,
+                public_bindings: BTreeMap::new(),
             }
         } else {
             let matched = reconciliation.get(&operation_id).ok_or_else(|| {
@@ -534,6 +559,7 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                     public_paths,
                     public_path,
                     binding: None,
+                public_bindings: BTreeMap::new(),
                 }
             } else if let Some(reason) = named.reason {
                 OperationDerivation {
@@ -545,6 +571,7 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                     public_paths,
                     public_path: None,
                     binding: matched.binding.clone(),
+                    public_bindings: BTreeMap::new(),
                 }
             } else if public_paths
                 .iter()
@@ -559,6 +586,7 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                     public_paths,
                     public_path,
                     binding: matched.binding.clone(),
+                    public_bindings: BTreeMap::new(),
                 }
             } else {
                 let binding = matched.binding.as_deref().expect("matched binding");
@@ -579,6 +607,7 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                             public_paths,
                             public_path,
                             binding: matched.binding.clone(),
+                    public_bindings: BTreeMap::new(),
                         }
                     }
                     Err(reason) => OperationDerivation {
@@ -590,6 +619,7 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                         public_paths,
                         public_path,
                         binding: matched.binding.clone(),
+                    public_bindings: BTreeMap::new(),
                     },
                 }
             }
