@@ -19,7 +19,8 @@ use crate::structural::{
     object_value_matches, plain_string_json_alias_matches, raw_scalar_struct_shape,
     referenced_request_object, request_object_matches, request_object_matches_with_discriminators,
     request_optional_boolean_field, request_union_mapping, request_union_matches,
-    rust_type_matches_schema, scalar_named_object_matches, scalar_object_shape,
+    response_array_union_matches, rust_type_matches_schema, scalar_named_object_matches,
+    scalar_object_shape,
     sse_payload_schema_name,
 };
 use crate::symbols::field_identifier;
@@ -1347,7 +1348,8 @@ fn union_response_model(
             Ok(projected) => return Ok(projected),
             Err(RESPONSE_UNION_REQUIRED)
                 if bindings.enums.contains_key(raw_union)
-                    && rust_type_matches_schema(schema, raw_union, bindings) =>
+                    && (rust_type_matches_schema(schema, raw_union, bindings)
+                        || response_array_union_matches(openapi, schema, raw_union, bindings)) =>
             {
                 let name = response_model_name(resource_path, public_name);
                 if !public_model_name_available(&name, bindings) {
