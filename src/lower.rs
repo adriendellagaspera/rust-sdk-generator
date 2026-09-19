@@ -18,8 +18,8 @@ use crate::structural::{
     inline_object_union_mapping, multipart_filenames_binding, object_field_names_match,
     object_value_matches, plain_string_json_alias_matches, raw_scalar_struct_shape,
     request_object_matches_with_discriminators, request_optional_boolean_field,
-    request_union_mapping, rust_type_matches_schema, scalar_named_object_matches,
-    scalar_object_shape, sse_payload_schema_name,
+    request_union_mapping, response_array_union_matches, rust_type_matches_schema,
+    scalar_named_object_matches, scalar_object_shape, sse_payload_schema_name,
 };
 use crate::symbols::{SymbolProvider, field_identifier};
 
@@ -1343,7 +1343,8 @@ fn response_matches(
     }
     if !branches.is_empty()
         && bindings.enums.contains_key(raw)
-        && rust_type_matches_schema(schema, raw, bindings)
+        && (rust_type_matches_schema(schema, raw, bindings)
+            || response_array_union_matches(openapi, schema, raw, bindings))
     {
         return Ok(true);
     }

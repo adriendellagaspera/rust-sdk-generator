@@ -472,6 +472,105 @@ pub(crate) fn rust_type_matches_schema(
         .is_some_and(|syntax| type_matches_schema(schema, &syntax, bindings, &mut BTreeSet::new()))
 }
 
+/// Match array-union responses against the exact emitted Rust union payloads.
+///
+/// OpenAPI component identifiers need not match Rust symbols: a generated
+/// backend may rename a component while preserving its fully proven structure.
+/// Each emitted union payload must map to exactly one wire array alternative.
+pub(crate) fn response_array_union_matches(
+    openapi: &OpenApiIndex,
+    schema: &Value,
+    raw_union: &str,
+    bindings: &Bindings,
+) -> bool {
+    let Some(object) = schema.as_object() else {
+        return false;
+    };
+    if object.keys().any(|key| {
+        !matches!(
+            key.as_str(),
+            "anyOf"
+                | "oneOf"
+                | "title"
+                | "description"
+                | "deprecated"
+                | "example"
+                | "examples"
+                | "default"
+        )
+    }) {
+        return false;
+    }
+    let Some(branches) = object
+        .get("oneOf")
+        .or_else(|| object.get("anyOf"))
+        .and_then(Value::as_array)
+        .filter(|branches| branches.len() >= 2)
+    else {
+        return false;
+    };
+    let Some(variants) = bindings.enums.get(raw_union) else {
+        return false;
+    };
+    if variants.len() != branches.len() || variants.iter().any(|variant| variant.payload.is_none())
+    {
+        return false;
+    }
+    let mut used = BTreeSet::new();
+    let matched = branches.iter().all(|branch| {
+        let Some(items) = branch
+            .as_object()
+            .filter(|object| {
+                object.get("type").and_then(Value::as_str) == Some("array")
+                    && object.keys().all(|key| {
+                        matches!(
+                            key.as_str(),
+                            "type" | "items" | "title" | "description" | "deprecated"
+                        )
+                    })
+            })
+            .and_then(|object| object.get("items"))
+        else {
+            return false;
+        };
+        let matches = variants
+            .iter()
+            .enumerate()
+            .filter(|(_, variant)| {
+                let Some(payload) = variant.payload.as_deref() else {
+                    return false;
+                };
+                let mut current = payload.to_owned();
+                let mut seen = BTreeSet::new();
+                while let Some(alias) = bindings.aliases.get(&current) {
+                    if !seen.insert(current.clone()) {
+                        return false;
+                    }
+                    current = alias.clone();
+                }
+                let Ok(syntax) = parse_type(&current) else {
+                    return false;
+                };
+                let Some(inner) = syntax.unary("Vec") else {
+                    return false;
+                };
+                if let Some(reference) = ref_name(items) {
+                    return (inner.spelling == reference
+                        && (bindings.structs.contains_key(reference)
+                            || bindings.enums.contains_key(reference)
+                            || bindings.aliases.contains_key(reference)))
+                        || request_object_matches(openapi, reference, &inner.spelling, bindings);
+                }
+                canonical_unconstrained_map_branch(items, &inner.spelling, bindings)
+                    || rust_type_matches_schema(items, &inner.spelling, bindings)
+            })
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        matches.len() == 1 && used.insert(matches[0])
+    });
+    matched && used.len() == variants.len()
+}
+
 /// Normalize an exactly nullable two-branch request union. We do not drop
 /// additional constraints or pretend that the null variant is an enum payload.
 pub(crate) fn nullable_request_union(schema: &Value) -> Option<Value> {
@@ -1696,6 +1795,119 @@ mod transparent_box_tests {
             &index,
             &schema,
             "RecursiveUnion",
+            &bindings
+        ));
+    }
+}
+
+#[cfg(test)]
+mod referenced_array_union_tests {
+    use super::*;
+    use crate::contracts::OpenApi;
+
+    fn fixture() -> (OpenApiIndex, Bindings, Value) {
+        let openapi = OpenApi(serde_json::json!({
+            "openapi": "3.1.0",
+            "components": {"schemas": {
+                "WireGroup": {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}},
+                    "required": ["name"]
+                },
+                "WireOther": {
+                    "type": "object",
+                    "properties": {"ready": {"type": "boolean"}},
+                    "required": ["ready"]
+                }
+            }}
+        }));
+        let index = OpenApiIndex::new(&openapi).expect("index");
+        let bindings = serde_json::from_value(serde_json::json!({
+            "schema_version": 3,
+            "structs": {
+                "OpaqueGroup": [{"name": "name", "type": "String"}],
+                "OpaqueOther": [{"name": "ready", "type": "bool"}],
+                "OpaqueMap": [{
+                    "name": "additional_properties",
+                    "type": "std::collections::BTreeMap<String, serde_json::Value>"
+                }]
+            },
+            "enums": {
+                "OpaqueUnion": [
+                    {"name": "Group", "payload": "GroupArray"},
+                    {"name": "Other", "payload": "OtherArray"},
+                    {"name": "Map", "payload": "MapArray"}
+                ]
+            },
+            "aliases": {
+                "GroupArray": "Vec<OpaqueGroup>",
+                "OtherArray": "Vec<OpaqueOther>",
+                "MapArray": "Vec<OpaqueMap>"
+            },
+            "operations": {},
+            "symbol_paths": {
+                "OpaqueGroup": "crate::raw::OpaqueGroup",
+                "OpaqueOther": "crate::raw::OpaqueOther",
+                "OpaqueMap": "crate::raw::OpaqueMap",
+                "OpaqueUnion": "crate::raw::OpaqueUnion",
+                "GroupArray": "crate::raw::GroupArray",
+                "OtherArray": "crate::raw::OtherArray",
+                "MapArray": "crate::raw::MapArray"
+            },
+            "binding": {"client": {
+                "type_path": "crate::raw::Client",
+                "constructor": "new",
+                "api_key_builder": "with_api_key",
+                "base_url_builder": "with_base_url"
+            }, "type_preludes": []}
+        }))
+        .expect("bindings");
+        let response = serde_json::json!({
+            "anyOf": [
+                {"type": "array", "items": {"$ref": "#/components/schemas/WireGroup"}},
+                {"type": "array", "items": {"$ref": "#/components/schemas/WireOther"}},
+                {"type": "array", "items": {"type": "object", "additionalProperties": true}}
+            ],
+            "title": "Array union"
+        });
+        (index, bindings, response)
+    }
+
+    #[test]
+    fn proves_renamed_reference_and_canonical_raw_map_array_bijectively() {
+        let (openapi, bindings, schema) = fixture();
+        assert!(response_array_union_matches(
+            &openapi,
+            &schema,
+            "OpaqueUnion",
+            &bindings
+        ));
+    }
+
+    #[test]
+    fn rejects_ambiguous_or_drifted_array_payloads_and_extra_constraints() {
+        let (openapi, bindings, mut schema) = fixture();
+        schema["anyOf"][1]["items"] = schema["anyOf"][0]["items"].clone();
+        assert!(!response_array_union_matches(
+            &openapi,
+            &schema,
+            "OpaqueUnion",
+            &bindings
+        ));
+        let (openapi, mut bindings, schema) = fixture();
+        bindings.structs.get_mut("OpaqueGroup").expect("group")[0].type_name = "bool".into();
+        assert!(!response_array_union_matches(
+            &openapi,
+            &schema,
+            "OpaqueUnion",
+            &bindings
+        ));
+        let (openapi, bindings, mut schema) = fixture();
+        schema["anyOf"][0]["minItems"] = serde_json::json!(1);
+        assert!(!response_array_union_matches(
+            &openapi,
+            &schema,
+            "OpaqueUnion",
             &bindings
         ));
     }
