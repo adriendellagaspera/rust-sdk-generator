@@ -540,3 +540,144 @@ fn derives_nested_all_of_request_objects_by_composed_wire_shape() {
         DerivationStatus::Rejected
     );
 }
+
+#[test]
+fn derives_nullable_union_of_named_object_and_canonical_raw_json_map() {
+    let (mut openapi, mut bindings, surface) = fixture();
+    openapi.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["input"] =
+        serde_json::json!({
+            "anyOf": [
+                {"$ref": "#/components/schemas/WidgetMetadata"},
+                {"type": "object", "additionalProperties": true},
+                {"type": "null"}
+            ],
+            "title": "Optional input"
+        });
+    bindings
+        .structs
+        .get_mut("OpaqueRequest9")
+        .expect("request")
+        .push(rust_sdk_generator::FieldBinding {
+            name: "input".into(),
+            wire_name: Some("input".into()),
+            type_name: "Option<Option<OpaqueInputUnion>>".into(),
+        });
+    bindings.enums.insert(
+        "OpaqueInputUnion".into(),
+        serde_json::from_value(serde_json::json!([
+            {"name": "Known", "payload": "OpaqueMeta7", "wire_name": null},
+            {"name": "Other", "payload": "OpaqueFreeForm4", "wire_name": null}
+        ]))
+        .expect("opaque union"),
+    );
+    bindings.structs.insert(
+        "OpaqueFreeForm4".into(),
+        serde_json::from_value(serde_json::json!([
+            {"name": "additional_properties", "wire_name": null,
+             "type": "std::collections::BTreeMap<String, serde_json::Value>"}
+        ]))
+        .expect("canonical flattened map"),
+    );
+    bindings.symbol_paths.insert(
+        "OpaqueInputUnion".into(),
+        "crate::generated::types::OpaqueInputUnion".into(),
+    );
+    bindings.symbol_paths.insert(
+        "OpaqueFreeForm4".into(),
+        "crate::generated::types::OpaqueFreeForm4".into(),
+    );
+
+    let derived = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface: surface.clone(),
+        overrides: SdkOverrides::default(),
+    })
+    .expect("nullable union derivation");
+    assert_eq!(
+        derived.report.operations["create_widget"].status,
+        DerivationStatus::Derived
+    );
+    let root = &derived.definition.models["CreatePlatformWidgetsRequest"];
+    assert!(
+        root.adapters
+            .as_ref()
+            .is_none_or(|adapters| !adapters.contains_key("input"))
+    );
+    let generated = generate(GenerateInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        definition: derived.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("raw union wrapper generation");
+    assert!(generated.files["facade_types.rs"].contains("pub fn input("));
+
+    let mut wrong_map = bindings.clone();
+    wrong_map
+        .structs
+        .get_mut("OpaqueFreeForm4")
+        .expect("map")[0]
+        .type_name = "std::collections::BTreeMap<String, String>".into();
+    let rejected = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: wrong_map,
+        surface: surface.clone(),
+        overrides: SdkOverrides::default(),
+    })
+    .expect("strict map proof");
+    assert_eq!(
+        rejected.report.operations["create_widget"].status,
+        DerivationStatus::Rejected
+    );
+
+    let mut wrong_depth = bindings.clone();
+    wrong_depth
+        .structs
+        .get_mut("OpaqueRequest9")
+        .expect("request")
+        .last_mut()
+        .expect("input")
+        .type_name = "Option<OpaqueInputUnion>".into();
+    let rejected = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: wrong_depth,
+        surface: surface.clone(),
+        overrides: SdkOverrides::default(),
+    })
+    .expect("strict nullable depth");
+    assert_eq!(
+        rejected.report.operations["create_widget"].status,
+        DerivationStatus::Rejected
+    );
+
+    let mut extra_constraint = openapi.clone();
+    extra_constraint.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["input"]
+        ["additionalProperties"] = serde_json::json!(false);
+    let rejected = derive(DeriveInput {
+        openapi: extra_constraint,
+        bindings: bindings.clone(),
+        surface: surface.clone(),
+        overrides: SdkOverrides::default(),
+    })
+    .expect("strict nullable composition");
+    assert_eq!(
+        rejected.report.operations["create_widget"].status,
+        DerivationStatus::Rejected
+    );
+
+    let mut second_null = openapi;
+    second_null.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["input"]
+        ["anyOf"][1] = serde_json::json!({"type": "null"});
+    let rejected = derive(DeriveInput {
+        openapi: second_null,
+        bindings,
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("strict union alternatives");
+    assert_eq!(
+        rejected.report.operations["create_widget"].status,
+        DerivationStatus::Rejected
+    );
+}
