@@ -36,6 +36,19 @@ fn derives_and_generates_canonical_json_and_empty_representations() {
     assert_eq!(read.reason.code, "inference.structurally_proven");
     assert_eq!(read.binding.as_deref(), Some("raw_read_report"));
 
+    let marker = &derivation.report.operations["read_marker"];
+    assert_eq!(marker.status, DerivationStatus::Derived);
+    assert_eq!(marker.reason.code, "inference.structurally_proven");
+    assert_eq!(marker.binding.as_deref(), Some("raw_read_marker"));
+    let marker_response = &derivation.definition.models["MarkerReportsResponse"];
+    assert_eq!(marker_response.raw.as_deref(), Some("Marker"));
+    assert!(
+        marker_response
+            .accessors
+            .as_ref()
+            .is_some_and(indexmap::IndexMap::is_empty)
+    );
+
     let purge = &derivation.report.operations["purge_reports"];
     assert_eq!(purge.status, DerivationStatus::Derived);
     assert_eq!(purge.reason.code, "inference.structurally_proven");
