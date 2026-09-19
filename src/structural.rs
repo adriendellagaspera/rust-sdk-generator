@@ -1569,3 +1569,103 @@ mod recursive_union_type_tests {
         assert!(!rust_type_matches_schema(&schema, "ItemUnion", &bindings()));
     }
 }
+
+#[cfg(test)]
+mod transparent_box_tests {
+    use super::*;
+    use crate::contracts::OpenApi;
+
+    fn fixture() -> (OpenApiIndex, Bindings) {
+        let openapi = OpenApi(serde_json::json!({
+            "openapi": "3.1.0",
+            "components": {
+                "schemas": {
+                    "Group": {
+                        "type": "object",
+                        "properties": {}
+                    },
+                    "Condition": {
+                        "type": "object",
+                        "properties": {}
+                    }
+                }
+            }
+        }));
+        let index = OpenApiIndex::new(&openapi).expect("OpenAPI index");
+        let bindings = serde_json::from_value(serde_json::json!({
+            "schema_version": 3,
+            "structs": {
+                "Group": [],
+                "Condition": []
+            },
+            "enums": {
+                "RecursiveUnion": [
+                    {"name": "Group", "payload": "Box<Group>"},
+                    {"name": "Condition", "payload": "Condition"}
+                ]
+            },
+            "aliases": {},
+            "operations": {},
+            "symbol_paths": {
+                "Group": "crate::generated::types::Group",
+                "Condition": "crate::generated::types::Condition",
+                "RecursiveUnion": "crate::generated::types::RecursiveUnion"
+            },
+            "binding": {
+                "client": {
+                    "type_path": "crate::generated::Client",
+                    "constructor": "new",
+                    "api_key_builder": "with_api_key",
+                    "base_url_builder": "with_base_url"
+                },
+                "type_preludes": []
+            }
+        }))
+        .expect("boxed binding fixture");
+        (index, bindings)
+    }
+
+    #[test]
+    fn box_is_transparent_for_referenced_wire_identity() {
+        let (_, bindings) = fixture();
+        let schema = serde_json::json!({"$ref": "#/components/schemas/Group"});
+        assert!(rust_type_matches_schema(&schema, "Box<Group>", &bindings));
+    }
+
+    #[test]
+    fn boxed_recursive_union_payload_matches_referenced_branch() {
+        let (index, bindings) = fixture();
+        let schema = serde_json::json!({
+            "anyOf": [
+                {"$ref": "#/components/schemas/Group"},
+                {"$ref": "#/components/schemas/Condition"}
+            ]
+        });
+        assert!(request_union_matches(
+            &index,
+            &schema,
+            "RecursiveUnion",
+            &bindings
+        ));
+    }
+
+    #[test]
+    fn boxed_recursive_union_still_requires_bijective_payloads() {
+        let (index, mut bindings) = fixture();
+        bindings.enums.get_mut("RecursiveUnion").expect("union")[1].payload =
+            Some("Box<Group>".into());
+        let schema = serde_json::json!({
+            "anyOf": [
+                {"$ref": "#/components/schemas/Group"},
+                {"$ref": "#/components/schemas/Condition"}
+            ]
+        });
+        assert!(!request_union_matches(
+            &index,
+            &schema,
+            "RecursiveUnion",
+            &bindings
+        ));
+    }
+}
+
