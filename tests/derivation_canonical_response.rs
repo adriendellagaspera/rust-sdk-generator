@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use rust_sdk_generator::{
-    Bindings, DerivationStatus, DeriveInput, GenerateInput, OpenApi, PublicSdkSurface, Runtime,
-    OperationOverride, ResponseRepresentationDefinition, SdkOverrides, derive, generate,
+    Bindings, DerivationStatus, DeriveInput, GenerateInput, OpenApi, OperationOverride,
+    PublicSdkSurface, ResponseRepresentationDefinition, Runtime, SdkOverrides, derive, generate,
 };
 
 fn fixture() -> (OpenApi, Bindings, PublicSdkSurface) {
@@ -248,7 +248,10 @@ fn multi_representation_overrides() -> SdkOverrides {
         OperationOverride {
             request_overrides: BTreeMap::new(),
             response_representations: BTreeMap::from([
-                ("reports.current".into(), ResponseRepresentationDefinition::Json),
+                (
+                    "reports.current".into(),
+                    ResponseRepresentationDefinition::Json,
+                ),
                 (
                     "reports.current_empty".into(),
                     ResponseRepresentationDefinition::Empty,
@@ -296,11 +299,17 @@ fn selects_each_public_call_shape_by_canonical_representation() {
         operation.public_bindings,
         BTreeMap::from([
             ("reports.current".into(), "raw_read_report".into()),
-            ("reports.current_empty".into(), "raw_read_report_empty".into()),
+            (
+                "reports.current_empty".into(),
+                "raw_read_report_empty".into()
+            ),
         ])
     );
     let reports = &derived.definition.resources["reports"].operations;
-    assert_eq!(reports["current"].raw_method.as_deref(), Some("raw_read_report"));
+    assert_eq!(
+        reports["current"].raw_method.as_deref(),
+        Some("raw_read_report")
+    );
     assert_eq!(
         reports["current_empty"].raw_method.as_deref(),
         Some("raw_read_report_empty")
@@ -315,9 +324,10 @@ fn selects_each_public_call_shape_by_canonical_representation() {
     })
     .expect("explicit representation lowering");
     assert!(
-        generated.files.values().any(|source| {
-            source.contains("self.raw.raw_read_report_empty(")
-        })
+        generated
+            .files
+            .values()
+            .any(|source| { source.contains("self.raw.raw_read_report_empty(") })
     );
 }
 
@@ -325,9 +335,15 @@ fn selects_each_public_call_shape_by_canonical_representation() {
 fn rejects_unknown_or_unavailable_public_transport_decisions() {
     let (openapi, bindings, surface) = canonical_multi_representation_fixture();
     let mut overrides = multi_representation_overrides();
-    overrides.operations.get_mut("read_report").expect("override")
+    overrides
+        .operations
+        .get_mut("read_report")
+        .expect("override")
         .response_representations
-        .insert("reports.unknown".into(), ResponseRepresentationDefinition::Text);
+        .insert(
+            "reports.unknown".into(),
+            ResponseRepresentationDefinition::Text,
+        );
     let error = derive(DeriveInput {
         openapi: openapi.clone(),
         bindings: bindings.clone(),
@@ -338,9 +354,15 @@ fn rejects_unknown_or_unavailable_public_transport_decisions() {
     assert_eq!(error.diagnostic.code, "overrides.unknown_public_path");
 
     let mut overrides = multi_representation_overrides();
-    overrides.operations.get_mut("read_report").expect("override")
+    overrides
+        .operations
+        .get_mut("read_report")
+        .expect("override")
         .response_representations
-        .insert("reports.current".into(), ResponseRepresentationDefinition::Text);
+        .insert(
+            "reports.current".into(),
+            ResponseRepresentationDefinition::Text,
+        );
     let error = derive(DeriveInput {
         openapi,
         bindings,
@@ -362,10 +384,9 @@ fn lowering_refuses_selected_transport_drift() {
     })
     .expect("derive");
 
-    openapi.0["paths"]["/reports/current"]["get"]["responses"]["204"]["content"] =
-        serde_json::json!({"application/json": {
-            "schema": {"$ref": "#/components/schemas/Report"}
-        }});
+    openapi.0["paths"]["/reports/current"]["get"]["responses"]["204"]["content"] = serde_json::json!({"application/json": {
+        "schema": {"$ref": "#/components/schemas/Report"}
+    }});
     let error = generate(GenerateInput {
         openapi,
         bindings,
