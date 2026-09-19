@@ -2105,30 +2105,40 @@ pub(crate) fn lower(
                     .find(|model| model.name == request)
                     .expect("known model");
                 let model_definition = &definition.models[request];
-                let schema_name = model_definition
-                    .schema
-                    .as_deref()
-                    .unwrap_or(model.raw.as_str());
                 let configured_media = item.request_media.unwrap_or(RequestMediaDefinition::Json);
-                let body = index
-                    .structured_request_body(operation_id)?
-                    .ok_or_else(|| {
-                        error(
+                let request_matches = if let Some(schema_name) = model_definition.schema.as_deref() {
+                    let body = index
+                        .structured_request_body(operation_id)?
+                        .ok_or_else(|| {
+                            error(
+                                "lower.request_media_drift",
+                                format!("structured request media drift for {operation_id}"),
+                            )
+                        })?;
+                    if body.media != configured_media {
+                        return Err(error(
                             "lower.request_media_drift",
                             format!("structured request media drift for {operation_id}"),
-                        )
-                    })?;
-                if body.media != configured_media {
-                    return Err(error(
-                        "lower.request_media_drift",
-                        format!("structured request media drift for {operation_id}"),
-                    ));
-                }
-                let request_matches = if model_definition.schema.is_some() {
+                        ));
+                    }
                     body.schema == schema_name
                         && request_object_matches(&index, schema_name, &model.raw, bindings)
                 } else {
-                    body.schema == model.raw
+                    let body = index
+                        .inline_structured_request_body(operation_id)?
+                        .ok_or_else(|| {
+                            error(
+                                "lower.request_media_drift",
+                                format!("inline structured request media drift for {operation_id}"),
+                            )
+                        })?;
+                    if body.media != configured_media {
+                        return Err(error(
+                            "lower.request_media_drift",
+                            format!("inline structured request media drift for {operation_id}"),
+                        ));
+                    }
+                    object_value_matches(&index, &body.schema, &model.raw, bindings)
                 };
                 if !request_matches {
                     return Err(error(
