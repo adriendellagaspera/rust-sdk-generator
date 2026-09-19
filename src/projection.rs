@@ -709,11 +709,22 @@ fn inline_array_response_model(
         return Err("capability.public_model_name_collision");
     }
 
-    if let Some(raw_item) = inline_array_object_item(schema, raw, bindings) {
-        let items = schema.get("items").ok_or(RESPONSE_VIEW_UNPROVEN)?;
+    let items = schema.get("items").ok_or(RESPONSE_VIEW_UNPROVEN)?;
+    let inline_item = inline_array_object_item(schema, raw, bindings);
+    let named_item = ref_name(items).filter(|reference| bindings.structs.contains_key(*reference));
+    if let Some(raw_item) = inline_item.as_deref().or(named_item) {
         let item_name = format!("{name}Item");
-        let (_, mut item_model) =
-            inline_response_view_named(openapi, bindings, items, &raw_item, item_name.clone())?;
+        let (_, mut item_model) = if inline_item.is_some() {
+            inline_response_view_named(openapi, bindings, items, raw_item, item_name.clone())?
+        } else {
+            response_view_for_schema_named(
+                openapi,
+                bindings,
+                raw_item,
+                raw_item,
+                item_name.clone(),
+            )?
+        };
         item_model.borrowed = Some(true);
 
         let mut accessors = IndexMap::new();

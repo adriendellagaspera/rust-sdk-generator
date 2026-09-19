@@ -104,3 +104,83 @@ fn rejects_ambiguous_inline_array_bindings_without_name_identity() {
         "bindings.source_operation_identity_required"
     );
 }
+
+#[test]
+fn wraps_referenced_array_items_without_leaking_generated_rust_symbols() {
+    let (mut openapi, mut bindings, surface) = fixture();
+    openapi.0["components"] = serde_json::json!({
+        "schemas": {
+            "Record": {
+                "type": "object",
+                "properties": {"name": {"type": "string"}},
+                "required": ["name"]
+            }
+        }
+    });
+    openapi.0["paths"]["/reports/tags"]["get"]["responses"]["200"]["content"]["application/json"]
+        ["schema"]["items"] = serde_json::json!({"$ref": "#/components/schemas/Record"});
+    bindings
+        .aliases
+        .insert("OpaqueList7".into(), "Vec<Record>".into());
+    bindings.structs.insert(
+        "Record".into(),
+        vec![rust_sdk_generator::FieldBinding {
+            name: "name".into(),
+            wire_name: Some("name".into()),
+            type_name: "String".into(),
+        }],
+    );
+    bindings
+        .symbol_paths
+        .insert("Record".into(), "crate::generated::types::Record".into());
+
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive referenced array view");
+    assert_eq!(
+        derivation.report.operations["read_inline_tags"].status,
+        DerivationStatus::Derived
+    );
+    let response = &derivation.definition.models["TagsReportsResponse"];
+    assert_eq!(response.type_alias, None);
+    assert_eq!(response.borrowed, Some(false));
+    assert!(
+        response
+            .accessors
+            .as_ref()
+            .expect("iter accessor")
+            .contains_key("iter")
+    );
+    let item = &derivation.definition.models["TagsReportsResponseItem"];
+    assert_eq!(item.raw.as_deref(), Some("Record"));
+    assert_eq!(item.borrowed, Some(true));
+
+    let generated = generate(GenerateInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        definition: derivation.definition.clone(),
+        runtime: Runtime::default(),
+    })
+    .expect("referenced array view lowers");
+    let types = &generated.files["facade_types.rs"];
+    assert!(types.contains("pub struct TagsReportsResponse { raw: OpaqueList7 }"));
+    assert!(types.contains("pub struct TagsReportsResponseItem<'a>"));
+    assert!(!types.contains("pub type TagsReportsResponse = Vec<Record>;"));
+
+    openapi.0["paths"]["/reports/tags"]["get"]["responses"]["200"]["content"]["application/json"]
+        ["schema"]["items"] = serde_json::json!({"$ref": "#/components/schemas/OtherRecord"});
+    assert!(
+        generate(GenerateInput {
+            openapi,
+            bindings,
+            definition: derivation.definition,
+            runtime: Runtime::default(),
+        })
+        .is_err(),
+        "lowering must reject a drifted referenced item"
+    );
+}
