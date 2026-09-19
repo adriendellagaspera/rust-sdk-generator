@@ -41,6 +41,7 @@ enum ResponseShape {
     JsonRef(String),
     JsonUnion(BTreeSet<String>),
     JsonInlineObjectUnion(Value),
+    JsonRecursiveUnion(Value),
     JsonObject(BTreeMap<String, ScalarFieldShape>),
     JsonArray(Value),
     Binary,
@@ -261,6 +262,11 @@ fn response_shape(operation: &Value) -> std::result::Result<ResponseShape, &'sta
         {
             return Ok(ResponseShape::JsonInlineObjectUnion(schema.clone()));
         }
+        if branches.len() >= 2 {
+            // Non-object unions are eligible for reconciliation only when
+            // the complete recursive Rust payload mapping proves the wire shape.
+            return Ok(ResponseShape::JsonRecursiveUnion(schema.clone()));
+        }
         if let Some(fields) = scalar_object_shape(schema) {
             return Ok(ResponseShape::JsonObject(fields));
         }
@@ -458,6 +464,11 @@ fn response_matches(
             .unwrap_or(false),
         ResponseShape::JsonInlineObjectUnion(schema) => {
             inline_object_union_mapping(schema, &binding.success_type, bindings).is_some()
+                || rust_type_matches_schema(schema, &binding.success_type, bindings)
+        }
+        ResponseShape::JsonRecursiveUnion(schema) => {
+            bindings.enums.contains_key(&binding.success_type)
+                && rust_type_matches_schema(schema, &binding.success_type, bindings)
         }
         ResponseShape::JsonObject(fields) => {
             raw_scalar_struct_shape(bindings, &binding.success_type)

@@ -1341,6 +1341,12 @@ fn response_matches(
     if !branches.is_empty() && inline_object_union_mapping(schema, raw, bindings).is_some() {
         return Ok(true);
     }
+    if !branches.is_empty()
+        && bindings.enums.contains_key(raw)
+        && rust_type_matches_schema(schema, raw, bindings)
+    {
+        return Ok(true);
+    }
     if let Some(wire) = scalar_object_shape(schema) {
         return Ok(
             raw_scalar_struct_shape(bindings, raw).is_some_and(|actual| actual == wire)
@@ -1921,7 +1927,16 @@ pub(crate) fn lower(
         } else if config.scalar_enum.is_some() {
             ModelRenderSpec::ScalarEnum(resolve_scalar_enum(&raw, config, &index, bindings)?)
         } else if config.accessors.is_some() {
-            if !bindings.aliases.contains_key(&raw) {
+            if bindings.enums.contains_key(&raw) {
+                // A structurally verified union can be kept as an opaque owned
+                // view. Do not pretend its variants are ordinary struct fields.
+                if !config.accessors.as_ref().is_some_and(IndexMap::is_empty) {
+                    return Err(error(
+                        "lower.raw_union_view_accessors",
+                        format!("raw union {raw} cannot expose struct-field accessors"),
+                    ));
+                }
+            } else if !bindings.aliases.contains_key(&raw) {
                 let _ = bindings.fields(&raw)?;
             }
             ModelRenderSpec::View(resolve_view(&raw, config, bindings)?)

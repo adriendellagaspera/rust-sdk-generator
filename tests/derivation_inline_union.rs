@@ -195,3 +195,91 @@ fn rejects_inline_union_public_model_name_collision() {
         "capability.public_model_name_collision"
     );
 }
+
+#[test]
+fn preserves_recursive_inline_union_as_owned_raw_view() {
+    let (mut openapi, mut bindings, surface) = fixture();
+    openapi.0["paths"]["/events/latest"]["get"]["responses"]["200"]["content"]["application/json"]
+        ["schema"] = serde_json::json!({
+        "anyOf": [
+            {"type": "array", "items": {"type": "string"}},
+            {"type": "array", "items": {"type": "integer"}}
+        ],
+        "title": "Recursive inline union"
+    });
+    bindings.structs.remove("OpaquePayload17");
+    bindings.structs.remove("OpaquePayload42");
+    bindings
+        .aliases
+        .insert("OpaqueList17".into(), "Vec<String>".into());
+    bindings
+        .aliases
+        .insert("OpaqueList42".into(), "Vec<i64>".into());
+    let variants = bindings.enums.get_mut("OpaqueUnion3").expect("raw union");
+    for variant in variants {
+        variant.payload = Some(
+            match variant.name.as_str() {
+                "RawA" => "OpaqueList17",
+                "RawB" => "OpaqueList42",
+                other => panic!("unexpected raw variant {other}"),
+            }
+            .into(),
+        );
+    }
+    bindings.symbol_paths.remove("OpaquePayload17");
+    bindings.symbol_paths.remove("OpaquePayload42");
+    bindings.symbol_paths.insert(
+        "OpaqueList17".into(),
+        "crate::generated::types::OpaqueList17".into(),
+    );
+    bindings.symbol_paths.insert(
+        "OpaqueList42".into(),
+        "crate::generated::types::OpaqueList42".into(),
+    );
+
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive recursive inline union");
+
+    assert_eq!(
+        derivation.report.operations["read_latest_event"].status,
+        DerivationStatus::Derived
+    );
+    let response = &derivation.definition.models["LatestEventsResponse"];
+    assert_eq!(response.raw.as_deref(), Some("OpaqueUnion3"));
+    assert!(response.simple_union.is_none());
+    assert_eq!(response.borrowed, Some(false));
+    assert!(
+        response
+            .accessors
+            .as_ref()
+            .is_some_and(indexmap::IndexMap::is_empty)
+    );
+
+    let definition = derivation.definition.clone();
+    let generated = generate(GenerateInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        definition: derivation.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("recursive inline union raw view generates");
+    let types = &generated.files["facade_types.rs"];
+    assert!(types.contains("pub struct LatestEventsResponse { raw: OpaqueUnion3 }"));
+    assert!(!types.contains("pub enum LatestEventsResponse"));
+
+    openapi.0["paths"]["/events/latest"]["get"]["responses"]["200"]["content"]["application/json"]
+        ["schema"]["anyOf"][1]["items"] = serde_json::json!({"type": "boolean"});
+    let error = generate(GenerateInput {
+        openapi,
+        bindings,
+        definition,
+        runtime: Runtime::default(),
+    })
+    .expect_err("recursive inline union drift must fail lowering");
+    assert_eq!(error.diagnostic.code, "lower.response_drift");
+}
