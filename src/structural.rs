@@ -900,7 +900,9 @@ pub(crate) fn constant_enum_response_object_matches(
     let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
         return false;
     };
-    if schema.get("additionalProperties").is_some_and(|extra| extra != false) {
+    if schema
+        .get("additionalProperties")
+        .is_some_and(|extra| extra != &Value::Bool(false)) {
         return false;
     }
     let Some(fields) = bindings.structs.get(raw) else {
