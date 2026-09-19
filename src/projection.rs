@@ -327,12 +327,17 @@ fn request_object_models_value(
                 ) {
                     return Err(REQUEST_MODEL_UNPROVEN);
                 }
-            } else if referenced.get("properties").is_some()
-                && !flattened_json_response_object_matches(
-                    referenced,
-                    &core.spelling,
-                    context.bindings,
-                )
+            } else if context
+                .openapi
+                .object_schema(reference)
+                .ok()
+                .is_some_and(|composed| {
+                    !flattened_json_response_object_matches(
+                        &composed,
+                        &core.spelling,
+                        context.bindings,
+                    )
+                })
             {
                 models.extend(request_object_models(
                     context.openapi,
