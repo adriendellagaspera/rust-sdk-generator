@@ -1477,17 +1477,25 @@ fn event_stream_projection(
         .filter(|raw| scalar_named_object_matches(openapi, first, raw, bindings))
         .cloned()
         .collect::<Vec<_>>();
-    if raw_candidates.len() != 1 {
+    let raw_item = if raw_candidates.len() == 1 {
+        raw_candidates[0].clone()
+    } else if raw_candidates.is_empty()
+        && bindings.structs.contains_key(first)
+        && openapi.object_schema(first).ok().is_some_and(|schema| {
+            object_field_names_match(&schema, first, bindings)
+        })
+    {
+        first.clone()
+    } else {
         return Err("capability.event_stream_payload_not_structurally_provable");
-    }
-    let raw_item = &raw_candidates[0];
+    };
     let wrapper = stream_item_model_name(resource_path, public_name);
     let (_, wrapper_model) =
-        response_view_for_schema_named(openapi, bindings, first, raw_item, wrapper.clone())?;
+        response_view_for_schema_named(openapi, bindings, first, &raw_item, wrapper.clone())?;
 
     Ok(ProjectedResponse::Sse {
         stream: StreamDefinition {
-            item: raw_item.clone(),
+            item: raw_item,
             wrapper: Some(wrapper.clone()),
             type_name: stream_type_name(resource_path, public_name),
         },
