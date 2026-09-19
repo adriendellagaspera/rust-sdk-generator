@@ -362,3 +362,48 @@ fn preserves_nullable_depth_from_referenced_request_schema() {
     .expect_err("referenced nullable request drift must fail lowering");
     assert_eq!(error.diagnostic.code, "lower.request_drift");
 }
+
+#[test]
+fn derives_single_oneof_request_field_with_exact_branch() {
+    let (mut openapi, bindings, surface) = fixture();
+    *openapi
+        .0
+        .pointer_mut("/components/schemas/UpdateJobRequest/properties/priority")
+        .expect("priority schema") = serde_json::json!({
+        "oneOf": [{"type": "integer"}],
+        "title": "Priority"
+    });
+
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface: surface.clone(),
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive single oneOf property");
+    assert_eq!(
+        derivation.report.operations["revise_job"].status,
+        DerivationStatus::Derived
+    );
+    generate(GenerateInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        definition: derivation.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("lower exact single oneOf branch");
+
+    openapi.0["components"]["schemas"]["UpdateJobRequest"]["properties"]["priority"]["minimum"] =
+        serde_json::json!(0);
+    let rejected = derive(DeriveInput {
+        openapi,
+        bindings,
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("fail closed on unmodeled sibling validation constraint");
+    assert_eq!(
+        rejected.report.operations["revise_job"].status,
+        DerivationStatus::Rejected
+    );
+}
