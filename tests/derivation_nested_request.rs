@@ -171,3 +171,71 @@ fn rejects_recursive_named_request_shapes_deterministically() {
     assert_eq!(outcome.status, DerivationStatus::Rejected);
     assert_eq!(outcome.reason.code, "bindings.no_structural_match");
 }
+#[test]
+fn derives_annotation_only_json_request_field_without_guessing_a_scalar_type() {
+    let (mut openapi, mut bindings, surface) = fixture();
+    openapi.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["payload"] =
+        serde_json::json!({"title": "Payload", "description": "Arbitrary JSON"});
+    openapi.0["components"]["schemas"]["CreateWidgetRequest"]["required"]
+        .as_array_mut()
+        .expect("required fields")
+        .push(serde_json::json!("payload"));
+    bindings
+        .structs
+        .get_mut("OpaqueRequest9")
+        .expect("request fields")
+        .push(rust_sdk_generator::FieldBinding {
+            name: "payload".into(),
+            wire_name: Some("payload".into()),
+            type_name: "serde_json::Value".into(),
+        });
+
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive");
+    assert_eq!(
+        derivation.report.operations["create_widget"].status,
+        DerivationStatus::Derived
+    );
+    assert!(
+        generate(GenerateInput {
+            openapi,
+            bindings,
+            definition: derivation.definition,
+            runtime: Runtime::default(),
+        })
+        .is_ok()
+    );
+}
+
+#[test]
+fn rejects_typed_request_field_against_unconstrained_raw_json_value() {
+    let (mut openapi, mut bindings, surface) = fixture();
+    openapi.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["payload"] =
+        serde_json::json!({"type": "string"});
+    bindings
+        .structs
+        .get_mut("OpaqueRequest9")
+        .expect("request fields")
+        .push(rust_sdk_generator::FieldBinding {
+            name: "payload".into(),
+            wire_name: Some("payload".into()),
+            type_name: "serde_json::Value".into(),
+        });
+
+    let derivation = derive(DeriveInput {
+        openapi,
+        bindings,
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("closed-world derivation");
+    assert_eq!(
+        derivation.report.operations["create_widget"].status,
+        DerivationStatus::Rejected
+    );
+}
