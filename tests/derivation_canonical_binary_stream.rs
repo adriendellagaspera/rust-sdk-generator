@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use rust_sdk_generator::{
-    Bindings, DerivationStatus, DeriveInput, GenerateInput, OpenApi, PublicSdkSurface,
-    OperationOverride, ResponseRepresentationDefinition, Runtime, SdkOverrides, derive, generate,
+    Bindings, DerivationStatus, DeriveInput, GenerateInput, OpenApi, OperationOverride,
+    PublicSdkSurface, ResponseRepresentationDefinition, Runtime, SdkOverrides, derive, generate,
 };
 
 fn fixture() -> (OpenApi, Bindings, PublicSdkSurface) {
@@ -197,11 +197,15 @@ fn explicit_binary_transport_selection_is_not_inferred_from_public_names() {
         DerivationStatus::Overridden
     );
     assert_eq!(
-        derived.definition.resources["archives"].operations["download"].raw_method.as_deref(),
+        derived.definition.resources["archives"].operations["download"]
+            .raw_method
+            .as_deref(),
         Some("raw_archive_buffered_42")
     );
     assert_eq!(
-        derived.definition.resources["archives"].operations["live"].raw_method.as_deref(),
+        derived.definition.resources["archives"].operations["live"]
+            .raw_method
+            .as_deref(),
         Some("raw_archive_stream_41")
     );
 
