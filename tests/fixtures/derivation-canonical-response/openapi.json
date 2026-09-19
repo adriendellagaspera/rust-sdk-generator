@@ -50,6 +50,23 @@
           }
         }
       }
+    },
+    "/reports/marker": {
+      "get": {
+        "operationId": "read_marker",
+        "responses": {
+          "200": {
+            "description": "marker",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Marker"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -87,6 +104,22 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "Marker": {
+        "type": "object",
+        "required": [
+          "id",
+          "active"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "active": {
+            "type": "boolean"
           }
         }
       }
