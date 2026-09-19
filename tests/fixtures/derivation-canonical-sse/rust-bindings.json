@@ -2,16 +2,40 @@
   "schema_version": 3,
   "structs": {
     "OpaqueWatch8": [
-      {"name": "stream", "wire_name": "stream", "type": "Option<bool>"},
-      {"name": "prompt", "wire_name": "prompt", "type": "String"}
+      {
+        "name": "stream",
+        "wire_name": "stream",
+        "type": "Option<bool>"
+      },
+      {
+        "name": "prompt",
+        "wire_name": "prompt",
+        "type": "String"
+      }
     ],
     "OpaqueJobChunk4": [
-      {"name": "sequence", "wire_name": "sequence", "type": "i64"},
-      {"name": "message", "wire_name": "message", "type": "String"}
+      {
+        "name": "sequence",
+        "wire_name": "sequence",
+        "type": "i64"
+      },
+      {
+        "name": "message",
+        "wire_name": "message",
+        "type": "String"
+      }
     ],
     "OpaqueNotification6": [
-      {"name": "retryable", "wire_name": "retryable", "type": "Option<bool>"},
-      {"name": "code", "wire_name": "code", "type": "String"}
+      {
+        "name": "retryable",
+        "wire_name": "retryable",
+        "type": "Option<bool>"
+      },
+      {
+        "name": "code",
+        "wire_name": "code",
+        "type": "String"
+      }
     ]
   },
   "enums": {},
@@ -20,8 +44,14 @@
     "raw_watch_17": {
       "name": "raw_watch_17",
       "parameters": [
-        {"name": "request", "type": "OpaqueWatch8"},
-        {"name": "job_id", "type": "impl AsRef<str>"}
+        {
+          "name": "request",
+          "type": "OpaqueWatch8"
+        },
+        {
+          "name": "job_id",
+          "type": "impl AsRef<str>"
+        }
       ],
       "return_type": "Result<OpaqueByteStream9, Error>",
       "success_type": "OpaqueByteStream9",
@@ -42,11 +72,15 @@
           "kind": "event_stream",
           "media_type": "text/event-stream"
         },
-        "success_statuses": ["200"],
+        "success_statuses": [
+          "200"
+        ],
         "request_discriminators": [
           {
             "wire_name": "stream",
-            "rust_access_path": ["stream"],
+            "rust_access_path": [
+              "stream"
+            ],
             "rust_value_type": "Option<bool>",
             "value": true,
             "field_required": false,
@@ -66,7 +100,12 @@
     },
     "raw_notifications_31": {
       "name": "raw_notifications_31",
-      "parameters": [],
+      "parameters": [
+        {
+          "name": "last_event_id",
+          "type": "Option<impl AsRef<str>>"
+        }
+      ],
       "return_type": "Result<AnotherByteStream3, Error>",
       "success_type": "AnotherByteStream3",
       "stream": {
@@ -86,7 +125,10 @@
           "kind": "event_stream",
           "media_type": "text/event-stream"
         },
-        "success_statuses": ["200", "206"],
+        "success_statuses": [
+          "200",
+          "206"
+        ],
         "request_discriminators": [],
         "stream_abi": {
           "alias": "AnotherByteStream3",
@@ -111,6 +153,8 @@
       "api_key_builder": "with_api_key",
       "base_url_builder": "with_base_url"
     },
-    "type_preludes": ["crate::generated::types::*"]
+    "type_preludes": [
+      "crate::generated::types::*"
+    ]
   }
 }
