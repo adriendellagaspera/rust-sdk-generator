@@ -17,9 +17,9 @@ use crate::structural::{
     constant_enum_response_object_matches, flattened_json_response_object_matches,
     inline_object_union_mapping, multipart_filenames_binding, object_field_names_match,
     object_value_matches, plain_string_json_alias_matches, raw_scalar_struct_shape,
-    request_object_matches, request_optional_boolean_field, request_union_mapping,
-    rust_type_matches_schema, scalar_named_object_matches, scalar_object_shape,
-    sse_payload_schema_name,
+    request_object_matches_with_discriminators, request_optional_boolean_field,
+    request_union_mapping, rust_type_matches_schema, scalar_named_object_matches,
+    scalar_object_shape, sse_payload_schema_name,
 };
 use crate::symbols::{SymbolProvider, field_identifier};
 
@@ -2107,6 +2107,11 @@ pub(crate) fn lower(
                     .expect("known model");
                 let model_definition = &definition.models[request];
                 let configured_media = item.request_media.unwrap_or(RequestMediaDefinition::Json);
+                let request_discriminators = raw_operation
+                    .metadata
+                    .as_ref()
+                    .map(|metadata| metadata.request_discriminators.as_slice())
+                    .unwrap_or_default();
                 let request_matches = if let Some(schema_name) = model_definition.schema.as_deref()
                 {
                     let body = index
@@ -2124,7 +2129,13 @@ pub(crate) fn lower(
                         ));
                     }
                     body.schema == schema_name
-                        && request_object_matches(&index, schema_name, &model.raw, bindings)
+                        && request_object_matches_with_discriminators(
+                            &index,
+                            schema_name,
+                            &model.raw,
+                            bindings,
+                            request_discriminators,
+                        )
                 } else if let Some(body) = index.inline_structured_request_body(operation_id)? {
                     if body.media != configured_media {
                         return Err(error(
