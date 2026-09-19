@@ -494,7 +494,7 @@ fn request_union_matches_inner(
             if union_branches(referenced).is_some() {
                 return request_union_matches_inner(openapi, referenced, payload, bindings, seen);
             }
-            if referenced.get("properties").is_some() {
+            if openapi.object_schema(reference).is_ok() {
                 return request_object_matches_inner(openapi, reference, payload, bindings, seen);
             }
             return rust_type_matches_schema(referenced, payload, bindings);
@@ -630,7 +630,7 @@ fn request_object_value_matches(
                         bindings,
                         seen,
                     )
-            } else if referenced.get("properties").is_some() {
+            } else if openapi.object_schema(reference).is_ok() {
                 core.kind == TypeKind::Opaque
                     && request_object_matches_inner(
                         openapi,
