@@ -268,6 +268,7 @@ fn consumer_override_cannot_replace_canonical_discriminator() {
     overrides.operations.insert(
         "watch_job".into(),
         rust_sdk_generator::OperationOverride {
+            response_representations: Default::default(),
             request_overrides: std::collections::BTreeMap::from([("stream".into(), Some(false))]),
         },
     );
