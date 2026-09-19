@@ -804,10 +804,18 @@ fn unwrap_nullable_schema(schema: &Value) -> &Value {
     }
 }
 
-fn schema_at<'a>(openapi: &'a OpenApiIndex, root: &str, path: &[String]) -> Result<&'a Value> {
-    let mut schema = openapi.schema(root)?;
+fn schema_at(openapi: &OpenApiIndex, root: &str, path: &[String]) -> Result<Value> {
+    let source = openapi.schema(root)?;
+    // Projection can address fields contributed by allOf branches. Resolve
+    // the same composed root during lowering instead of walking a raw schema
+    // whose properties may be defined only in referenced sibling branches.
+    let mut schema = if source.get("allOf").is_some() || source.get("$ref").is_some() {
+        openapi.object_schema(root)?
+    } else {
+        source.clone()
+    };
     for segment in path {
-        schema = unwrap_nullable_schema(schema);
+        schema = unwrap_nullable_schema(&schema).clone();
         schema = if segment == "items" {
             schema.get("items")
         } else {
@@ -815,6 +823,7 @@ fn schema_at<'a>(openapi: &'a OpenApiIndex, root: &str, path: &[String]) -> Resu
                 .get("properties")
                 .and_then(|properties| properties.get(segment))
         }
+        .cloned()
         .ok_or_else(|| {
             error(
                 "lower.schema_path",
@@ -822,7 +831,7 @@ fn schema_at<'a>(openapi: &'a OpenApiIndex, root: &str, path: &[String]) -> Resu
             )
         })?;
     }
-    Ok(unwrap_nullable_schema(schema))
+    Ok(unwrap_nullable_schema(&schema).clone())
 }
 
 fn resolve_map(
@@ -1886,7 +1895,7 @@ pub(crate) fn lower(
                 let path = config.schema_path.as_deref().unwrap_or(&[]);
                 let schema = schema_at(&index, root, path)?;
                 let mapping =
-                    request_union_mapping(&index, schema, &raw, bindings).ok_or_else(|| {
+                    request_union_mapping(&index, &schema, &raw, bindings).ok_or_else(|| {
                         error(
                             "lower.request_union_drift",
                             format!("OpenAPI/raw request union drift for {raw}"),
