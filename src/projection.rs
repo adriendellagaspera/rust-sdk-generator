@@ -14,12 +14,12 @@ use crate::reconcile::unconstrained_json_alias_matches;
 use crate::rust_type::{Type, parse_type};
 use crate::structural::{
     ScalarFieldShape, ScalarKind as StructuralScalarKind, constant_enum_response_object_matches,
-    flattened_json_response_object_matches,
-    inline_array_object_item, inline_object_union_mapping, multipart_filenames_binding,
-    object_field_names_match, object_value_matches, plain_string_json_alias_matches,
-    raw_scalar_struct_shape, request_object_matches, request_optional_boolean_field,
-    request_union_mapping, request_union_matches, rust_type_matches_schema,
-    scalar_named_object_matches, scalar_object_shape, sse_payload_schema_name,
+    flattened_json_response_object_matches, inline_array_object_item, inline_object_union_mapping,
+    multipart_filenames_binding, object_field_names_match, object_value_matches,
+    plain_string_json_alias_matches, raw_scalar_struct_shape, request_object_matches,
+    request_optional_boolean_field, request_union_mapping, request_union_matches,
+    rust_type_matches_schema, scalar_named_object_matches, scalar_object_shape,
+    sse_payload_schema_name,
 };
 use crate::symbols::field_identifier;
 
