@@ -363,7 +363,6 @@ fn preserves_nullable_depth_from_referenced_request_schema() {
     assert_eq!(error.diagnostic.code, "lower.request_drift");
 }
 
-
 #[test]
 fn proves_renamed_request_field_by_exact_wire_name() {
     let (openapi, mut bindings, surface) = fixture();
