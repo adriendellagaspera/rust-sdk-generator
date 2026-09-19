@@ -111,7 +111,7 @@ fn request_shape(operation: &Value) -> std::result::Result<RequestShape, &'stati
         }
         if !matches!(
             parameter.get("in").and_then(Value::as_str),
-            Some("path") | Some("query")
+            Some("path") | Some("query") | Some("header")
         ) {
             return Err("request.parameter_binding_unsupported");
         }
