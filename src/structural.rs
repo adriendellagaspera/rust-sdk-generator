@@ -2,7 +2,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
-use crate::contracts::{Bindings, OperationBinding, OperationBindingKind};
+use crate::contracts::{
+    Bindings, OperationBinding, OperationBindingKind, RequestDiscriminatorBinding,
+    RequestDiscriminatorValue,
+};
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, TypeKind, parse_type};
 
@@ -848,6 +851,92 @@ pub(crate) fn request_object_matches(
     bindings: &Bindings,
 ) -> bool {
     request_object_matches_inner(openapi, schema_name, raw, bindings, &mut BTreeSet::new())
+}
+
+/// Prove a request object whose canonical call shape fixes optional Boolean
+/// discriminator fields to exact wire constants.
+///
+/// The ordinary structural proof remains authoritative. This fallback only
+/// removes a Boolean `const` or single-value Boolean `enum` after generator-
+/// owned operation metadata proves the same field/value and the raw request
+/// exposes exactly `Option<bool>`. Every other request field is then checked
+/// by the normal recursive structural matcher.
+pub(crate) fn request_object_matches_with_discriminators(
+    openapi: &OpenApiIndex,
+    schema_name: &str,
+    raw: &str,
+    bindings: &Bindings,
+    discriminators: &[RequestDiscriminatorBinding],
+) -> bool {
+    if request_object_matches(openapi, schema_name, raw, bindings) {
+        return true;
+    }
+    if discriminators.is_empty() {
+        return false;
+    }
+
+    let Ok(mut schema) = openapi.object_schema(schema_name) else {
+        return false;
+    };
+    let Some(properties) = schema.get_mut("properties").and_then(Value::as_object_mut) else {
+        return false;
+    };
+
+    let mut normalized = false;
+    let mut seen = BTreeSet::new();
+    for discriminator in discriminators {
+        if discriminator.rust_access_path.len() != 1
+            || discriminator.field_required
+            || discriminator.field_nullable
+            || discriminator.field_tri_state
+            || !matches!(
+                discriminator.rust_value_type.as_str(),
+                "bool" | "Option<bool>"
+            )
+        {
+            return false;
+        }
+        let raw_field = discriminator.rust_access_path[0]
+            .strip_prefix("r#")
+            .unwrap_or(&discriminator.rust_access_path[0]);
+        if raw_field != discriminator.wire_name || !seen.insert(raw_field.to_owned()) {
+            return false;
+        }
+        let RequestDiscriminatorValue::Bool(value) = discriminator.value else {
+            return false;
+        };
+        if !request_optional_boolean_field(openapi, schema_name, raw, raw_field, bindings) {
+            return false;
+        }
+
+        let Some(property) = properties.get_mut(raw_field).and_then(Value::as_object_mut) else {
+            return false;
+        };
+        let const_matches = property
+            .get("const")
+            .is_some_and(|candidate| candidate == &Value::Bool(value));
+        let enum_matches = property
+            .get("enum")
+            .and_then(Value::as_array)
+            .is_some_and(|values| values.as_slice() == [Value::Bool(value)]);
+        if property.contains_key("const") && !const_matches {
+            return false;
+        }
+        if property.contains_key("enum") && !enum_matches {
+            return false;
+        }
+        if const_matches {
+            property.remove("const");
+            normalized = true;
+        }
+        if enum_matches {
+            property.remove("enum");
+            normalized = true;
+        }
+    }
+
+    normalized
+        && request_object_value_matches(openapi, &schema, raw, bindings, &mut BTreeSet::new())
 }
 
 pub(crate) fn object_value_matches(
