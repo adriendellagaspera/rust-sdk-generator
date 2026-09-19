@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use rust_sdk_generator::{
-    Bindings, DerivationStatus, DeriveInput, GenerateInput, OpenApi, PublicSdkSurface,
-    OperationOverride, ResponseRepresentationDefinition, Runtime, SdkOverrides, derive, generate,
+    Bindings, DerivationStatus, DeriveInput, GenerateInput, OpenApi, OperationOverride,
+    PublicSdkSurface, ResponseRepresentationDefinition, Runtime, SdkOverrides, derive, generate,
 };
 
 fn fixture() -> (OpenApi, Bindings, PublicSdkSurface) {
@@ -308,7 +308,8 @@ fn explicit_json_and_sse_selection_preserves_canonical_discriminators() {
     };
     metadata.success_statuses = vec!["201".into()];
     metadata.stream_abi = None;
-    metadata.request_discriminators[0].value = rust_sdk_generator::RequestDiscriminatorValue::Bool(false);
+    metadata.request_discriminators[0].value =
+        rust_sdk_generator::RequestDiscriminatorValue::Bool(false);
     bindings.operations.insert(json.name.clone(), json);
     surface.operations.insert(
         "watch_job".into(),
@@ -321,8 +322,14 @@ fn explicit_json_and_sse_selection_preserves_canonical_discriminators() {
         OperationOverride {
             request_overrides: BTreeMap::new(),
             response_representations: BTreeMap::from([
-                ("jobs.read".into(), ResponseRepresentationDefinition::Json),
-                ("jobs.watch".into(), ResponseRepresentationDefinition::EventStream),
+                (
+                    "jobs.read".into(),
+                    ResponseRepresentationDefinition::Json,
+                ),
+                (
+                    "jobs.watch".into(),
+                    ResponseRepresentationDefinition::EventStream,
+                ),
             ]),
         },
     );
@@ -338,14 +345,26 @@ fn explicit_json_and_sse_selection_preserves_canonical_discriminators() {
         DerivationStatus::Overridden
     );
     let ops = &derived.definition.resources["jobs"].operations;
-    assert_eq!(ops["read"].raw_method.as_deref(), Some("raw_read_job_18"));
-    assert_eq!(ops["watch"].raw_method.as_deref(), Some("raw_watch_17"));
     assert_eq!(
-        ops["read"].request_overrides.as_ref().expect("JSON discriminator")["stream"],
+        ops["read"].raw_method.as_deref(),
+        Some("raw_read_job_18")
+    );
+    assert_eq!(
+        ops["watch"].raw_method.as_deref(),
+        Some("raw_watch_17")
+    );
+    assert_eq!(
+        ops["read"]
+            .request_overrides
+            .as_ref()
+            .expect("JSON discriminator")["stream"],
         Some(false)
     );
     assert_eq!(
-        ops["watch"].request_overrides.as_ref().expect("SSE discriminator")["stream"],
+        ops["watch"]
+            .request_overrides
+            .as_ref()
+            .expect("SSE discriminator")["stream"],
         Some(true)
     );
 
@@ -356,6 +375,16 @@ fn explicit_json_and_sse_selection_preserves_canonical_discriminators() {
         runtime: Runtime::default(),
     })
     .expect("selected JSON and SSE lower");
-    assert!(generated.files.values().any(|source| source.contains("raw_read_job_18(")));
-    assert!(generated.files.values().any(|source| source.contains("raw_watch_17(")));
+    assert!(
+        generated
+            .files
+            .values()
+            .any(|source| source.contains("raw_read_job_18("))
+    );
+    assert!(
+        generated
+            .files
+            .values()
+            .any(|source| source.contains("raw_watch_17("))
+    );
 }
