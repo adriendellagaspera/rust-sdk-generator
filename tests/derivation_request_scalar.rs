@@ -306,8 +306,7 @@ fn preserves_nullable_depth_from_referenced_request_schema() {
     });
     openapi.0["components"]["schemas"]["UpdateJobRequest"]["properties"]["priority"] =
         serde_json::json!({"$ref": "#/components/schemas/NullablePriority"});
-    *request_field_mut(&mut bindings, "priority") =
-        "Option<Option<NullablePriority>>".into();
+    *request_field_mut(&mut bindings, "priority") = "Option<Option<NullablePriority>>".into();
     bindings.enums.insert(
         "NullablePriority".into(),
         vec![
@@ -363,4 +362,3 @@ fn preserves_nullable_depth_from_referenced_request_schema() {
     .expect_err("referenced nullable request drift must fail lowering");
     assert_eq!(error.diagnostic.code, "lower.request_drift");
 }
-
