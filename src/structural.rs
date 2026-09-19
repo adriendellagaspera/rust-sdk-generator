@@ -594,7 +594,7 @@ fn request_object_value_matches(
         .filter(|field| !flattened || field.name != "additional_properties")
         .map(|field| (field.name.strip_prefix("r#").unwrap_or(&field.name), field))
         .collect();
-    if by_name.len() != fields.len()
+    if by_name.len() + usize::from(flattened) != fields.len()
         || by_name.keys().copied().collect::<BTreeSet<_>>()
             != properties
                 .keys()
