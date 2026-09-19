@@ -231,6 +231,7 @@ fn canonical_multi_representation_fixture() -> (OpenApi, Bindings, PublicSdkSurf
     metadata.source_operation.method = "GET".into();
     metadata.source_operation.path = "/reports/current".into();
     metadata.emitted_operation_id = "read_report".into();
+    metadata.success_statuses = vec!["204".into()];
     bindings
         .operations
         .insert("raw_read_report_empty".into(), empty);
