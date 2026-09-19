@@ -19,8 +19,8 @@ use crate::structural::{
     object_value_matches, plain_string_json_alias_matches, raw_scalar_struct_shape,
     referenced_request_object, request_object_matches, request_object_matches_with_discriminators,
     request_optional_boolean_field, request_union_mapping, request_union_matches,
-    rust_type_matches_schema,
-    scalar_named_object_matches, scalar_object_shape, sse_payload_schema_name,
+    rust_type_matches_schema, scalar_named_object_matches, scalar_object_shape,
+    sse_payload_schema_name,
 };
 use crate::symbols::field_identifier;
 
