@@ -321,6 +321,68 @@ fn type_matches_schema(
         return false;
     }
 
+    if let Some(object) = schema.as_object() {
+        let union_keys =
+            usize::from(object.contains_key("oneOf")) + usize::from(object.contains_key("anyOf"));
+        let annotation_only_union = union_keys == 1
+            && object.keys().all(|key| {
+                matches!(
+                    key.as_str(),
+                    "oneOf"
+                        | "anyOf"
+                        | "title"
+                        | "description"
+                        | "default"
+                        | "example"
+                        | "examples"
+                        | "deprecated"
+                        | "discriminator"
+                        | "$comment"
+                )
+            });
+        if annotation_only_union {
+            let branches = object
+                .get("oneOf")
+                .or_else(|| object.get("anyOf"))
+                .and_then(Value::as_array)
+                .filter(|branches| branches.len() >= 2);
+            let Some(branches) = branches else {
+                return false;
+            };
+            let Some(variants) = bindings.enums.get(&syntax.spelling) else {
+                return false;
+            };
+            if variants.len() != branches.len()
+                || variants.iter().any(|variant| variant.payload.is_none())
+            {
+                return false;
+            }
+
+            let guard = format!("@union:{}", syntax.spelling);
+            if !seen_aliases.insert(guard.clone()) {
+                return false;
+            }
+            let mut used = BTreeSet::new();
+            let matched = branches.iter().all(|branch| {
+                let matches = variants
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, variant)| {
+                        variant.payload.as_deref().is_some_and(|payload| {
+                            parse_type(payload).ok().is_some_and(|payload_syntax| {
+                                type_matches_schema(branch, &payload_syntax, bindings, seen_aliases)
+                            })
+                        })
+                    })
+                    .map(|(index, _)| index)
+                    .collect::<Vec<_>>();
+                matches.len() == 1 && used.insert(matches[0])
+            }) && used.len() == variants.len();
+            seen_aliases.remove(&guard);
+            return matched;
+        }
+    }
+
     // Annotation-only OpenAPI schemas place no constraints on the JSON value.
     if schema.as_object().is_some_and(|object| {
         object.keys().all(|key| {
@@ -1383,5 +1445,108 @@ mod referenced_collection_tests {
             "Vec<UnboundRecord>",
             &bindings
         ));
+    }
+}
+
+#[cfg(test)]
+mod recursive_union_type_tests {
+    use super::*;
+
+    fn bindings() -> Bindings {
+        serde_json::from_value(serde_json::json!({
+            "schema_version": 3,
+            "structs": {
+                "Alpha": [],
+                "Beta": []
+            },
+            "enums": {
+                "ItemUnion": [
+                    {"name": "Alpha", "payload": "Alpha"},
+                    {"name": "Beta", "payload": "Beta"}
+                ],
+                "ArrayUnion": [
+                    {"name": "Alphas", "payload": "AlphaList"},
+                    {"name": "Betas", "payload": "BetaList"}
+                ]
+            },
+            "aliases": {
+                "ItemList": "Vec<ItemUnion>",
+                "AlphaList": "Vec<Alpha>",
+                "BetaList": "Vec<Beta>"
+            },
+            "operations": {},
+            "symbol_paths": {
+                "Alpha": "crate::generated::types::Alpha",
+                "Beta": "crate::generated::types::Beta",
+                "ItemUnion": "crate::generated::types::ItemUnion",
+                "ArrayUnion": "crate::generated::types::ArrayUnion",
+                "ItemList": "crate::generated::types::ItemList",
+                "AlphaList": "crate::generated::types::AlphaList",
+                "BetaList": "crate::generated::types::BetaList"
+            },
+            "binding": {
+                "client": {
+                    "type_path": "crate::generated::Client",
+                    "constructor": "new",
+                    "api_key_builder": "with_api_key",
+                    "base_url_builder": "with_base_url"
+                },
+                "type_preludes": []
+            }
+        }))
+        .expect("recursive union binding fixture")
+    }
+
+    #[test]
+    fn proves_array_items_as_exact_named_union() {
+        let schema = serde_json::json!({
+            "type": "array",
+            "items": {
+                "anyOf": [
+                    {"$ref": "#/components/schemas/Alpha"},
+                    {"$ref": "#/components/schemas/Beta"}
+                ]
+            }
+        });
+        assert!(rust_type_matches_schema(&schema, "ItemList", &bindings()));
+    }
+
+    #[test]
+    fn proves_union_of_arrays_bijectively() {
+        let schema = serde_json::json!({
+            "anyOf": [
+                {"type": "array", "items": {"$ref": "#/components/schemas/Alpha"}},
+                {"type": "array", "items": {"$ref": "#/components/schemas/Beta"}}
+            ],
+            "title": "Array response"
+        });
+        assert!(rust_type_matches_schema(&schema, "ArrayUnion", &bindings()));
+    }
+
+    #[test]
+    fn rejects_ambiguous_union_branch_mapping() {
+        let schema = serde_json::json!({
+            "anyOf": [
+                {"type": "array", "items": {"$ref": "#/components/schemas/Alpha"}},
+                {"type": "array", "items": {"$ref": "#/components/schemas/Alpha"}}
+            ]
+        });
+        assert!(!rust_type_matches_schema(
+            &schema,
+            "ArrayUnion",
+            &bindings()
+        ));
+    }
+
+    #[test]
+    fn rejects_union_with_unmodeled_validation_sibling() {
+        let schema = serde_json::json!({
+            "anyOf": [
+                {"$ref": "#/components/schemas/Alpha"},
+                {"$ref": "#/components/schemas/Beta"}
+            ],
+            "type": "object"
+        });
+        assert!(!rust_type_matches_schema(&schema, "ItemUnion", &bindings()));
     }
 }
