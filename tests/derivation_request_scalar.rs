@@ -218,3 +218,77 @@ fn derives_single_all_of_request_property_with_annotations() {
         DerivationStatus::Rejected
     );
 }
+
+#[test]
+fn preserves_root_flattened_request_as_owned_raw_view() {
+    let (mut openapi, mut bindings, surface) = fixture();
+    openapi.0["components"]["schemas"]["UpdateJobRequest"]["additionalProperties"] =
+        serde_json::json!(true);
+    bindings
+        .structs
+        .get_mut("UpdateJobRequest")
+        .expect("request binding")
+        .push(
+            serde_json::from_value(serde_json::json!({
+                "name": "additional_properties",
+                "type": "std::collections::BTreeMap<String, serde_json::Value>"
+            }))
+            .expect("flattened binding field"),
+        );
+
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive flattened root request");
+
+    assert_eq!(
+        derivation.report.operations["revise_job"].status,
+        DerivationStatus::Derived
+    );
+    let request = &derivation.definition.models["UpdateWorkJobsRequest"];
+    assert_eq!(request.raw.as_deref(), Some("UpdateJobRequest"));
+    assert!(request.constructor.is_none());
+    assert!(
+        request
+            .accessors
+            .as_ref()
+            .is_some_and(indexmap::IndexMap::is_empty)
+    );
+
+    let definition = derivation.definition.clone();
+    let generated = generate(GenerateInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        definition: derivation.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("flattened raw-view request generates");
+    let types = &generated.files["facade_types.rs"];
+    assert!(types.contains("pub struct UpdateWorkJobsRequest { raw: UpdateJobRequest }"));
+    assert!(types.contains("pub fn into_raw(self) -> UpdateJobRequest"));
+    let request_impl = types
+        .split("impl UpdateWorkJobsRequest {")
+        .nth(1)
+        .expect("request implementation");
+    assert!(
+        !request_impl
+            .split("impl From<UpdateJobRequest> for UpdateWorkJobsRequest")
+            .next()
+            .expect("request implementation end")
+            .contains("pub fn new(")
+    );
+
+    openapi.0["components"]["schemas"]["UpdateJobRequest"]["additionalProperties"] =
+        serde_json::json!(false);
+    let error = generate(GenerateInput {
+        openapi,
+        bindings,
+        definition,
+        runtime: Runtime::default(),
+    })
+    .expect_err("flattened request drift must fail lowering");
+    assert_eq!(error.diagnostic.code, "lower.request_drift");
+}
