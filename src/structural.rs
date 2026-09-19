@@ -283,6 +283,27 @@ fn map_value_type<'a>(syntax: &'a Type, bindings: &'a Bindings) -> Option<Type> 
         .then(|| field.arguments[1].clone())
 }
 
+fn single_all_of_branch(schema: &Value) -> Option<&Value> {
+    let object = schema.as_object()?;
+    if object.keys().any(|key| {
+        !matches!(
+            key.as_str(),
+            "allOf"
+                | "title"
+                | "description"
+                | "default"
+                | "example"
+                | "examples"
+                | "deprecated"
+                | "$comment"
+        )
+    }) {
+        return None;
+    }
+    let branches = object.get("allOf")?.as_array()?;
+    (branches.len() == 1).then(|| &branches[0])
+}
+
 fn type_matches_schema(
     schema: &Value,
     syntax: &Type,
@@ -307,6 +328,13 @@ fn type_matches_schema(
             && (bindings.structs.contains_key(reference)
                 || bindings.enums.contains_key(reference)
                 || bindings.aliases.contains_key(reference));
+    }
+
+    // A single allOf branch with annotation-only siblings is structurally
+    // identical to that branch. Keep any sibling validation constraint or
+    // multi-branch composition fail-closed.
+    if let Some(branch) = single_all_of_branch(schema) {
+        return type_matches_schema(branch, syntax, bindings, seen_aliases);
     }
 
     if let Some(non_null) = nullable_schema(schema) {
@@ -1241,10 +1269,18 @@ mod referenced_collection_tests {
         serde_json::from_value(serde_json::json!({
             "schema_version": 3,
             "structs": {"Record": []},
-            "enums": {},
+            "enums": {
+                "VisibilityEnum": [
+                    {"name": "Workspace", "payload": null, "wire_name": "workspace"},
+                    {"name": "User", "payload": null, "wire_name": "user"}
+                ]
+            },
             "aliases": {"RecordList": "Vec<Record>"},
             "operations": {},
-            "symbol_paths": {"Record": "crate::generated::types::Record"},
+            "symbol_paths": {
+                "Record": "crate::generated::types::Record",
+                "VisibilityEnum": "crate::generated::types::VisibilityEnum"
+            },
             "binding": {
                 "client": {
                     "type_path": "crate::generated::Client",
@@ -1280,4 +1316,47 @@ mod referenced_collection_tests {
             &bindings
         ));
     }
+
+    #[test]
+    fn single_all_of_scalar_with_annotation_siblings_matches_exact_enum() {
+        let bindings = bindings();
+        let schema = serde_json::json!({
+            "allOf": [
+                {"type": "string", "enum": ["workspace", "user"]}
+            ],
+            "title": "Visibility",
+            "default": "workspace"
+        });
+        assert!(rust_type_matches_schema(
+            &schema,
+            "VisibilityEnum",
+            &bindings
+        ));
+    }
+
+    #[test]
+    fn single_all_of_scalar_rejects_validation_siblings_or_multiple_branches() {
+        let bindings = bindings();
+        assert!(!rust_type_matches_schema(
+            &serde_json::json!({
+                "allOf": [
+                    {"type": "string", "enum": ["workspace", "user"]}
+                ],
+                "minLength": 1
+            }),
+            "VisibilityEnum",
+            &bindings
+        ));
+        assert!(!rust_type_matches_schema(
+            &serde_json::json!({
+                "allOf": [
+                    {"type": "string", "enum": ["workspace", "user"]},
+                    {"type": "string"}
+                ]
+            }),
+            "VisibilityEnum",
+            &bindings
+        ));
+    }
+
 }
