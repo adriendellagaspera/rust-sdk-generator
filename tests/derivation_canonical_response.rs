@@ -113,6 +113,43 @@ fn derives_and_generates_canonical_json_and_empty_representations() {
 }
 
 #[test]
+fn complex_response_view_can_remain_opaque_when_root_fields_are_exact() {
+    let (mut openapi, bindings, surface) = fixture();
+    openapi
+        .0
+        .pointer_mut("/components/schemas/ReportDetails/properties")
+        .and_then(serde_json::Value::as_object_mut)
+        .expect("report details properties")
+        .insert("opaque".into(), serde_json::json!({"type": "string"}));
+
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("opaque complex response view should derive");
+
+    let outcome = &derivation.report.operations["read_report"];
+    assert_eq!(outcome.status, DerivationStatus::Derived);
+    let response = &derivation.definition.models["CurrentReportsResponse"];
+    assert!(
+        response
+            .accessors
+            .as_ref()
+            .is_some_and(indexmap::IndexMap::is_empty)
+    );
+
+    generate(GenerateInput {
+        openapi,
+        bindings,
+        definition: derivation.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("opaque complex response view should lower");
+}
+
+#[test]
 fn lowering_revalidates_selected_json_statuses() {
     let (mut openapi, bindings, surface) = fixture();
 
