@@ -618,17 +618,36 @@ fn request_model(
     }
 
     let raw = &matching[0].type_name;
-    // A flattened raw body cannot be represented by a complete public
-    // constructor until additional-member setters are modeled explicitly.
-    // Nested flattened fields can stay as their exact canonical raw types.
+    let name = request_model_name(resource_path, public_name);
     if openapi
         .object_schema(&schema_name)
         .ok()
         .is_some_and(|schema| flattened_json_response_object_matches(&schema, raw, bindings))
     {
-        return Err(REQUEST_MODEL_UNPROVEN);
+        // The wire shape is fully proven, but a generated constructor would
+        // necessarily omit arbitrary additional members. Preserve the exact
+        // raw request as an owned opaque view instead.
+        if !public_model_name_available(&name, bindings) {
+            return Err("capability.public_model_name_collision");
+        }
+        let model = ModelDefinition {
+            schema: Some(schema_name),
+            schema_path: None,
+            raw: Some(raw.clone()),
+            constructor: None,
+            exclude: None,
+            adapters: None,
+            union: None,
+            simple_union: None,
+            type_alias: None,
+            map: None,
+            scalar_enum: None,
+            union_factory: None,
+            borrowed: Some(false),
+            accessors: Some(IndexMap::new()),
+        };
+        return Ok(Some((name.clone(), vec![(name, model)], body.media)));
     }
-    let name = request_model_name(resource_path, public_name);
     let models = match request_object_models(
         openapi,
         bindings,
