@@ -11,7 +11,8 @@ use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::parse_type;
 use crate::structural::{
     ScalarFieldShape, inline_object_union_mapping, object_field_names_match, object_value_matches,
-    raw_scalar_struct_shape, request_object_matches, rust_type_matches_schema, scalar_object_shape,
+    raw_scalar_struct_shape, request_object_matches_with_discriminators, rust_type_matches_schema,
+    scalar_object_shape,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -531,8 +532,19 @@ fn binding_matches(
             .enumerate()
             .filter(|(_, parameter)| match body {
                 RequestBodyShape::Model(_, schema) => {
+                    let discriminators = binding
+                        .metadata
+                        .as_ref()
+                        .map(|metadata| metadata.request_discriminators.as_slice())
+                        .unwrap_or_default();
                     parameter.type_name == *schema
-                        || request_object_matches(openapi, schema, &parameter.type_name, bindings)
+                        || request_object_matches_with_discriminators(
+                            openapi,
+                            schema,
+                            &parameter.type_name,
+                            bindings,
+                            discriminators,
+                        )
                 }
                 RequestBodyShape::InlineModel(_, schema) => {
                     object_value_matches(openapi, schema, &parameter.type_name, bindings)
