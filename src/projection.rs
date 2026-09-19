@@ -1032,6 +1032,7 @@ fn response_model(
 }
 
 fn inline_union_response_model(
+    openapi: &OpenApiIndex,
     bindings: &Bindings,
     schema: &Value,
     raw_union: &str,
@@ -1121,6 +1122,7 @@ fn union_response_model(
         .collect::<Option<Vec<_>>>();
     let Some(references) = references else {
         return inline_union_response_model(
+            openapi,
             bindings,
             schema,
             raw_union,
@@ -1324,16 +1326,28 @@ fn project_json_response_schema(
         return Ok(ProjectedResponse::Json { name, models });
     }
     if schema.get("type").and_then(Value::as_str) == Some("object") {
-        let (name, model) =
-            inline_response_view(openapi, bindings, schema, raw_success, resource_path, public_name)?;
+        let (name, model) = inline_response_view(
+            openapi,
+            bindings,
+            schema,
+            raw_success,
+            resource_path,
+            public_name,
+        )?;
         return Ok(ProjectedResponse::Json {
             name: name.clone(),
             models: vec![(name, model)],
         });
     }
     if schema.get("type").and_then(Value::as_str) == Some("array") {
-        let (name, models) =
-            inline_array_response_model(openapi, bindings, schema, raw_success, resource_path, public_name)?;
+        let (name, models) = inline_array_response_model(
+            openapi,
+            bindings,
+            schema,
+            raw_success,
+            resource_path,
+            public_name,
+        )?;
         return Ok(ProjectedResponse::Json { name, models });
     }
     Err(RESPONSE_VIEW_UNPROVEN)
