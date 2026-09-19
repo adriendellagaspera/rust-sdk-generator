@@ -343,7 +343,6 @@ fn derives_one_variant_string_const_request_fields_without_name_inference() {
     );
 }
 
-
 #[test]
 fn derives_nested_flattened_json_as_a_proven_raw_request_field() {
     let (mut openapi, mut bindings, surface) = fixture();
@@ -391,10 +390,9 @@ fn derives_nested_flattened_json_as_a_proven_raw_request_field() {
         .expect("nested item"),
     );
     for raw in ["FlexiblePayload", "OpaqueItem"] {
-        bindings.symbol_paths.insert(
-            raw.into(),
-            format!("crate::generated::types::{raw}"),
-        );
+        bindings
+            .symbol_paths
+            .insert(raw.into(), format!("crate::generated::types::{raw}"));
     }
 
     let derivation = derive(DeriveInput {
@@ -409,7 +407,11 @@ fn derives_nested_flattened_json_as_a_proven_raw_request_field() {
         DerivationStatus::Derived
     );
     let root = &derivation.definition.models["CreatePlatformWidgetsRequest"];
-    assert!(root.adapters.as_ref().is_none_or(|adapters| !adapters.contains_key("payload")));
+    assert!(
+        root.adapters
+            .as_ref()
+            .is_none_or(|adapters| !adapters.contains_key("payload"))
+    );
     let emitted = generate(GenerateInput {
         openapi: openapi.clone(),
         bindings: bindings.clone(),
