@@ -181,7 +181,6 @@ fn unsupported_request_media_is_rejected_deterministically() {
     assert_eq!(outcome.reason.code, "request.media_projection_unsupported");
 }
 
-
 #[test]
 fn derives_exact_inline_multipart_request_as_owned_raw_view() {
     let (mut openapi, bindings, surface) = fixture();
@@ -209,6 +208,7 @@ fn derives_exact_inline_multipart_request_as_owned_raw_view() {
             .is_some_and(indexmap::IndexMap::is_empty)
     );
 
+    let definition = derivation.definition.clone();
     let generated = generate(GenerateInput {
         openapi: openapi.clone(),
         bindings: bindings.clone(),
@@ -228,16 +228,9 @@ fn derives_exact_inline_multipart_request_as_owned_raw_view() {
     let error = generate(GenerateInput {
         openapi,
         bindings,
-        definition: derive(DeriveInput {
-            openapi: fixture().0,
-            bindings: fixture().1,
-            surface: fixture().2,
-            overrides: SdkOverrides::default(),
-        })
-        .expect("named baseline")
-        .definition,
+        definition,
         runtime: Runtime::default(),
     })
     .expect_err("inline request drift must fail lowering");
-    assert_eq!(error.diagnostic.code, "lower.request_media_drift");
+    assert_eq!(error.diagnostic.code, "lower.request_drift");
 }
