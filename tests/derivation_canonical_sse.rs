@@ -542,6 +542,6 @@ fn canonical_discriminator_rejects_conflicting_boolean_request_constant() {
     );
     assert_eq!(
         derivation.report.operations["watch_job"].reason.code,
-        "capability.request_model_not_structurally_provable"
+        "bindings.no_structural_match"
     );
 }
