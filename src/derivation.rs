@@ -508,7 +508,9 @@ fn selected_binding(
             bindings.operations[*candidate]
                 .metadata
                 .as_ref()
-                .is_some_and(|metadata| canonical_representation(&metadata.representation) == requested)
+                .is_some_and(|metadata| {
+                    canonical_representation(&metadata.representation) == requested
+                })
         })
         .collect();
     if matching.len() == 1 {
@@ -601,7 +603,9 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
             {
                 return Err(DerivationError::at(
                     "overrides.unknown_public_path",
-                    format!("overrides.operations.{operation_id}.response_representations.{public_path}"),
+                    format!(
+                        "overrides.operations.{operation_id}.response_representations.{public_path}"
+                    ),
                     "response representation selection must name a public path of its source operation",
                 ));
             }
@@ -614,7 +618,10 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                 OperationDerivation {
                     status: DerivationStatus::Rejected,
                     reason: DerivationReason {
-                        code: matched.reason.unwrap_or("bindings.no_structural_match").into(),
+                        code: matched
+                            .reason
+                            .unwrap_or("bindings.no_structural_match")
+                            .into(),
                         detail: None,
                     },
                     public_paths,
@@ -664,9 +671,8 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                 let mut candidate = definition.clone();
                 let projection = selections.and_then(|selections| {
                     for (path, binding) in &selections {
-                        let projected = project_operation(
-                            &index, &bindings, &operation_id, binding, path,
-                        )?;
+                        let projected =
+                            project_operation(&index, &bindings, &operation_id, binding, path)?;
                         insert_projection(&mut candidate, projected)?;
                     }
                     Ok(selections)
