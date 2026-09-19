@@ -1918,7 +1918,16 @@ pub(crate) fn lower(
         } else if config.scalar_enum.is_some() {
             ModelRenderSpec::ScalarEnum(resolve_scalar_enum(&raw, config, &index, bindings)?)
         } else if config.accessors.is_some() {
-            if !bindings.aliases.contains_key(&raw) {
+            if bindings.enums.contains_key(&raw) {
+                // A structurally verified union can be kept as an opaque owned
+                // view. Do not pretend its variants are ordinary struct fields.
+                if !config.accessors.as_ref().is_some_and(IndexMap::is_empty) {
+                    return Err(error(
+                        "lower.raw_union_view_accessors",
+                        format!("raw union {raw} cannot expose struct-field accessors"),
+                    ));
+                }
+            } else if !bindings.aliases.contains_key(&raw) {
                 let _ = bindings.fields(&raw)?;
             }
             ModelRenderSpec::View(resolve_view(&raw, config, bindings)?)
