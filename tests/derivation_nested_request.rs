@@ -342,3 +342,118 @@ fn derives_one_variant_string_const_request_fields_without_name_inference() {
         DerivationStatus::Rejected
     );
 }
+
+#[test]
+fn derives_nested_flattened_json_as_a_proven_raw_request_field() {
+    let (mut openapi, mut bindings, surface) = fixture();
+    openapi.0["components"]["schemas"]["FlexiblePayload"] = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "items": {
+                "type": "array",
+                "items": {"type": "object", "additionalProperties": true}
+            }
+        },
+        "required": ["items"],
+        "additionalProperties": true
+    });
+    openapi.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["payload"] =
+        serde_json::json!({"$ref": "#/components/schemas/FlexiblePayload"});
+    openapi.0["components"]["schemas"]["CreateWidgetRequest"]["required"]
+        .as_array_mut()
+        .expect("required fields")
+        .push(serde_json::json!("payload"));
+    bindings
+        .structs
+        .get_mut("OpaqueRequest9")
+        .expect("request fields")
+        .push(rust_sdk_generator::FieldBinding {
+            name: "payload".into(),
+            wire_name: Some("payload".into()),
+            type_name: "FlexiblePayload".into(),
+        });
+    bindings.structs.insert(
+        "FlexiblePayload".into(),
+        serde_json::from_value(serde_json::json!([
+            {"name": "items", "wire_name": "items", "type": "Vec<OpaqueItem>"},
+            {"name": "additional_properties", "wire_name": null,
+             "type": "std::collections::BTreeMap<String, serde_json::Value>"}
+        ]))
+        .expect("payload"),
+    );
+    bindings.structs.insert(
+        "OpaqueItem".into(),
+        serde_json::from_value(serde_json::json!([
+            {"name": "additional_properties", "wire_name": null,
+             "type": "std::collections::BTreeMap<String, serde_json::Value>"}
+        ]))
+        .expect("nested item"),
+    );
+    for raw in ["FlexiblePayload", "OpaqueItem"] {
+        bindings
+            .symbol_paths
+            .insert(raw.into(), format!("crate::generated::types::{raw}"));
+    }
+
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface: surface.clone(),
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive");
+    assert_eq!(
+        derivation.report.operations["create_widget"].status,
+        DerivationStatus::Derived
+    );
+    let root = &derivation.definition.models["CreatePlatformWidgetsRequest"];
+    assert!(
+        root.adapters
+            .as_ref()
+            .is_none_or(|adapters| !adapters.contains_key("payload"))
+    );
+    let emitted = generate(GenerateInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        definition: derivation.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("nested canonical JSON map request generation");
+    assert!(emitted.files["facade_types.rs"].contains("payload: FlexiblePayload"));
+
+    for extra in [
+        serde_json::json!(false),
+        serde_json::json!({"type": "string"}),
+    ] {
+        let mut drifted = openapi.clone();
+        drifted.0["components"]["schemas"]["FlexiblePayload"]["additionalProperties"] = extra;
+        let result = derive(DeriveInput {
+            openapi: drifted,
+            bindings: bindings.clone(),
+            surface: surface.clone(),
+            overrides: SdkOverrides::default(),
+        })
+        .expect("closed-world derivation");
+        assert_eq!(
+            result.report.operations["create_widget"].status,
+            DerivationStatus::Rejected
+        );
+    }
+    let mut drifted_bindings = bindings;
+    drifted_bindings
+        .structs
+        .get_mut("FlexiblePayload")
+        .expect("payload")[1]
+        .type_name = "std::collections::BTreeMap<String, String>".into();
+    let result = derive(DeriveInput {
+        openapi,
+        bindings: drifted_bindings,
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("closed-world derivation");
+    assert_eq!(
+        result.report.operations["create_widget"].status,
+        DerivationStatus::Rejected
+    );
+}

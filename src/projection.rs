@@ -327,7 +327,13 @@ fn request_object_models_value(
                 ) {
                     return Err(REQUEST_MODEL_UNPROVEN);
                 }
-            } else if referenced.get("properties").is_some() {
+            } else if referenced.get("properties").is_some()
+                && !flattened_json_response_object_matches(
+                    referenced,
+                    &core.spelling,
+                    context.bindings,
+                )
+            {
                 models.extend(request_object_models(
                     context.openapi,
                     context.bindings,
@@ -408,7 +414,9 @@ fn request_object_models_value(
             }
         }
 
-        if wire.get("properties").is_some() {
+        if wire.get("properties").is_some()
+            && !flattened_json_response_object_matches(wire, &core.spelling, context.bindings)
+        {
             let mut child_path = source_path.to_vec();
             child_path.push(field_name.clone());
             models.extend(request_object_models_value(
@@ -516,6 +524,16 @@ fn request_model(
     }
 
     let raw = &matching[0].type_name;
+    // A flattened raw body cannot be represented by a complete public
+    // constructor until additional-member setters are modeled explicitly.
+    // Nested flattened fields can stay as their exact canonical raw types.
+    if openapi
+        .object_schema(&schema_name)
+        .ok()
+        .is_some_and(|schema| flattened_json_response_object_matches(&schema, raw, bindings))
+    {
+        return Err(REQUEST_MODEL_UNPROVEN);
+    }
     let name = request_model_name(resource_path, public_name);
     let models = request_object_models(
         openapi,
