@@ -2615,6 +2615,88 @@ pub(crate) fn lower(
     Ok(ir)
 }
 
+
+#[cfg(test)]
+mod composed_schema_path_tests {
+    use super::schema_at;
+    use crate::OpenApi;
+    use crate::openapi::OpenApiIndex;
+
+    fn fixture() -> OpenApi {
+        OpenApi(serde_json::json!({
+            "openapi": "3.1.0",
+            "components": {
+                "schemas": {
+                    "BaseRequest": {
+                        "type": "object",
+                        "properties": {
+                            "tools": {
+                                "anyOf": [
+                                    {
+                                        "type": "array",
+                                        "items": {
+                                            "oneOf": [
+                                                {"$ref": "#/components/schemas/ToolA"},
+                                                {"$ref": "#/components/schemas/ToolB"}
+                                            ]
+                                        }
+                                    },
+                                    {"type": "null"}
+                                ]
+                            }
+                        }
+                    },
+                    "ComposedRequest": {
+                        "allOf": [
+                            {"$ref": "#/components/schemas/BaseRequest"},
+                            {
+                                "type": "object",
+                                "properties": {"stream": {"type": "boolean"}}
+                            }
+                        ]
+                    },
+                    "ToolA": {"type": "object", "properties": {"kind": {"type": "string"}}},
+                    "ToolB": {"type": "object", "properties": {"name": {"type": "string"}}}
+                }
+            }
+        }))
+    }
+
+    #[test]
+    fn lowers_nested_nullable_array_union_from_composed_request_root() {
+        let openapi = fixture();
+        let index = OpenApiIndex::new(&openapi).expect("index fixture");
+        let schema = schema_at(
+            &index,
+            "ComposedRequest",
+            &["tools".into(), "items".into()],
+        )
+        .expect("composed root and nullable array item");
+        assert_eq!(
+            schema.get("oneOf").and_then(serde_json::Value::as_array).map(Vec::len),
+            Some(2)
+        );
+        let stream = schema_at(&index, "ComposedRequest", &["stream".into()])
+            .expect("composed sibling property");
+        assert_eq!(stream["type"], "boolean");
+    }
+
+    #[test]
+    fn rejects_invalid_nested_path_in_composed_request() {
+        let mut openapi = fixture();
+        openapi.0["components"]["schemas"]["BaseRequest"]["properties"]["tools"] =
+            serde_json::json!({"type": "string"});
+        let index = OpenApiIndex::new(&openapi).expect("index drifted fixture");
+        let error = schema_at(
+            &index,
+            "ComposedRequest",
+            &["tools".into(), "items".into()],
+        )
+        .expect_err("array item removed from wire contract");
+        assert_eq!(error.diagnostic.code, "lower.schema_path");
+    }
+}
+
 #[cfg(test)]
 mod stream_abi_tests {
     use super::validate_owned_byte_stream;
