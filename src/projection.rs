@@ -17,7 +17,7 @@ use crate::structural::{
     flattened_json_response_object_matches, inline_array_object_item, inline_object_union_mapping,
     multipart_filenames_binding, object_field_names_match, object_value_matches,
     plain_string_json_alias_matches, raw_scalar_struct_shape, request_object_matches,
-    request_optional_boolean_field, request_union_mapping, request_union_matches,
+    referenced_request_object, request_optional_boolean_field, request_union_mapping, request_union_matches,
     rust_type_matches_schema, scalar_named_object_matches, scalar_object_shape,
     sse_payload_schema_name,
 };
@@ -327,10 +327,7 @@ fn request_object_models_value(
                 ) {
                     return Err(REQUEST_MODEL_UNPROVEN);
                 }
-            } else if context
-                .openapi
-                .object_schema(reference)
-                .ok()
+            } else if referenced_request_object(context.openapi, reference, referenced)
                 .is_some_and(|composed| {
                     !flattened_json_response_object_matches(
                         &composed,
