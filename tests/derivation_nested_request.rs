@@ -677,3 +677,74 @@ fn derives_nullable_union_of_named_object_and_canonical_raw_json_map() {
         DerivationStatus::Rejected
     );
 }
+
+#[test]
+fn proven_nested_required_nullable_object_stays_raw_without_a_lossy_wrapper() {
+    let (mut openapi, mut bindings, surface) = fixture();
+    openapi.0["components"]["schemas"]["WidgetConfig"]["properties"]["mode"] = serde_json::json!({
+        "anyOf": [
+            {"$ref": "#/components/schemas/WidgetMode"},
+            {"type": "null"}
+        ]
+    });
+    bindings
+        .structs
+        .get_mut("OpaqueConfig4")
+        .expect("raw config")
+        .iter_mut()
+        .find(|field| field.name == "mode")
+        .expect("required nullable mode")
+        .type_name = "Option<WidgetMode>".into();
+
+    let derived = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface: surface.clone(),
+        overrides: SdkOverrides::default(),
+    })
+    .expect("closed-world derivation");
+    assert_eq!(
+        derived.report.operations["create_widget"].status,
+        DerivationStatus::Derived
+    );
+    let root = &derived.definition.models["CreatePlatformWidgetsRequest"];
+    assert!(
+        root.adapters
+            .as_ref()
+            .is_none_or(|adapters| !adapters.contains_key("config"))
+    );
+    assert!(
+        !derived
+            .definition
+            .models
+            .contains_key("CreatePlatformWidgetsRequestConfig")
+    );
+    let generated = generate(GenerateInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        definition: derived.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("exact nested raw object can be passed to parent wrapper");
+    assert!(generated.files["facade_types.rs"].contains("OpaqueConfig4"));
+
+    bindings
+        .structs
+        .get_mut("OpaqueConfig4")
+        .expect("raw config")
+        .iter_mut()
+        .find(|field| field.name == "mode")
+        .expect("required nullable mode")
+        .type_name = "WidgetMode".into();
+    let rejected = derive(DeriveInput {
+        openapi,
+        bindings,
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("fail closed on raw field drift");
+    assert_eq!(
+        rejected.report.operations["create_widget"].status,
+        DerivationStatus::Rejected
+    );
+}
