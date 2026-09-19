@@ -458,6 +458,7 @@ fn response_matches(
             .unwrap_or(false),
         ResponseShape::JsonInlineObjectUnion(schema) => {
             inline_object_union_mapping(schema, &binding.success_type, bindings).is_some()
+                || rust_type_matches_schema(schema, &binding.success_type, bindings)
         }
         ResponseShape::JsonObject(fields) => {
             raw_scalar_struct_shape(bindings, &binding.success_type)
