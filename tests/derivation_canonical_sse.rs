@@ -293,17 +293,34 @@ fn explicit_json_and_sse_selection_preserves_canonical_discriminators() {
         serde_json::json!({
             "description": "buffered result",
             "content": {"application/json": {
-                "schema": {"$ref": "#/components/schemas/JobChunk"}
+                "schema": {"$ref": "#/components/schemas/BufferedJob"}
             }}
         });
+    openapi.0["components"]["schemas"]["BufferedJob"] = serde_json::json!({
+        "type": "object",
+        "required": ["result"],
+        "properties": {"result": {"type": "boolean"}}
+    });
+    bindings.structs.insert(
+        "BufferedJob".into(),
+        vec![rust_sdk_generator::FieldBinding {
+            name: "result".into(),
+            wire_name: Some("result".into()),
+            type_name: "bool".into(),
+        }],
+    );
+    bindings.symbol_paths.insert(
+        "BufferedJob".into(),
+        "crate::generated::types::BufferedJob".into(),
+    );
     let mut json = bindings.operations["raw_watch_17"].clone();
     json.name = "raw_read_job_18".into();
-    json.success_type = "JobChunk".into();
-    json.return_type = "Result<JobChunk, Error>".into();
+    json.success_type = "BufferedJob".into();
+    json.return_type = "Result<BufferedJob, Error>".into();
     json.stream = None;
     let metadata = json.metadata.as_mut().expect("canonical metadata");
     metadata.representation = rust_sdk_generator::ResponseRepresentationBinding::Json {
-        schema_name: "JobChunk".into(),
+        schema_name: "BufferedJob".into(),
         media_type: "application/json".into(),
     };
     metadata.success_statuses = vec!["201".into()];
