@@ -1,6 +1,8 @@
+use std::collections::BTreeMap;
+
 use rust_sdk_generator::{
-    Bindings, DerivationStatus, DeriveInput, GenerateInput, OpenApi, PublicSdkSurface,
-    ResponseRepresentationDefinition, Runtime, SdkOverrides, derive, generate,
+    Bindings, DerivationStatus, DeriveInput, GenerateInput, OpenApi, OperationOverride,
+    PublicSdkSurface, ResponseRepresentationDefinition, Runtime, SdkOverrides, derive, generate,
 };
 
 fn fixture() -> (OpenApi, Bindings, PublicSdkSurface) {
@@ -129,4 +131,89 @@ fn lowering_revalidates_all_selected_binary_stream_statuses() {
     .expect_err("binary stream response drift must fail lowering");
 
     assert_eq!(error.diagnostic.code, "lower.response_representation_drift");
+}
+
+#[test]
+fn explicit_binary_transport_selection_is_not_inferred_from_public_names() {
+    let (mut openapi, mut bindings, mut surface) = fixture();
+    let responses = &mut openapi.0["paths"]["/archives/export"]["get"]["responses"];
+    responses["200"]["content"]["application/octet-stream"]["schema"] =
+        serde_json::json!({"type": "string", "format": "binary"});
+    let mut buffered = bindings.operations["raw_archive_stream_41"].clone();
+    buffered.name = "raw_archive_buffered_42".into();
+    buffered.return_type = "Result<bytes::Bytes, Error>".into();
+    buffered.success_type = "bytes::Bytes".into();
+    buffered.stream = None;
+    let metadata = buffered.metadata.as_mut().expect("canonical metadata");
+    metadata.representation = rust_sdk_generator::ResponseRepresentationBinding::BinaryBuffered {
+        media_type: "application/octet-stream".into(),
+        wildcard: false,
+    };
+    metadata.stream_abi = None;
+    bindings.operations.insert(buffered.name.clone(), buffered);
+    surface.operations.insert(
+        "stream_archive".into(),
+        vec!["archives.download".into(), "archives.live".into()],
+    );
+
+    let rejected = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface: surface.clone(),
+        overrides: SdkOverrides::default(),
+    })
+    .expect("closed world must report ambiguity");
+    assert_eq!(
+        rejected.report.operations["stream_archive"].reason.code,
+        "bindings.source_operation_identity_required"
+    );
+
+    let mut overrides = SdkOverrides::default();
+    overrides.operations.insert(
+        "stream_archive".into(),
+        OperationOverride {
+            request_overrides: BTreeMap::new(),
+            response_representations: BTreeMap::from([
+                (
+                    "archives.download".into(),
+                    ResponseRepresentationDefinition::BinaryBuffered,
+                ),
+                (
+                    "archives.live".into(),
+                    ResponseRepresentationDefinition::BinaryStream,
+                ),
+            ]),
+        },
+    );
+    let derived = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides,
+    })
+    .expect("derive distinct binary transports");
+    assert_eq!(
+        derived.report.operations["stream_archive"].status,
+        DerivationStatus::Overridden
+    );
+    assert_eq!(
+        derived.definition.resources["archives"].operations["download"]
+            .raw_method
+            .as_deref(),
+        Some("raw_archive_buffered_42")
+    );
+    assert_eq!(
+        derived.definition.resources["archives"].operations["live"]
+            .raw_method
+            .as_deref(),
+        Some("raw_archive_stream_41")
+    );
+
+    generate(GenerateInput {
+        openapi,
+        bindings,
+        definition: derived.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("both binary transports lower");
 }

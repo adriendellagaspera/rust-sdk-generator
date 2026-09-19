@@ -1,6 +1,8 @@
+use std::collections::BTreeMap;
+
 use rust_sdk_generator::{
-    Bindings, DerivationStatus, DeriveInput, GenerateInput, OpenApi, PublicSdkSurface,
-    ResponseRepresentationDefinition, Runtime, SdkOverrides, derive, generate,
+    Bindings, DerivationStatus, DeriveInput, GenerateInput, OpenApi, OperationOverride,
+    PublicSdkSurface, ResponseRepresentationDefinition, Runtime, SdkOverrides, derive, generate,
 };
 
 fn fixture() -> (OpenApi, Bindings, PublicSdkSurface) {
@@ -279,6 +281,7 @@ fn consumer_override_cannot_replace_canonical_discriminator() {
     overrides.operations.insert(
         "watch_job".into(),
         rust_sdk_generator::OperationOverride {
+            response_representations: Default::default(),
             request_overrides: std::collections::BTreeMap::from([("stream".into(), Some(false))]),
         },
     );
@@ -355,5 +358,115 @@ fn canonical_discriminator_must_not_hide_raw_field_type_drift() {
     assert_eq!(
         derivation.report.operations["watch_job"].status,
         DerivationStatus::Rejected
+    );
+}
+
+#[test]
+fn explicit_json_and_sse_selection_preserves_canonical_discriminators() {
+    let (mut openapi, mut bindings, mut surface) = fixture();
+    openapi.0["paths"]["/jobs/{job_id}/watch"]["post"]["responses"]["201"] = serde_json::json!({
+        "description": "buffered result",
+        "content": {"application/json": {
+            "schema": {"$ref": "#/components/schemas/BufferedJob"}
+        }}
+    });
+    openapi.0["components"]["schemas"]["BufferedJob"] = serde_json::json!({
+        "type": "object",
+        "required": ["result"],
+        "properties": {"result": {"type": "boolean"}}
+    });
+    bindings.structs.insert(
+        "BufferedJob".into(),
+        vec![rust_sdk_generator::FieldBinding {
+            name: "result".into(),
+            wire_name: Some("result".into()),
+            type_name: "bool".into(),
+        }],
+    );
+    bindings.symbol_paths.insert(
+        "BufferedJob".into(),
+        "crate::generated::types::BufferedJob".into(),
+    );
+    let mut json = bindings.operations["raw_watch_17"].clone();
+    json.name = "raw_read_job_18".into();
+    json.success_type = "BufferedJob".into();
+    json.return_type = "Result<BufferedJob, Error>".into();
+    json.stream = None;
+    let metadata = json.metadata.as_mut().expect("canonical metadata");
+    metadata.representation = rust_sdk_generator::ResponseRepresentationBinding::Json {
+        schema_name: "BufferedJob".into(),
+        media_type: "application/json".into(),
+    };
+    metadata.success_statuses = vec!["201".into()];
+    metadata.stream_abi = None;
+    metadata.request_discriminators[0].value =
+        rust_sdk_generator::RequestDiscriminatorValue::Bool(false);
+    bindings.operations.insert(json.name.clone(), json);
+    surface.operations.insert(
+        "watch_job".into(),
+        vec!["jobs.read".into(), "jobs.watch".into()],
+    );
+
+    let mut overrides = SdkOverrides::default();
+    overrides.operations.insert(
+        "watch_job".into(),
+        OperationOverride {
+            request_overrides: BTreeMap::new(),
+            response_representations: BTreeMap::from([
+                ("jobs.read".into(), ResponseRepresentationDefinition::Json),
+                (
+                    "jobs.watch".into(),
+                    ResponseRepresentationDefinition::EventStream,
+                ),
+            ]),
+        },
+    );
+    let derived = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides,
+    })
+    .expect("canonical JSON and SSE projection");
+    assert_eq!(
+        derived.report.operations["watch_job"].status,
+        DerivationStatus::Overridden
+    );
+    let ops = &derived.definition.resources["jobs"].operations;
+    assert_eq!(ops["read"].raw_method.as_deref(), Some("raw_read_job_18"));
+    assert_eq!(ops["watch"].raw_method.as_deref(), Some("raw_watch_17"));
+    assert_eq!(
+        ops["read"]
+            .request_overrides
+            .as_ref()
+            .expect("JSON discriminator")["stream"],
+        Some(false)
+    );
+    assert_eq!(
+        ops["watch"]
+            .request_overrides
+            .as_ref()
+            .expect("SSE discriminator")["stream"],
+        Some(true)
+    );
+
+    let generated = generate(GenerateInput {
+        openapi,
+        bindings,
+        definition: derived.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("selected JSON and SSE lower");
+    assert!(
+        generated
+            .files
+            .values()
+            .any(|source| source.contains("raw_read_job_18("))
+    );
+    assert!(
+        generated
+            .files
+            .values()
+            .any(|source| source.contains("raw_watch_17("))
     );
 }

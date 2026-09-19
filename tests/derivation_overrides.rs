@@ -42,6 +42,7 @@ fn request_override(field: &str, value: Option<bool>) -> SdkOverrides {
         "revise_job".into(),
         OperationOverride {
             request_overrides: BTreeMap::from([(field.into(), value)]),
+            response_representations: BTreeMap::new(),
         },
     );
     overrides

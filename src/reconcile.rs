@@ -17,6 +17,7 @@ use crate::structural::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OperationMatch {
     pub binding: Option<String>,
+    pub candidates: Vec<String>,
     pub reason: Option<&'static str>,
 }
 
@@ -639,6 +640,7 @@ pub(crate) fn reconcile(
                 operation_id.clone(),
                 OperationMatch {
                     binding: None,
+                    candidates: Vec::new(),
                     reason: Some(*reason),
                 },
             );
@@ -648,6 +650,7 @@ pub(crate) fn reconcile(
         let outcome = if matches.is_empty() {
             OperationMatch {
                 binding: None,
+                candidates: Vec::new(),
                 reason: Some("bindings.no_structural_match"),
             }
         } else if matches.len() != 1
@@ -657,11 +660,13 @@ pub(crate) fn reconcile(
         {
             OperationMatch {
                 binding: None,
+                candidates: matches.clone(),
                 reason: Some("bindings.source_operation_identity_required"),
             }
         } else {
             OperationMatch {
                 binding: Some(matches[0].clone()),
+                candidates: matches.clone(),
                 reason: None,
             }
         };
