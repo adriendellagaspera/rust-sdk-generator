@@ -997,9 +997,10 @@ pub(crate) fn flattened_json_response_object_matches(
             flattened = true;
             continue;
         }
-        let wire_name = field.wire_name.as_deref().unwrap_or(
-            field.name.strip_prefix("r#").unwrap_or(&field.name),
-        );
+        let wire_name = field
+            .wire_name
+            .as_deref()
+            .unwrap_or(field.name.strip_prefix("r#").unwrap_or(&field.name));
         if !seen.insert(wire_name) || !properties.contains_key(wire_name) {
             return false;
         }
