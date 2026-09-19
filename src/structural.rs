@@ -950,3 +950,53 @@ pub(crate) fn inline_object_union_mapping(
             .collect(),
     )
 }
+
+
+#[cfg(test)]
+mod referenced_collection_tests {
+    use super::*;
+
+    fn bindings() -> Bindings {
+        serde_json::from_value(serde_json::json!({
+            "schema_version": 3,
+            "structs": {"Record": []},
+            "enums": {},
+            "aliases": {"RecordList": "Vec<Record>"},
+            "operations": {},
+            "symbol_paths": {"Record": "crate::generated::types::Record"},
+            "binding": {
+                "client": {
+                    "type_path": "crate::generated::Client",
+                    "constructor": "new",
+                    "api_key_builder": "with_api_key",
+                    "base_url_builder": "with_base_url"
+                },
+                "type_preludes": []
+            }
+        }))
+        .expect("canonical binding fixture")
+    }
+
+    #[test]
+    fn referenced_array_alias_matches_exact_binding_identity() {
+        let bindings = bindings();
+        let schema = serde_json::json!({
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/Record"}
+        });
+        assert!(rust_type_matches_schema(&schema, "RecordList", &bindings));
+        assert!(!rust_type_matches_schema(
+            &serde_json::json!({
+                "type": "array",
+                "items": {"$ref": "#/components/schemas/DifferentRecord"}
+            }),
+            "RecordList",
+            &bindings
+        ));
+        assert!(!rust_type_matches_schema(
+            &schema,
+            "Vec<UnboundRecord>",
+            &bindings
+        ));
+    }
+}
