@@ -951,7 +951,6 @@ pub(crate) fn inline_object_union_mapping(
     )
 }
 
-
 #[cfg(test)]
 mod referenced_collection_tests {
     use super::*;
