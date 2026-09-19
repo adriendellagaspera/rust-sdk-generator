@@ -681,13 +681,12 @@ fn derives_nullable_union_of_named_object_and_canonical_raw_json_map() {
 #[test]
 fn proven_nested_required_nullable_object_stays_raw_without_a_lossy_wrapper() {
     let (mut openapi, mut bindings, surface) = fixture();
-    openapi.0["components"]["schemas"]["WidgetConfig"]["properties"]["mode"] =
-        serde_json::json!({
-            "anyOf": [
-                {"$ref": "#/components/schemas/WidgetMode"},
-                {"type": "null"}
-            ]
-        });
+    openapi.0["components"]["schemas"]["WidgetConfig"]["properties"]["mode"] = serde_json::json!({
+        "anyOf": [
+            {"$ref": "#/components/schemas/WidgetMode"},
+            {"type": "null"}
+        ]
+    });
     bindings
         .structs
         .get_mut("OpaqueConfig4")
