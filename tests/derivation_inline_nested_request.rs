@@ -149,7 +149,7 @@ fn lowering_revalidates_inline_schema_path_drift() {
 }
 
 #[test]
-fn rejects_required_nullable_inline_request_object() {
+fn preserves_structurally_proven_required_nullable_inline_object_as_raw_request() {
     let (mut openapi, mut bindings, surface) = fixture();
     let settings = openapi
         .0
@@ -172,17 +172,40 @@ fn rejects_required_nullable_inline_request_object() {
         .type_name = "Option<OpaqueSettings4>".into();
 
     let derivation = derive(DeriveInput {
-        openapi,
-        bindings,
-        surface,
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface: surface.clone(),
         overrides: SdkOverrides::default(),
     })
     .expect("derive");
 
     let outcome = &derivation.report.operations["create_profile"];
-    assert_eq!(outcome.status, DerivationStatus::Rejected);
+    assert_eq!(outcome.status, DerivationStatus::Derived);
+    let request = &derivation.definition.models["CreatePlatformProfilesRequest"];
+    assert!(request.constructor.is_none());
+    assert!(request.accessors.as_ref().is_some_and(indexmap::IndexMap::is_empty));
+    assert!(generate(GenerateInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        definition: derivation.definition,
+        runtime: Runtime::default(),
+    })
+    .is_ok());
+
+    bindings
+        .structs
+        .get_mut("OpaqueProfile9")
+        .expect("root binding")[0]
+        .type_name = "OpaqueSettings4".into();
+    let drifted = derive(DeriveInput {
+        openapi,
+        bindings,
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("fail closed");
     assert_eq!(
-        outcome.reason.code,
-        "capability.request_model_not_structurally_provable"
+        drifted.report.operations["create_profile"].status,
+        DerivationStatus::Rejected
     );
 }
