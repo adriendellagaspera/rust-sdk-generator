@@ -327,22 +327,22 @@ fn request_object_models_value(
                 ) {
                     return Err(REQUEST_MODEL_UNPROVEN);
                 }
-            } else if referenced.get("properties").is_some() {
-                if !flattened_json_response_object_matches(
+            } else if referenced.get("properties").is_some()
+                && !flattened_json_response_object_matches(
                     referenced,
                     &core.spelling,
                     context.bindings,
-                ) {
-                    models.extend(request_object_models(
-                        context.openapi,
-                        context.bindings,
-                        reference,
-                        &core.spelling,
-                        child_name.clone(),
-                        seen,
-                    )?);
-                    adapters.insert(field_name.clone(), child_name);
-                }
+                )
+            {
+                models.extend(request_object_models(
+                    context.openapi,
+                    context.bindings,
+                    reference,
+                    &core.spelling,
+                    child_name.clone(),
+                    seen,
+                )?);
+                adapters.insert(field_name.clone(), child_name);
             }
             continue;
         }
