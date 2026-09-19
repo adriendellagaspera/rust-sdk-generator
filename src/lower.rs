@@ -1332,6 +1332,12 @@ fn response_matches(
     if !branches.is_empty() && inline_object_union_mapping(schema, raw, bindings).is_some() {
         return Ok(true);
     }
+    if !branches.is_empty()
+        && bindings.enums.contains_key(raw)
+        && rust_type_matches_schema(schema, raw, bindings)
+    {
+        return Ok(true);
+    }
     if let Some(wire) = scalar_object_shape(schema) {
         return Ok(
             raw_scalar_struct_shape(bindings, raw).is_some_and(|actual| actual == wire)
