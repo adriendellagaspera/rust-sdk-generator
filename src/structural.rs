@@ -398,7 +398,13 @@ pub(crate) fn nullable_request_union(schema: &Value) -> Option<Value> {
     if object.keys().any(|key| {
         !matches!(
             key.as_str(),
-            "anyOf" | "title" | "description" | "deprecated" | "example" | "examples"
+            "anyOf"
+                | "title"
+                | "description"
+                | "deprecated"
+                | "example"
+                | "examples"
+                | "default"
         )
     }) {
         return None;
