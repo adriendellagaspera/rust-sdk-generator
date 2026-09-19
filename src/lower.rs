@@ -11,6 +11,7 @@ use crate::contracts::{
 use crate::error::{GenerationError, Result};
 use crate::ir::*;
 use crate::openapi::{OpenApiIndex, ref_name};
+use crate::reconcile::unconstrained_json_alias_matches;
 use crate::rust_type::{Type, TypeKind, parse_type};
 use crate::structural::{
     inline_object_union_mapping, multipart_filenames_binding, object_field_names_match,
@@ -1304,6 +1305,9 @@ fn response_matches(
     let schema = json_schema_for_binding(operation, binding)?;
     if let Some(referenced) = ref_name(schema) {
         return Ok(referenced == raw);
+    }
+    if unconstrained_json_alias_matches(schema, raw, bindings) {
+        return Ok(true);
     }
     let branches = schema
         .get("oneOf")
