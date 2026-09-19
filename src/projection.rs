@@ -574,12 +574,14 @@ fn response_view_for_schema_named(
     let accessors = if let Some(wire) = scalar_object_shape(&schema) {
         match raw_scalar_struct_shape(bindings, raw) {
             Some(raw_shape) if wire == raw_shape => scalar_view_accessors(wire)?,
-            _ if request_object_matches(openapi, schema_name, raw, bindings) => IndexMap::new(),
+            _ if request_object_matches(openapi, schema_name, raw, bindings)
+                || constant_enum_response_object_matches(&schema, raw, bindings) =>
+            {
+                IndexMap::new()
+            }
             _ => return Err(RESPONSE_VIEW_UNPROVEN),
         }
-    } else if constant_enum_response_object_matches(&schema, raw, bindings)
-        || object_field_names_match(&schema, raw, bindings)
-    {
+    } else if object_field_names_match(&schema, raw, bindings) {
         IndexMap::new()
     } else {
         return Err(RESPONSE_VIEW_UNPROVEN);
