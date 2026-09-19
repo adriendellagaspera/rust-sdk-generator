@@ -14,7 +14,8 @@ use crate::openapi::{OpenApiIndex, ref_name};
 use crate::reconcile::unconstrained_json_alias_matches;
 use crate::rust_type::{Type, TypeKind, parse_type};
 use crate::structural::{
-    constant_enum_response_object_matches, inline_object_union_mapping,
+    constant_enum_response_object_matches, flattened_json_response_object_matches,
+    inline_object_union_mapping,
     multipart_filenames_binding, object_field_names_match, plain_string_json_alias_matches,
     raw_scalar_struct_shape, request_object_matches, request_optional_boolean_field,
     request_union_mapping, rust_type_matches_schema, scalar_named_object_matches,
@@ -1338,7 +1339,8 @@ fn response_matches(
         );
     }
     if schema.get("type").and_then(Value::as_str) == Some("object")
-        && object_field_names_match(schema, raw, bindings)
+        && (object_field_names_match(schema, raw, bindings)
+            || flattened_json_response_object_matches(schema, raw, bindings))
     {
         return Ok(true);
     }
