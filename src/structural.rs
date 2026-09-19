@@ -322,8 +322,8 @@ fn type_matches_schema(
     }
 
     if let Some(object) = schema.as_object() {
-        let union_keys = usize::from(object.contains_key("oneOf"))
-            + usize::from(object.contains_key("anyOf"));
+        let union_keys =
+            usize::from(object.contains_key("oneOf")) + usize::from(object.contains_key("anyOf"));
         let annotation_only_union = union_keys == 1
             && object.keys().all(|key| {
                 matches!(
@@ -370,12 +370,7 @@ fn type_matches_schema(
                     .filter(|(_, variant)| {
                         variant.payload.as_deref().is_some_and(|payload| {
                             parse_type(payload).ok().is_some_and(|payload_syntax| {
-                                type_matches_schema(
-                                    branch,
-                                    &payload_syntax,
-                                    bindings,
-                                    seen_aliases,
-                                )
+                                type_matches_schema(branch, &payload_syntax, bindings, seen_aliases)
                             })
                         })
                     })
@@ -1451,6 +1446,7 @@ mod referenced_collection_tests {
             &bindings
         ));
     }
+}
 
 #[cfg(test)]
 mod recursive_union_type_tests {
@@ -1551,4 +1547,3 @@ mod recursive_union_type_tests {
     }
 }
 
-}
