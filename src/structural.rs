@@ -303,6 +303,12 @@ fn type_matches_schema(
         return matched;
     }
 
+    // Heap allocation is serialization-transparent. Keep recursive cycle
+    // detection on the underlying semantic type rather than on Box itself.
+    if let Some(inner) = syntax.unary("Box") {
+        return type_matches_schema(schema, inner, bindings, seen_aliases);
+    }
+
     // A referenced component and the emitted Rust symbol share canonical identity.
     // Preserve that identity inside collections as well as at a response root.
     if let Some(reference) = ref_name(schema) {
@@ -531,6 +537,14 @@ fn union_branches(schema: &Value) -> Option<&Vec<Value>> {
     (branches.len() >= 2).then_some(branches)
 }
 
+fn transparent_box_raw(type_name: &str) -> Option<String> {
+    let mut syntax = parse_type(type_name).ok()?;
+    while let Some(inner) = syntax.unary("Box") {
+        syntax = inner.clone();
+    }
+    Some(syntax.spelling)
+}
+
 fn request_union_mapping_inner(
     openapi: &OpenApiIndex,
     schema: &Value,
@@ -563,7 +577,8 @@ fn request_union_mapping_inner(
             .enumerate()
             .filter(|(_, variant)| {
                 variant.payload.as_ref().is_some_and(|payload| {
-                    request_object_matches_inner(openapi, &reference, payload, bindings, seen)
+                    let raw = transparent_box_raw(payload).unwrap_or_else(|| payload.clone());
+                    request_object_matches_inner(openapi, &reference, &raw, bindings, seen)
                 })
             })
             .collect::<Vec<_>>();
@@ -613,11 +628,12 @@ fn request_union_matches_inner(
             let Ok(referenced) = openapi.schema(reference) else {
                 return false;
             };
+            let raw = transparent_box_raw(payload).unwrap_or_else(|| payload.to_owned());
             if union_branches(referenced).is_some() {
-                return request_union_matches_inner(openapi, referenced, payload, bindings, seen);
+                return request_union_matches_inner(openapi, referenced, &raw, bindings, seen);
             }
             if referenced_request_object(openapi, reference, referenced).is_some() {
-                return request_object_matches_inner(openapi, reference, payload, bindings, seen);
+                return request_object_matches_inner(openapi, reference, &raw, bindings, seen);
             }
             return rust_type_matches_schema(referenced, payload, bindings);
         }
@@ -1551,5 +1567,106 @@ mod recursive_union_type_tests {
             "type": "object"
         });
         assert!(!rust_type_matches_schema(&schema, "ItemUnion", &bindings()));
+    }
+}
+
+#[cfg(test)]
+mod transparent_box_tests {
+    use super::*;
+    use crate::contracts::OpenApi;
+
+    fn fixture() -> (OpenApiIndex, Bindings) {
+        let openapi = OpenApi(serde_json::json!({
+            "openapi": "3.1.0",
+            "components": {
+                "schemas": {
+                    "Group": {
+                        "type": "object",
+                        "properties": {"name": {"type": "string"}},
+                        "required": ["name"]
+                    },
+                    "Condition": {
+                        "type": "object",
+                        "properties": {"ready": {"type": "boolean"}},
+                        "required": ["ready"]
+                    }
+                }
+            }
+        }));
+        let index = OpenApiIndex::new(&openapi).expect("OpenAPI index");
+        let bindings = serde_json::from_value(serde_json::json!({
+            "schema_version": 3,
+            "structs": {
+                "Group": [{"name": "name", "type": "String"}],
+                "Condition": [{"name": "ready", "type": "bool"}]
+            },
+            "enums": {
+                "RecursiveUnion": [
+                    {"name": "Group", "payload": "Box<Group>"},
+                    {"name": "Condition", "payload": "Condition"}
+                ]
+            },
+            "aliases": {},
+            "operations": {},
+            "symbol_paths": {
+                "Group": "crate::generated::types::Group",
+                "Condition": "crate::generated::types::Condition",
+                "RecursiveUnion": "crate::generated::types::RecursiveUnion"
+            },
+            "binding": {
+                "client": {
+                    "type_path": "crate::generated::Client",
+                    "constructor": "new",
+                    "api_key_builder": "with_api_key",
+                    "base_url_builder": "with_base_url"
+                },
+                "type_preludes": []
+            }
+        }))
+        .expect("boxed binding fixture");
+        (index, bindings)
+    }
+
+    #[test]
+    fn box_is_transparent_for_referenced_wire_identity() {
+        let (_, bindings) = fixture();
+        let schema = serde_json::json!({"$ref": "#/components/schemas/Group"});
+        assert!(rust_type_matches_schema(&schema, "Box<Group>", &bindings));
+    }
+
+    #[test]
+    fn boxed_recursive_union_payload_matches_referenced_branch() {
+        let (index, bindings) = fixture();
+        let schema = serde_json::json!({
+            "anyOf": [
+                {"$ref": "#/components/schemas/Group"},
+                {"$ref": "#/components/schemas/Condition"}
+            ]
+        });
+        assert!(request_union_matches(
+            &index,
+            &schema,
+            "RecursiveUnion",
+            &bindings
+        ));
+    }
+
+    #[test]
+    fn boxed_recursive_union_still_requires_bijective_payloads() {
+        let (index, mut bindings) = fixture();
+        bindings.enums.get_mut("RecursiveUnion").expect("union")[1].payload =
+            Some("Box<Group>".into());
+        let schema = serde_json::json!({
+            "anyOf": [
+                {"$ref": "#/components/schemas/Group"},
+                {"$ref": "#/components/schemas/Condition"}
+            ]
+        });
+        assert!(!request_union_matches(
+            &index,
+            &schema,
+            "RecursiveUnion",
+            &bindings
+        ));
     }
 }
