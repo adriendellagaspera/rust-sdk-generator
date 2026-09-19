@@ -458,7 +458,6 @@ fn derives_nested_flattened_json_as_a_proven_raw_request_field() {
     );
 }
 
-
 #[test]
 fn derives_nested_all_of_request_objects_by_composed_wire_shape() {
     let (mut openapi, bindings, surface) = fixture();
@@ -496,14 +495,19 @@ fn derives_nested_all_of_request_objects_by_composed_wire_shape() {
     );
     let nested = &result.definition.models["CreatePlatformWidgetsRequestConfig"];
     assert_eq!(nested.schema.as_deref(), Some("WidgetConfig"));
-    assert_eq!(nested.constructor.as_deref(), Some(&["mode".to_owned()][..]));
-    assert!(generate(GenerateInput {
-        openapi: openapi.clone(),
-        bindings: bindings.clone(),
-        definition: result.definition,
-        runtime: Runtime::default(),
-    })
-    .is_ok());
+    assert_eq!(
+        nested.constructor.as_deref(),
+        Some(&["mode".to_owned()][..])
+    );
+    assert!(
+        generate(GenerateInput {
+            openapi: openapi.clone(),
+            bindings: bindings.clone(),
+            definition: result.definition,
+            runtime: Runtime::default(),
+        })
+        .is_ok()
+    );
 
     let mut type_drift = openapi.clone();
     type_drift.0["components"]["schemas"]["WidgetConfig"]["allOf"][1]["properties"]["retries"] =
