@@ -16,9 +16,10 @@ use crate::rust_type::{Type, TypeKind, parse_type};
 use crate::structural::{
     constant_enum_response_object_matches, flattened_json_response_object_matches,
     inline_object_union_mapping, multipart_filenames_binding, object_field_names_match,
-    object_value_matches, plain_string_json_alias_matches, raw_scalar_struct_shape, request_object_matches,
-    request_optional_boolean_field, request_union_mapping, rust_type_matches_schema,
-    scalar_named_object_matches, scalar_object_shape, sse_payload_schema_name,
+    object_value_matches, plain_string_json_alias_matches, raw_scalar_struct_shape,
+    request_object_matches, request_optional_boolean_field, request_union_mapping,
+    rust_type_matches_schema, scalar_named_object_matches, scalar_object_shape,
+    sse_payload_schema_name,
 };
 use crate::symbols::{SymbolProvider, field_identifier};
 
@@ -2106,7 +2107,8 @@ pub(crate) fn lower(
                     .expect("known model");
                 let model_definition = &definition.models[request];
                 let configured_media = item.request_media.unwrap_or(RequestMediaDefinition::Json);
-                let request_matches = if let Some(schema_name) = model_definition.schema.as_deref() {
+                let request_matches = if let Some(schema_name) = model_definition.schema.as_deref()
+                {
                     let body = index
                         .structured_request_body(operation_id)?
                         .ok_or_else(|| {
@@ -2123,15 +2125,7 @@ pub(crate) fn lower(
                     }
                     body.schema == schema_name
                         && request_object_matches(&index, schema_name, &model.raw, bindings)
-                } else {
-                    let body = index
-                        .inline_structured_request_body(operation_id)?
-                        .ok_or_else(|| {
-                            error(
-                                "lower.request_media_drift",
-                                format!("inline structured request media drift for {operation_id}"),
-                            )
-                        })?;
+                } else if let Some(body) = index.inline_structured_request_body(operation_id)? {
                     if body.media != configured_media {
                         return Err(error(
                             "lower.request_media_drift",
@@ -2139,6 +2133,23 @@ pub(crate) fn lower(
                         ));
                     }
                     object_value_matches(&index, &body.schema, &model.raw, bindings)
+                } else {
+                    let body = index
+                        .structured_request_body(operation_id)?
+                        .ok_or_else(|| {
+                            error(
+                                "lower.request_media_drift",
+                                format!("structured request media drift for {operation_id}"),
+                            )
+                        })?;
+                    if body.media != configured_media {
+                        return Err(error(
+                            "lower.request_media_drift",
+                            format!("structured request media drift for {operation_id}"),
+                        ));
+                    }
+                    body.schema == model.raw
+                        && request_object_matches(&index, &body.schema, &model.raw, bindings)
                 };
                 if !request_matches {
                     return Err(error(
