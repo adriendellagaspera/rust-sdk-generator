@@ -272,6 +272,15 @@ fn type_matches_schema(
         return matched;
     }
 
+    // A referenced component and the emitted Rust symbol share canonical identity.
+    // Preserve that identity inside collections as well as at a response root.
+    if let Some(reference) = ref_name(schema) {
+        return syntax.spelling == reference
+            && (bindings.structs.contains_key(reference)
+                || bindings.enums.contains_key(reference)
+                || bindings.aliases.contains_key(reference));
+    }
+
     if let Some(non_null) = nullable_schema(schema) {
         return syntax
             .unary("Option")
