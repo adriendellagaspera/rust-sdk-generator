@@ -544,15 +544,14 @@ fn derives_nested_all_of_request_objects_by_composed_wire_shape() {
 #[test]
 fn derives_nullable_union_of_named_object_and_canonical_raw_json_map() {
     let (mut openapi, mut bindings, surface) = fixture();
-    openapi.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["input"] =
-        serde_json::json!({
-            "anyOf": [
-                {"$ref": "#/components/schemas/WidgetMetadata"},
-                {"type": "object", "additionalProperties": true},
-                {"type": "null"}
-            ],
-            "title": "Optional input"
-        });
+    openapi.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["input"] = serde_json::json!({
+        "anyOf": [
+            {"$ref": "#/components/schemas/WidgetMetadata"},
+            {"type": "object", "additionalProperties": true},
+            {"type": "null"}
+        ],
+        "title": "Optional input"
+    });
     bindings
         .structs
         .get_mut("OpaqueRequest9")
@@ -614,11 +613,8 @@ fn derives_nullable_union_of_named_object_and_canonical_raw_json_map() {
     assert!(generated.files["facade_types.rs"].contains("pub fn input("));
 
     let mut wrong_map = bindings.clone();
-    wrong_map
-        .structs
-        .get_mut("OpaqueFreeForm4")
-        .expect("map")[0]
-        .type_name = "std::collections::BTreeMap<String, String>".into();
+    wrong_map.structs.get_mut("OpaqueFreeForm4").expect("map")[0].type_name =
+        "std::collections::BTreeMap<String, String>".into();
     let rejected = derive(DeriveInput {
         openapi: openapi.clone(),
         bindings: wrong_map,
@@ -652,8 +648,8 @@ fn derives_nullable_union_of_named_object_and_canonical_raw_json_map() {
     );
 
     let mut extra_constraint = openapi.clone();
-    extra_constraint.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["input"]
-        ["additionalProperties"] = serde_json::json!(false);
+    extra_constraint.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["input"]["additionalProperties"] =
+        serde_json::json!(false);
     let rejected = derive(DeriveInput {
         openapi: extra_constraint,
         bindings: bindings.clone(),
@@ -667,8 +663,8 @@ fn derives_nullable_union_of_named_object_and_canonical_raw_json_map() {
     );
 
     let mut second_null = openapi;
-    second_null.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["input"]
-        ["anyOf"][1] = serde_json::json!({"type": "null"});
+    second_null.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["input"]["anyOf"]
+        [1] = serde_json::json!({"type": "null"});
     let rejected = derive(DeriveInput {
         openapi: second_null,
         bindings,
