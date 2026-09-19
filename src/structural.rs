@@ -469,9 +469,21 @@ pub(crate) fn nullable_request_union(schema: &Value) -> Option<Value> {
     if object.keys().any(|key| {
         !matches!(
             key.as_str(),
-            "anyOf" | "title" | "description" | "deprecated" | "example" | "examples" | "default"
+            "anyOf"
+                | "title"
+                | "description"
+                | "deprecated"
+                | "example"
+                | "examples"
+                | "default"
+                | "additionalProperties"
         )
-    }) {
+    }) || object
+        .get("additionalProperties")
+        .is_some_and(|value| value != &Value::Bool(true))
+    {
+        // additionalProperties:true has no validation effect. Any restrictive
+        // sibling (including additionalProperties:false) still fails closed.
         return None;
     }
     let branches = schema.get("anyOf")?.as_array()?;
