@@ -889,6 +889,80 @@ pub(crate) fn plain_string_json_alias_matches(
         .is_some_and(|alias| alias == "String")
 }
 
+/// Prove a response object with one or more string-constant fields represented
+/// by exact one-variant raw enums, while checking every other scalar field and
+/// preserving the required/nullable wrapper depth.
+pub(crate) fn constant_enum_response_object_matches(
+    schema: &Value,
+    raw: &str,
+    bindings: &Bindings,
+) -> bool {
+    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
+        return false;
+    };
+    if schema.get("additionalProperties").is_some_and(|extra| extra != false) {
+        return false;
+    }
+    let Some(fields) = bindings.structs.get(raw) else {
+        return false;
+    };
+    let required_values = schema
+        .get("required")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let required: BTreeSet<_> = required_values.iter().filter_map(Value::as_str).collect();
+    if required.len() != required_values.len()
+        || required.iter().any(|field| !properties.contains_key(*field))
+    {
+        return false;
+    }
+    let mut seen = BTreeSet::new();
+    let mut constants = 0;
+    for field in fields {
+        let name = field.name.strip_prefix("r#").unwrap_or(&field.name);
+        let wire_name = field.wire_name.as_deref().unwrap_or(name);
+        if !seen.insert(wire_name) {
+            return false;
+        }
+        let Some(property) = properties.get(wire_name) else {
+            return false;
+        };
+        let Some((core, depth)) = rust_option_core(&field.type_name) else {
+            return false;
+        };
+        let (wire, nullable) = nullable_schema(property)
+            .map(|value| (value, true))
+            .unwrap_or((property, false));
+        if depth != usize::from(!required.contains(wire_name)) + usize::from(nullable) {
+            return false;
+        }
+        if let Some(constant) = wire.get("const") {
+            let Some(value) = constant.as_str() else {
+                return false;
+            };
+            if wire.get("type").and_then(Value::as_str) != Some("string")
+                || !bindings.enums.get(&core.spelling).is_some_and(|variants| {
+                    variants.len() == 1
+                        && variants[0].payload.is_none()
+                        && variants[0].wire_name.as_deref() == Some(value)
+                })
+            {
+                return false;
+            }
+            constants += 1;
+        } else {
+            let Some((kind, _)) = scalar_schema(wire) else {
+                return false;
+            };
+            if rust_scalar(&core.spelling) != Some((kind, 0)) {
+                return false;
+            }
+        }
+    }
+    constants > 0 && seen.len() == properties.len()
+}
+
 pub(crate) fn object_field_names_match(schema: &Value, raw: &str, bindings: &Bindings) -> bool {
     let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
         return false;
