@@ -183,14 +183,21 @@ fn preserves_structurally_proven_required_nullable_inline_object_as_raw_request(
     assert_eq!(outcome.status, DerivationStatus::Derived);
     let request = &derivation.definition.models["CreateAccountsProfilesRequest"];
     assert!(request.constructor.is_none());
-    assert!(request.accessors.as_ref().is_some_and(indexmap::IndexMap::is_empty));
-    assert!(generate(GenerateInput {
-        openapi: openapi.clone(),
-        bindings: bindings.clone(),
-        definition: derivation.definition,
-        runtime: Runtime::default(),
-    })
-    .is_ok());
+    assert!(
+        request
+            .accessors
+            .as_ref()
+            .is_some_and(indexmap::IndexMap::is_empty)
+    );
+    assert!(
+        generate(GenerateInput {
+            openapi: openapi.clone(),
+            bindings: bindings.clone(),
+            definition: derivation.definition,
+            runtime: Runtime::default(),
+        })
+        .is_ok()
+    );
 
     bindings
         .structs
