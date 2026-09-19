@@ -779,7 +779,15 @@ fn request_object_value_matches(
     let by_name: BTreeMap<_, _> = fields
         .iter()
         .filter(|field| !flattened || field.name != "additional_properties")
-        .map(|field| (field.name.strip_prefix("r#").unwrap_or(&field.name), field))
+        .map(|field| {
+            (
+                field
+                    .wire_name
+                    .as_deref()
+                    .unwrap_or_else(|| field.name.strip_prefix("r#").unwrap_or(&field.name)),
+                field,
+            )
+        })
         .collect();
     if by_name.len() + usize::from(flattened) != fields.len()
         || by_name.keys().copied().collect::<BTreeSet<_>>()
