@@ -184,3 +184,92 @@ fn wraps_referenced_array_items_without_leaking_generated_rust_symbols() {
         "lowering must reject a drifted referenced item"
     );
 }
+
+#[test]
+fn preserves_inline_array_of_named_union_as_owned_raw_view() {
+    let (mut openapi, mut bindings, surface) = fixture();
+    openapi.0["components"] = serde_json::json!({
+        "schemas": {
+            "Alpha": {"type": "object", "properties": {}},
+            "Beta": {"type": "object", "properties": {}}
+        }
+    });
+    openapi.0["paths"]["/reports/tags"]["get"]["responses"]["200"]["content"]["application/json"]
+        ["schema"]["items"] = serde_json::json!({
+        "anyOf": [
+            {"$ref": "#/components/schemas/Alpha"},
+            {"$ref": "#/components/schemas/Beta"}
+        ]
+    });
+    bindings
+        .aliases
+        .insert("OpaqueList7".into(), "Vec<OpaqueItemUnion>".into());
+    bindings.enums.insert(
+        "OpaqueItemUnion".into(),
+        vec![
+            rust_sdk_generator::VariantBinding {
+                name: "Alpha".into(),
+                payload: Some("Alpha".into()),
+                wire_name: None,
+            },
+            rust_sdk_generator::VariantBinding {
+                name: "Beta".into(),
+                payload: Some("Beta".into()),
+                wire_name: None,
+            },
+        ],
+    );
+    bindings.structs.insert("Alpha".into(), Vec::new());
+    bindings.structs.insert("Beta".into(), Vec::new());
+    for name in ["OpaqueItemUnion", "Alpha", "Beta"] {
+        bindings
+            .symbol_paths
+            .insert(name.into(), format!("crate::generated::types::{name}"));
+    }
+
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive inline array union");
+
+    assert_eq!(
+        derivation.report.operations["read_inline_tags"].status,
+        DerivationStatus::Derived
+    );
+    let response = &derivation.definition.models["TagsReportsResponse"];
+    assert_eq!(response.raw.as_deref(), Some("OpaqueList7"));
+    assert_eq!(response.type_alias, None);
+    assert_eq!(response.borrowed, Some(false));
+    assert!(
+        response
+            .accessors
+            .as_ref()
+            .is_some_and(indexmap::IndexMap::is_empty)
+    );
+
+    let definition = derivation.definition.clone();
+    let generated = generate(GenerateInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        definition: derivation.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("inline array union raw view generates");
+    let types = &generated.files["facade_types.rs"];
+    assert!(types.contains("pub struct TagsReportsResponse { raw: OpaqueList7 }"));
+    assert!(!types.contains("pub type TagsReportsResponse = Vec<OpaqueItemUnion>;"));
+
+    openapi.0["paths"]["/reports/tags"]["get"]["responses"]["200"]["content"]["application/json"]
+        ["schema"]["items"]["anyOf"][1] = serde_json::json!({"$ref": "#/components/schemas/Alpha"});
+    let error = generate(GenerateInput {
+        openapi,
+        bindings,
+        definition,
+        runtime: Runtime::default(),
+    })
+    .expect_err("array union drift must fail lowering");
+    assert_eq!(error.diagnostic.code, "lower.response_drift");
+}
