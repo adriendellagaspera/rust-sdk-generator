@@ -755,34 +755,39 @@ pub(crate) fn scalar_named_object_matches(
 fn sse_envelope_payload(schema: &Value) -> Option<&str> {
     let properties = schema.get("properties").and_then(Value::as_object)?;
     let data = properties.get("data").and_then(ref_name)?;
-    let required = schema
+    let data_required = schema
         .get("required")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .filter_map(Value::as_str)
         .any(|field| field == "data");
-    if !required {
+    let has_sse_metadata = properties.keys().any(|field| field != "data");
+    if !data_required && !has_sse_metadata {
         return None;
     }
-    let allowed = ["data", "event", "id", "retry"];
-    if properties
-        .keys()
-        .any(|field| !allowed.contains(&field.as_str()))
-    {
-        return None;
+    for (field, value) in properties {
+        let valid = match field.as_str() {
+            "data" => true,
+            "event" | "id" => direct_scalar_schema(value) == Some(ScalarKind::String),
+            "retry" => direct_scalar_schema(value) == Some(ScalarKind::Integer),
+            _ => false,
+        };
+        if !valid {
+            return None;
+        }
     }
     Some(data)
 }
 
 pub(crate) fn sse_payload_schema_name(openapi: &OpenApiIndex, schema: &Value) -> Option<String> {
-    let root = ref_name(schema)?;
-    let resolved = openapi.schema(root).ok()?;
-    if let Some(payload) = sse_envelope_payload(resolved) {
-        Some(payload.into())
-    } else {
-        Some(root.into())
+    if let Some(root) = ref_name(schema) {
+        let resolved = openapi.schema(root).ok()?;
+        return sse_envelope_payload(resolved)
+            .map(str::to_owned)
+            .or_else(|| Some(root.to_owned()));
     }
+    sse_envelope_payload(schema).map(str::to_owned)
 }
 
 pub(crate) fn scalar_object_shape(schema: &Value) -> Option<BTreeMap<String, ScalarFieldShape>> {
