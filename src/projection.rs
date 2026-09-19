@@ -17,9 +17,10 @@ use crate::structural::{
     flattened_json_response_object_matches, inline_array_object_item, inline_object_union_mapping,
     multipart_filenames_binding, nullable_request_union, object_field_names_match,
     object_value_matches, plain_string_json_alias_matches, raw_scalar_struct_shape,
-    referenced_request_object, request_object_matches, request_optional_boolean_field,
-    request_union_mapping, request_union_matches, rust_type_matches_schema,
-    scalar_named_object_matches, scalar_object_shape, sse_payload_schema_name,
+    referenced_request_object, request_object_matches, request_object_matches_with_discriminators,
+    request_optional_boolean_field, request_union_mapping, request_union_matches,
+    rust_type_matches_schema, scalar_named_object_matches, scalar_object_shape,
+    sse_payload_schema_name,
 };
 use crate::symbols::field_identifier;
 
@@ -594,11 +595,22 @@ fn request_model(
         .operations
         .get(binding)
         .ok_or("bindings.no_structural_match")?;
+    let discriminators = raw_binding
+        .metadata
+        .as_ref()
+        .map(|metadata| metadata.request_discriminators.as_slice())
+        .unwrap_or_default();
     let matching: Vec<_> = raw_binding
         .parameters
         .iter()
         .filter(|parameter| {
-            request_object_matches(openapi, &schema_name, &parameter.type_name, bindings)
+            request_object_matches_with_discriminators(
+                openapi,
+                &schema_name,
+                &parameter.type_name,
+                bindings,
+                discriminators,
+            )
         })
         .collect();
     if matching.len() != 1 {
@@ -627,7 +639,13 @@ fn request_model(
     ) {
         Ok(models) => models,
         Err(REQUEST_MODEL_UNPROVEN)
-            if request_object_matches(openapi, &schema_name, raw, bindings) =>
+            if request_object_matches_with_discriminators(
+                openapi,
+                &schema_name,
+                raw,
+                bindings,
+                discriminators,
+            ) =>
         {
             // Do not synthesize a lossy constructor for an otherwise exact raw
             // request shape. An owned public view still supports From<Raw>
