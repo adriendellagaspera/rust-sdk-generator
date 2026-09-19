@@ -1792,3 +1792,96 @@ mod transparent_box_tests {
         ));
     }
 }
+
+#[cfg(test)]
+mod referenced_array_union_tests {
+    use super::*;
+    use crate::contracts::OpenApi;
+
+    fn fixture() -> (OpenApiIndex, Bindings, Value) {
+        let openapi = OpenApi(serde_json::json!({
+            "openapi": "3.1.0",
+            "components": {"schemas": {
+                "WireGroup": {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}},
+                    "required": ["name"]
+                },
+                "WireOther": {
+                    "type": "object",
+                    "properties": {"ready": {"type": "boolean"}},
+                    "required": ["ready"]
+                }
+            }}
+        }));
+        let index = OpenApiIndex::new(&openapi).expect("index");
+        let bindings = serde_json::from_value(serde_json::json!({
+            "schema_version": 3,
+            "structs": {
+                "OpaqueGroup": [{"name": "name", "type": "String"}],
+                "OpaqueOther": [{"name": "ready", "type": "bool"}],
+                "OpaqueMap": [{
+                    "name": "additional_properties",
+                    "type": "std::collections::BTreeMap<String, serde_json::Value>"
+                }]
+            },
+            "enums": {
+                "OpaqueUnion": [
+                    {"name": "Group", "payload": "GroupArray"},
+                    {"name": "Other", "payload": "OtherArray"},
+                    {"name": "Map", "payload": "MapArray"}
+                ]
+            },
+            "aliases": {
+                "GroupArray": "Vec<OpaqueGroup>",
+                "OtherArray": "Vec<OpaqueOther>",
+                "MapArray": "Vec<OpaqueMap>"
+            },
+            "operations": {},
+            "symbol_paths": {
+                "OpaqueGroup": "crate::raw::OpaqueGroup",
+                "OpaqueOther": "crate::raw::OpaqueOther",
+                "OpaqueMap": "crate::raw::OpaqueMap",
+                "OpaqueUnion": "crate::raw::OpaqueUnion",
+                "GroupArray": "crate::raw::GroupArray",
+                "OtherArray": "crate::raw::OtherArray",
+                "MapArray": "crate::raw::MapArray"
+            },
+            "binding": {"client": {
+                "type_path": "crate::raw::Client",
+                "constructor": "new",
+                "api_key_builder": "with_api_key",
+                "base_url_builder": "with_base_url"
+            }, "type_preludes": []}
+        }))
+        .expect("bindings");
+        let response = serde_json::json!({
+            "anyOf": [
+                {"type": "array", "items": {"$ref": "#/components/schemas/WireGroup"}},
+                {"type": "array", "items": {"$ref": "#/components/schemas/WireOther"}},
+                {"type": "array", "items": {"type": "object", "additionalProperties": true}}
+            ],
+            "title": "Array union"
+        });
+        (index, bindings, response)
+    }
+
+    #[test]
+    fn proves_renamed_reference_and_canonical_raw_map_array_bijectively() {
+        let (openapi, bindings, schema) = fixture();
+        assert!(response_array_union_matches(&openapi, &schema, "OpaqueUnion", &bindings));
+    }
+
+    #[test]
+    fn rejects_ambiguous_or_drifted_array_payloads_and_extra_constraints() {
+        let (openapi, bindings, mut schema) = fixture();
+        schema["anyOf"][1]["items"] = schema["anyOf"][0]["items"].clone();
+        assert!(!response_array_union_matches(&openapi, &schema, "OpaqueUnion", &bindings));
+        let (openapi, mut bindings, schema) = fixture();
+        bindings.structs.get_mut("OpaqueGroup").expect("group")[0].type_name = "bool".into();
+        assert!(!response_array_union_matches(&openapi, &schema, "OpaqueUnion", &bindings));
+        let (openapi, bindings, mut schema) = fixture();
+        schema["anyOf"][0]["minItems"] = serde_json::json!(1);
+        assert!(!response_array_union_matches(&openapi, &schema, "OpaqueUnion", &bindings));
+    }
+}
