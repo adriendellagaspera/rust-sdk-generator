@@ -16,8 +16,9 @@ use crate::rust_type::{Type, TypeKind, parse_type};
 use crate::structural::{
     constant_enum_response_object_matches, flattened_json_response_object_matches,
     inline_object_union_mapping, multipart_filenames_binding, object_field_names_match,
-    plain_string_json_alias_matches, raw_scalar_struct_shape, request_object_matches,
-    request_optional_boolean_field, request_union_mapping, rust_type_matches_schema,
+    plain_string_json_alias_matches, raw_scalar_struct_shape,
+    request_object_matches_with_discriminators, request_optional_boolean_field,
+    request_union_mapping, rust_type_matches_schema,
     scalar_named_object_matches, scalar_object_shape, sse_payload_schema_name,
 };
 use crate::symbols::{SymbolProvider, field_identifier};
@@ -2124,9 +2125,20 @@ pub(crate) fn lower(
                         format!("structured request media drift for {operation_id}"),
                     ));
                 }
+                let request_discriminators = raw_operation
+                    .metadata
+                    .as_ref()
+                    .map(|metadata| metadata.request_discriminators.as_slice())
+                    .unwrap_or_default();
                 let request_matches = if model_definition.schema.is_some() {
                     body.schema == schema_name
-                        && request_object_matches(&index, schema_name, &model.raw, bindings)
+                        && request_object_matches_with_discriminators(
+                            &index,
+                            schema_name,
+                            &model.raw,
+                            bindings,
+                            request_discriminators,
+                        )
                 } else {
                     body.schema == model.raw
                 };
