@@ -391,6 +391,67 @@ pub(crate) fn rust_type_matches_schema(
         .is_some_and(|syntax| type_matches_schema(schema, &syntax, bindings, &mut BTreeSet::new()))
 }
 
+/// Normalize an exactly nullable two-branch request union. We do not drop
+/// additional constraints or pretend that the null variant is an enum payload.
+fn nullable_request_union(schema: &Value) -> Option<Value> {
+    let object = schema.as_object()?;
+    if object.keys().any(|key| {
+        !matches!(
+            key.as_str(),
+            "anyOf" | "title" | "description" | "deprecated" | "example" | "examples"
+        )
+    }) {
+        return None;
+    }
+    let branches = schema.get("anyOf")?.as_array()?;
+    if branches.len() != 3
+        || branches
+            .iter()
+            .filter(|branch| **branch == serde_json::json!({"type": "null"}))
+            .count()
+            != 1
+    {
+        return None;
+    }
+    let non_null: Vec<_> = branches
+        .iter()
+        .filter(|branch| **branch != serde_json::json!({"type": "null"}))
+        .cloned()
+        .collect();
+    Some(serde_json::json!({"anyOf": non_null}))
+}
+
+fn canonical_unconstrained_map_branch(
+    schema: &Value,
+    raw: &str,
+    bindings: &Bindings,
+) -> bool {
+    let Some(shape) = schema.as_object() else {
+        return false;
+    };
+    if shape.get("type").and_then(Value::as_str) != Some("object")
+        || shape.get("additionalProperties") != Some(&Value::Bool(true))
+        || shape.contains_key("properties")
+        || shape.keys().any(|key| {
+            !matches!(
+                key.as_str(),
+                "type" | "additionalProperties" | "title" | "description" | "deprecated"
+            )
+        })
+    {
+        return false;
+    }
+    flattened_json_response_object_matches(
+        &serde_json::json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+        }),
+        raw,
+        bindings,
+    )
+}
+
 fn rust_option_core(type_name: &str) -> Option<(Type, usize)> {
     let mut syntax = parse_type(type_name).ok()?;
     let mut depth = 0;
@@ -502,7 +563,8 @@ fn request_union_matches_inner(
         if branch.get("properties").is_some() {
             return request_object_value_matches(openapi, branch, payload, bindings, seen);
         }
-        rust_type_matches_schema(branch, payload, bindings)
+        canonical_unconstrained_map_branch(branch, payload, bindings)
+            || rust_type_matches_schema(branch, payload, bindings)
     };
 
     let mut used = BTreeSet::new();
@@ -636,8 +698,11 @@ fn request_object_value_matches(
         let Some((core, option_depth)) = rust_option_core(&field.type_name) else {
             return false;
         };
-        let (wire, nullable) = nullable_schema(property)
+        let union_without_null = nullable_request_union(property);
+        let (wire, nullable) = union_without_null
+            .as_ref()
             .map(|schema| (schema, true))
+            .or_else(|| nullable_schema(property).map(|schema| (schema, true)))
             .unwrap_or((property, false));
         let expected_depth = usize::from(!required.contains(name.as_str())) + usize::from(nullable);
         if option_depth != expected_depth {
