@@ -407,3 +407,71 @@ fn derives_single_oneof_request_field_with_exact_branch() {
         DerivationStatus::Rejected
     );
 }
+
+#[test]
+fn proves_renamed_request_field_by_exact_wire_name() {
+    let (openapi, mut bindings, surface) = fixture();
+    let title = bindings
+        .structs
+        .get_mut("UpdateJobRequest")
+        .expect("request binding")
+        .iter_mut()
+        .find(|field| field.name == "title")
+        .expect("required title field");
+    title.name = "title_internal".into();
+    title.wire_name = Some("title".into());
+
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface: surface.clone(),
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive exact renamed request");
+
+    assert_eq!(
+        derivation.report.operations["revise_job"].status,
+        DerivationStatus::Derived
+    );
+    let request = &derivation.definition.models["UpdateWorkJobsRequest"];
+    assert_eq!(request.raw.as_deref(), Some("UpdateJobRequest"));
+    assert!(request.constructor.is_none());
+    assert!(
+        request
+            .accessors
+            .as_ref()
+            .is_some_and(indexmap::IndexMap::is_empty)
+    );
+
+    generate(GenerateInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        definition: derivation.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("renamed raw request view generates");
+
+    bindings
+        .structs
+        .get_mut("UpdateJobRequest")
+        .expect("request binding")
+        .iter_mut()
+        .find(|field| field.name == "title_internal")
+        .expect("renamed title field")
+        .wire_name = Some("different".into());
+    let rejected = derive(DeriveInput {
+        openapi,
+        bindings,
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("reject renamed wire identity drift");
+    assert_eq!(
+        rejected.report.operations["revise_job"].status,
+        DerivationStatus::Rejected
+    );
+    assert_eq!(
+        rejected.report.operations["revise_job"].reason.code,
+        "capability.request_model_not_structurally_provable"
+    );
+}
