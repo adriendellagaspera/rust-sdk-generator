@@ -17,7 +17,8 @@ use crate::structural::{
     inline_object_union_mapping, multipart_filenames_binding, object_field_names_match,
     object_value_matches, raw_scalar_struct_shape, request_object_matches,
     request_optional_boolean_field, request_union_mapping, request_union_matches,
-    rust_type_matches_schema, scalar_named_object_matches, scalar_object_shape,
+    plain_string_json_alias_matches, rust_type_matches_schema, scalar_named_object_matches,
+    scalar_object_shape,
     sse_payload_schema_name,
 };
 use crate::symbols::field_identifier;
@@ -1327,7 +1328,9 @@ fn project_json_response_schema(
             models: vec![(name, model)],
         });
     }
-    if unconstrained_json_alias_matches(schema, raw_success, bindings) {
+    if unconstrained_json_alias_matches(schema, raw_success, bindings)
+        || plain_string_json_alias_matches(schema, raw_success, bindings)
+    {
         let name = response_model_name(resource_path, public_name);
         if !public_model_name_available(&name, bindings) {
             return Err("capability.public_model_name_collision");
