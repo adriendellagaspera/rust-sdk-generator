@@ -13,10 +13,11 @@ use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, parse_type};
 use crate::structural::{
     ScalarFieldShape, ScalarKind as StructuralScalarKind, inline_array_object_item,
-    inline_object_union_mapping, multipart_filenames_binding, object_value_matches,
-    raw_scalar_struct_shape, request_object_matches, request_optional_boolean_field,
-    request_union_mapping, request_union_matches, rust_type_matches_schema,
-    scalar_named_object_matches, scalar_object_shape, sse_payload_schema_name,
+    inline_object_union_mapping, multipart_filenames_binding, object_field_names_match,
+    object_value_matches, raw_scalar_struct_shape, request_object_matches,
+    request_optional_boolean_field, request_union_mapping, request_union_matches,
+    rust_type_matches_schema, scalar_named_object_matches, scalar_object_shape,
+    sse_payload_schema_name,
 };
 use crate::symbols::field_identifier;
 
@@ -574,7 +575,7 @@ fn response_view_for_schema_named(
             _ if request_object_matches(openapi, schema_name, raw, bindings) => IndexMap::new(),
             _ => return Err(RESPONSE_VIEW_UNPROVEN),
         }
-    } else if request_object_matches(openapi, schema_name, raw, bindings) {
+    } else if object_field_names_match(&schema, raw, bindings) {
         IndexMap::new()
     } else {
         return Err(RESPONSE_VIEW_UNPROVEN);
@@ -643,7 +644,7 @@ fn inline_response_view_named(
             _ if object_value_matches(openapi, schema, raw, bindings) => IndexMap::new(),
             _ => return Err(RESPONSE_VIEW_UNPROVEN),
         }
-    } else if object_value_matches(openapi, schema, raw, bindings) {
+    } else if object_field_names_match(schema, raw, bindings) {
         IndexMap::new()
     } else {
         return Err(RESPONSE_VIEW_UNPROVEN);
