@@ -80,7 +80,10 @@ mod tests {
     }
 
     fn sha256(value: &str) -> String {
-        format!("{:x}", Sha256::digest(value.as_bytes()))
+        Sha256::digest(value.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
     }
 
     #[test]
