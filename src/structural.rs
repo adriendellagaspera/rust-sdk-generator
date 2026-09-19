@@ -393,7 +393,7 @@ pub(crate) fn rust_type_matches_schema(
 
 /// Normalize an exactly nullable two-branch request union. We do not drop
 /// additional constraints or pretend that the null variant is an enum payload.
-fn nullable_request_union(schema: &Value) -> Option<Value> {
+pub(crate) fn nullable_request_union(schema: &Value) -> Option<Value> {
     let object = schema.as_object()?;
     if object.keys().any(|key| {
         !matches!(
