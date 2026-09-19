@@ -573,6 +573,16 @@ fn request_model(
     resource_path: &[String],
     public_name: &str,
 ) -> Result<Option<(String, ProjectedModels, RequestMediaDefinition)>, &'static str> {
+    if let Some(projected) = inline_request_model(
+        openapi,
+        bindings,
+        operation_id,
+        binding,
+        resource_path,
+        public_name,
+    )? {
+        return Ok(Some(projected));
+    }
     let Some(body) = openapi
         .structured_request_body(operation_id)
         .map_err(|_| REQUEST_MODEL_UNPROVEN)?
