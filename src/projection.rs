@@ -569,11 +569,11 @@ fn response_view_for_schema_named(
         .object_schema(schema_name)
         .map_err(|_| RESPONSE_VIEW_UNPROVEN)?;
     let accessors = if let Some(wire) = scalar_object_shape(&schema) {
-        let raw_shape = raw_scalar_struct_shape(bindings, raw).ok_or(RESPONSE_VIEW_UNPROVEN)?;
-        if wire != raw_shape {
-            return Err(RESPONSE_VIEW_UNPROVEN);
+        match raw_scalar_struct_shape(bindings, raw) {
+            Some(raw_shape) if wire == raw_shape => scalar_view_accessors(wire)?,
+            _ if object_field_names_match(&schema, raw, bindings) => IndexMap::new(),
+            _ => return Err(RESPONSE_VIEW_UNPROVEN),
         }
-        scalar_view_accessors(wire)?
     } else if object_field_names_match(&schema, raw, bindings) {
         IndexMap::new()
     } else {
@@ -637,11 +637,11 @@ fn inline_response_view_named(
     name: String,
 ) -> Result<(String, ModelDefinition), &'static str> {
     let accessors = if let Some(wire) = scalar_object_shape(schema) {
-        let raw_shape = raw_scalar_struct_shape(bindings, raw).ok_or(RESPONSE_VIEW_UNPROVEN)?;
-        if wire != raw_shape {
-            return Err(RESPONSE_VIEW_UNPROVEN);
+        match raw_scalar_struct_shape(bindings, raw) {
+            Some(raw_shape) if wire == raw_shape => scalar_view_accessors(wire)?,
+            _ if object_field_names_match(schema, raw, bindings) => IndexMap::new(),
+            _ => return Err(RESPONSE_VIEW_UNPROVEN),
         }
-        scalar_view_accessors(wire)?
     } else if object_field_names_match(schema, raw, bindings) {
         IndexMap::new()
     } else {
