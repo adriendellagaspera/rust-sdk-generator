@@ -340,15 +340,30 @@ fn request_object_models_value(
                     )
                 },
             ) {
-                models.extend(request_object_models(
+                match request_object_models(
                     context.openapi,
                     context.bindings,
                     reference,
                     &core.spelling,
                     child_name.clone(),
                     seen,
-                )?);
-                adapters.insert(field_name.clone(), child_name);
+                ) {
+                    Ok(nested) => {
+                        models.extend(nested);
+                        adapters.insert(field_name.clone(), child_name);
+                    }
+                    // A fully proven raw nested object remains usable even when
+                    // its public constructor cannot safely express its shape
+                    // (for example, a required nullable field).
+                    Err(REQUEST_MODEL_UNPROVEN)
+                        if request_object_matches(
+                            context.openapi,
+                            reference,
+                            &core.spelling,
+                            context.bindings,
+                        ) => {}
+                    Err(reason) => return Err(reason),
+                }
             }
             continue;
         }
