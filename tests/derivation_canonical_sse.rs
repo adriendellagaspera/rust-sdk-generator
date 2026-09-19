@@ -148,7 +148,9 @@ fn derives_exact_named_non_scalar_sse_payload() {
         DerivationStatus::Derived
     );
     assert_eq!(
-        derivation.definition.models["WatchJobsStreamItem"].raw.as_deref(),
+        derivation.definition.models["WatchJobsStreamItem"]
+            .raw
+            .as_deref(),
         Some("JobChunk")
     );
     assert_eq!(
