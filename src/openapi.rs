@@ -233,18 +233,6 @@ fn merge_object_shapes(parts: &[Map<String, Value>], context: &str) -> Result<Va
         }
     }
 
-    let missing: Vec<_> = required
-        .iter()
-        .filter(|name| !properties.contains_key(name.as_str()))
-        .cloned()
-        .collect();
-    if !missing.is_empty() {
-        return Err(error(
-            "openapi.undefined_required",
-            format!("OpenAPI object {context} requires undefined properties: {missing:?}"),
-        ));
-    }
-
     let mut result = Map::new();
     result.insert("type".into(), Value::String("object".into()));
     result.insert("properties".into(), Value::Object(properties));
@@ -258,6 +246,32 @@ fn merge_object_shapes(parts: &[Map<String, Value>], context: &str) -> Result<Va
         result.insert("additionalProperties".into(), additional_properties);
     }
     Ok(Value::Object(result))
+}
+
+fn validate_required_properties(schema: &Value, context: &str) -> Result<()> {
+    let properties = schema
+        .get("properties")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    let required = schema
+        .get("required")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let missing: Vec<_> = required
+        .iter()
+        .filter_map(Value::as_str)
+        .filter(|name| !properties.contains_key(*name))
+        .map(str::to_owned)
+        .collect();
+    if !missing.is_empty() {
+        return Err(error(
+            "openapi.undefined_required",
+            format!("OpenAPI object {context} requires undefined properties: {missing:?}"),
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -548,7 +562,9 @@ impl OpenApiIndex {
         }
 
         let mut stack = vec![name.into()];
-        resolve(self, name, self.schema(name)?, &mut stack)
+        let schema = resolve(self, name, self.schema(name)?, &mut stack)?;
+        validate_required_properties(&schema, name)?;
+        Ok(schema)
     }
 
     pub fn object_schema_path(&self, root: &str, path: &[String]) -> Result<Value> {
@@ -600,6 +616,7 @@ impl OpenApiIndex {
                 ));
             }
             schema = merge_object_shapes(std::slice::from_ref(object), &context)?;
+            validate_required_properties(&schema, &context)?;
         }
 
         Ok(schema)
