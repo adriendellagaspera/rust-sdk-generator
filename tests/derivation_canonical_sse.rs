@@ -364,13 +364,12 @@ fn canonical_discriminator_must_not_hide_raw_field_type_drift() {
 #[test]
 fn explicit_json_and_sse_selection_preserves_canonical_discriminators() {
     let (mut openapi, mut bindings, mut surface) = fixture();
-    openapi.0["paths"]["/jobs/{job_id}/watch"]["post"]["responses"]["201"] =
-        serde_json::json!({
-            "description": "buffered result",
-            "content": {"application/json": {
-                "schema": {"$ref": "#/components/schemas/BufferedJob"}
-            }}
-        });
+    openapi.0["paths"]["/jobs/{job_id}/watch"]["post"]["responses"]["201"] = serde_json::json!({
+        "description": "buffered result",
+        "content": {"application/json": {
+            "schema": {"$ref": "#/components/schemas/BufferedJob"}
+        }}
+    });
     openapi.0["components"]["schemas"]["BufferedJob"] = serde_json::json!({
         "type": "object",
         "required": ["result"],
@@ -414,10 +413,7 @@ fn explicit_json_and_sse_selection_preserves_canonical_discriminators() {
         OperationOverride {
             request_overrides: BTreeMap::new(),
             response_representations: BTreeMap::from([
-                (
-                    "jobs.read".into(),
-                    ResponseRepresentationDefinition::Json,
-                ),
+                ("jobs.read".into(), ResponseRepresentationDefinition::Json),
                 (
                     "jobs.watch".into(),
                     ResponseRepresentationDefinition::EventStream,
@@ -437,14 +433,8 @@ fn explicit_json_and_sse_selection_preserves_canonical_discriminators() {
         DerivationStatus::Overridden
     );
     let ops = &derived.definition.resources["jobs"].operations;
-    assert_eq!(
-        ops["read"].raw_method.as_deref(),
-        Some("raw_read_job_18")
-    );
-    assert_eq!(
-        ops["watch"].raw_method.as_deref(),
-        Some("raw_watch_17")
-    );
+    assert_eq!(ops["read"].raw_method.as_deref(), Some("raw_read_job_18"));
+    assert_eq!(ops["watch"].raw_method.as_deref(), Some("raw_watch_17"));
     assert_eq!(
         ops["read"]
             .request_overrides
