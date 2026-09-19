@@ -421,11 +421,7 @@ pub(crate) fn nullable_request_union(schema: &Value) -> Option<Value> {
     Some(serde_json::json!({"anyOf": non_null}))
 }
 
-fn canonical_unconstrained_map_branch(
-    schema: &Value,
-    raw: &str,
-    bindings: &Bindings,
-) -> bool {
+fn canonical_unconstrained_map_branch(schema: &Value, raw: &str, bindings: &Bindings) -> bool {
     let Some(shape) = schema.as_object() else {
         return false;
     };
