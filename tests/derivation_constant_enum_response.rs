@@ -103,37 +103,57 @@ fn derives_and_generates_exact_constant_enum_response() {
 }
 
 #[test]
-fn rejects_constant_value_optional_depth_and_enum_drift() {
+fn rejects_constant_value_and_optional_depth_drift() {
     let (openapi, bindings, surface) = fixture();
-    for (schema, alter_binding) in [
-        (serde_json::json!({"type": "string", "const": "other"}), false),
-        (serde_json::json!({"type": "string", "const": "archive"}), false),
-        (serde_json::json!({"type": "integer", "const": 1}), false),
-        (serde_json::json!({"type": "string", "const": "archive"}), true),
+    for schema in [
+        serde_json::json!({"type": "string", "const": "other"}),
+        serde_json::json!({"type": "integer", "const": 1}),
     ] {
         let mut drifted = openapi.clone();
         drifted.0["components"]["schemas"]["ArchivedReport"]["properties"]["tag"] = schema;
-        let mut raw = bindings.clone();
-        if alter_binding {
-            raw.structs.get_mut("ArchivedReport").expect("response struct")[2].type_name =
-                "Option<Option<ArchiveTag>>".into();
-        }
         let derivation = derive(DeriveInput {
             openapi: drifted,
-            bindings: raw,
+            bindings: bindings.clone(),
             surface: surface.clone(),
             overrides: SdkOverrides::default(),
         })
         .expect("closed world");
-        // Changing only the default annotation is not a semantic change.
-        if !alter_binding
-            && derivation.report.operations["archive_report"].status == DerivationStatus::Derived
-        {
-            continue;
-        }
         assert_eq!(
             derivation.report.operations["archive_report"].status,
             DerivationStatus::Rejected
         );
     }
+
+    let mut raw = bindings.clone();
+    raw.structs.get_mut("ArchivedReport").expect("response struct")[2].type_name =
+        "Option<Option<ArchiveTag>>".into();
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: raw,
+        surface: surface.clone(),
+        overrides: SdkOverrides::default(),
+    })
+    .expect("closed world");
+    assert_eq!(
+        derivation.report.operations["archive_report"].status,
+        DerivationStatus::Rejected
+    );
+
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive");
+    let mut drifted = openapi;
+    drifted.0["components"]["schemas"]["ArchivedReport"]["properties"]["tag"]["const"] =
+        serde_json::json!("other");
+    assert!(generate(GenerateInput {
+        openapi: drifted,
+        bindings,
+        definition: derivation.definition,
+        runtime: Runtime::default(),
+    })
+    .is_err());
 }
