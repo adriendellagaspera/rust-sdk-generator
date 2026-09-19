@@ -832,28 +832,27 @@ fn provable_root_with_unsafe_constructor_retains_owned_raw_request_view() {
 #[test]
 fn derives_lossless_unchecked_json_attributes_map_without_claiming_typed_values() {
     let (mut openapi, mut bindings, surface) = fixture();
-    openapi.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["attributes"] =
-        serde_json::json!({
-            "anyOf": [
-                {
-                    "type": "object",
-                    "additionalProperties": {
-                        "anyOf": [
-                            {"type": "boolean"},
-                            {"type": "string"},
-                            {"type": "integer"},
-                            {"type": "number"},
-                            {"type": "string", "format": "date-time"},
-                            {"type": "array", "items": {"type": "string"}},
-                            {"type": "array", "items": {"type": "integer"}},
-                            {"type": "array", "items": {"type": "number"}},
-                            {"type": "array", "items": {"type": "boolean"}}
-                        ]
-                    }
-                },
-                {"type": "null"}
-            ]
-        });
+    openapi.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["attributes"] = serde_json::json!({
+        "anyOf": [
+            {
+                "type": "object",
+                "additionalProperties": {
+                    "anyOf": [
+                        {"type": "boolean"},
+                        {"type": "string"},
+                        {"type": "integer"},
+                        {"type": "number"},
+                        {"type": "string", "format": "date-time"},
+                        {"type": "array", "items": {"type": "string"}},
+                        {"type": "array", "items": {"type": "integer"}},
+                        {"type": "array", "items": {"type": "number"}},
+                        {"type": "array", "items": {"type": "boolean"}}
+                    ]
+                }
+            },
+            {"type": "null"}
+        ]
+    });
     bindings
         .structs
         .get_mut("OpaqueRequest9")
@@ -889,7 +888,11 @@ fn derives_lossless_unchecked_json_attributes_map_without_claiming_typed_values(
         DerivationStatus::Derived
     );
     let root = &derived.definition.models["CreatePlatformWidgetsRequest"];
-    assert!(root.adapters.as_ref().is_none_or(|items| !items.contains_key("attributes")));
+    assert!(
+        root.adapters
+            .as_ref()
+            .is_none_or(|items| !items.contains_key("attributes"))
+    );
     let generated = generate(GenerateInput {
         openapi: openapi.clone(),
         bindings: bindings.clone(),
@@ -900,8 +903,11 @@ fn derives_lossless_unchecked_json_attributes_map_without_claiming_typed_values(
     assert!(generated.files["facade_types.rs"].contains("OpaqueAttributes"));
 
     let mut wrong_raw = bindings.clone();
-    wrong_raw.structs.get_mut("OpaqueAttributes").expect("raw map")[0].type_name =
-        "std::collections::BTreeMap<String, String>".into();
+    wrong_raw
+        .structs
+        .get_mut("OpaqueAttributes")
+        .expect("raw map")[0]
+        .type_name = "std::collections::BTreeMap<String, String>".into();
     let rejected = derive(DeriveInput {
         openapi: openapi.clone(),
         bindings: wrong_raw,
@@ -914,8 +920,8 @@ fn derives_lossless_unchecked_json_attributes_map_without_claiming_typed_values(
         DerivationStatus::Rejected
     );
 
-    openapi.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["attributes"]
-        ["anyOf"][0]["additionalProperties"]["anyOf"][5]["items"] =
+    openapi.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["attributes"]["anyOf"]
+        [0]["additionalProperties"]["anyOf"][5]["items"] =
         serde_json::json!({"type": "object", "additionalProperties": true});
     let rejected = derive(DeriveInput {
         openapi,
