@@ -1295,14 +1295,6 @@ fn buffered_scalar_response_projection(
     }
 }
 
-fn rust_option_core_name(raw_type: &str) -> Option<String> {
-    let mut syntax = parse_type(raw_type).ok()?;
-    while let Some(inner) = syntax.unary("Option") {
-        syntax = inner.clone();
-    }
-    Some(syntax.spelling)
-}
-
 fn response_matches(
     openapi: &OpenApiIndex,
     operation_id: &str,
@@ -1340,21 +1332,12 @@ fn response_matches(
         return Ok(true);
     }
     if let Some(wire) = scalar_object_shape(schema) {
-        return Ok(raw_scalar_struct_shape(bindings, raw).is_some_and(|actual| actual == wire));
+        return Ok(raw_scalar_struct_shape(bindings, raw).is_some_and(|actual| actual == wire)
+            || constant_enum_response_object_matches(schema, raw, bindings));
     }
     if schema.get("type").and_then(Value::as_str) == Some("object")
         && object_field_names_match(schema, raw, bindings)
     {
-        if schema.get("properties").and_then(Value::as_object).is_some_and(|properties| {
-            properties.values().any(|field| field.get("const").is_some())
-        }) && bindings.structs.get(raw).is_some_and(|fields| {
-            fields.iter().any(|field| {
-                rust_option_core_name(&field.type_name)
-                    .is_some_and(|name| bindings.enums.contains_key(&name))
-            })
-        }) {
-            return Ok(constant_enum_response_object_matches(schema, raw, bindings));
-        }
         return Ok(true);
     }
     if schema.get("type").and_then(Value::as_str) == Some("array")
