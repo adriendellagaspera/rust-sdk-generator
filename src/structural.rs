@@ -593,7 +593,14 @@ pub(crate) fn request_union_matches(
     raw_union: &str,
     bindings: &Bindings,
 ) -> bool {
-    request_union_matches_inner(openapi, schema, raw_union, bindings, &mut BTreeSet::new())
+    let without_null = nullable_request_union(schema);
+    request_union_matches_inner(
+        openapi,
+        without_null.as_ref().unwrap_or(schema),
+        raw_union,
+        bindings,
+        &mut BTreeSet::new(),
+    )
 }
 
 fn request_union_collection<'a>(
