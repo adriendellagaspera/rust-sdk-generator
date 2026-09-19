@@ -15,7 +15,7 @@ use crate::rust_type::{Type, parse_type};
 use crate::structural::{
     ScalarFieldShape, ScalarKind as StructuralScalarKind, constant_enum_response_object_matches,
     flattened_json_response_object_matches, inline_array_object_item, inline_object_union_mapping,
-    multipart_filenames_binding, object_field_names_match, object_value_matches,
+    multipart_filenames_binding, nullable_request_union, object_field_names_match, object_value_matches,
     plain_string_json_alias_matches, raw_scalar_struct_shape, referenced_request_object,
     request_object_matches, request_optional_boolean_field, request_union_mapping,
     request_union_matches, rust_type_matches_schema, scalar_named_object_matches,
@@ -283,7 +283,11 @@ fn request_object_models_value(
     let mut models = Vec::new();
     let mut adapters = IndexMap::new();
     for (field_name, property) in properties {
-        let (wire, nullable) = request_non_null_schema(property);
+        let normalized_nullable_union = nullable_request_union(property);
+        let (wire, nullable) = normalized_nullable_union
+            .as_ref()
+            .map(|schema| (schema, true))
+            .unwrap_or_else(|| request_non_null_schema(property));
         if required_set.contains(field_name.as_str()) && nullable {
             return Err(REQUEST_MODEL_UNPROVEN);
         }
