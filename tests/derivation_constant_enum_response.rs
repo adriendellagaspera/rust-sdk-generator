@@ -140,5 +140,4 @@ fn rejects_constant_value_and_optional_depth_drift() {
         derivation.report.operations["archive_report"].status,
         DerivationStatus::Rejected
     );
-
 }
