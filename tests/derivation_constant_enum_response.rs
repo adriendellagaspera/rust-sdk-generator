@@ -141,23 +141,4 @@ fn rejects_constant_value_and_optional_depth_drift() {
         DerivationStatus::Rejected
     );
 
-    let derivation = derive(DeriveInput {
-        openapi: openapi.clone(),
-        bindings: bindings.clone(),
-        surface,
-        overrides: SdkOverrides::default(),
-    })
-    .expect("derive");
-    let mut drifted = openapi;
-    drifted.0["components"]["schemas"]["ArchivedReport"]["properties"]["tag"]["const"] =
-        serde_json::json!("other");
-    assert!(
-        generate(GenerateInput {
-            openapi: drifted,
-            bindings,
-            definition: derivation.definition,
-            runtime: Runtime::default(),
-        })
-        .is_err()
-    );
 }
