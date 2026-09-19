@@ -180,3 +180,64 @@ fn unsupported_request_media_is_rejected_deterministically() {
     assert_eq!(outcome.status, DerivationStatus::Rejected);
     assert_eq!(outcome.reason.code, "request.media_projection_unsupported");
 }
+
+
+#[test]
+fn derives_exact_inline_multipart_request_as_owned_raw_view() {
+    let (mut openapi, bindings, surface) = fixture();
+    let inline = openapi.0["components"]["schemas"]["UploadRequest"].clone();
+    openapi.0["paths"]["/projects/{project_id}/uploads"]["post"]["requestBody"]["content"]
+        ["multipart/form-data"]["schema"] = inline;
+
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive inline multipart request");
+
+    let outcome = &derivation.report.operations["create_upload"];
+    assert_eq!(outcome.status, DerivationStatus::Derived);
+    let request = &derivation.definition.models["CreateMediaUploadsRequest"];
+    assert_eq!(request.raw.as_deref(), Some("OpaqueUpload5"));
+    assert!(request.constructor.is_none());
+    assert!(
+        request
+            .accessors
+            .as_ref()
+            .is_some_and(indexmap::IndexMap::is_empty)
+    );
+
+    let generated = generate(GenerateInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        definition: derivation.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("generate inline multipart request");
+    assert!(
+        generated.files.values().any(|source| {
+            source.contains("self.raw.raw_upload_17(") && source.contains("request.into_raw()")
+        })
+    );
+
+    openapi.0["paths"]["/projects/{project_id}/uploads"]["post"]["requestBody"]["content"]
+        ["multipart/form-data"]["schema"]["properties"]["publish"]["type"] =
+        serde_json::json!("string");
+    let error = generate(GenerateInput {
+        openapi,
+        bindings,
+        definition: derive(DeriveInput {
+            openapi: fixture().0,
+            bindings: fixture().1,
+            surface: fixture().2,
+            overrides: SdkOverrides::default(),
+        })
+        .expect("named baseline")
+        .definition,
+        runtime: Runtime::default(),
+    })
+    .expect_err("inline request drift must fail lowering");
+    assert_eq!(error.diagnostic.code, "lower.request_media_drift");
+}
