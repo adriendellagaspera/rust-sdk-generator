@@ -1531,7 +1531,11 @@ mod recursive_union_type_tests {
                 {"type": "array", "items": {"$ref": "#/components/schemas/Alpha"}}
             ]
         });
-        assert!(!rust_type_matches_schema(&schema, "ArrayUnion", &bindings()));
+        assert!(!rust_type_matches_schema(
+            &schema,
+            "ArrayUnion",
+            &bindings()
+        ));
     }
 
     #[test]
@@ -1546,4 +1550,3 @@ mod recursive_union_type_tests {
         assert!(!rust_type_matches_schema(&schema, "ItemUnion", &bindings()));
     }
 }
-
