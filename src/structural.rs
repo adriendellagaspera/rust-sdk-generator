@@ -781,11 +781,14 @@ fn request_object_value_matches(
         let Some((core, option_depth)) = rust_option_core(&field.type_name) else {
             return false;
         };
-        let union_without_null = nullable_request_union(property);
-        let (wire, nullable) = union_without_null
+        let referenced = ref_name(property).and_then(|reference| openapi.schema(reference).ok());
+        let nullable_wire = nullable_request_union(property)
+            .or_else(|| referenced.and_then(nullable_request_union))
+            .or_else(|| nullable_schema(property).cloned())
+            .or_else(|| referenced.and_then(nullable_schema).cloned());
+        let (wire, nullable) = nullable_wire
             .as_ref()
             .map(|schema| (schema, true))
-            .or_else(|| nullable_schema(property).map(|schema| (schema, true)))
             .unwrap_or((property, false));
         let expected_depth = usize::from(!required.contains(name.as_str())) + usize::from(nullable);
         if option_depth != expected_depth {

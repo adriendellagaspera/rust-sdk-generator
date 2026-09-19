@@ -292,3 +292,73 @@ fn preserves_root_flattened_request_as_owned_raw_view() {
     .expect_err("flattened request drift must fail lowering");
     assert_eq!(error.diagnostic.code, "lower.request_drift");
 }
+
+#[test]
+fn preserves_nullable_depth_from_referenced_request_schema() {
+    let (mut openapi, mut bindings, surface) = fixture();
+    openapi.0["components"]["schemas"]["NullablePriority"] = serde_json::json!({
+        "anyOf": [
+            {"type": "integer"},
+            {"type": "string"},
+            {"type": "null"}
+        ],
+        "title": "Nullable priority"
+    });
+    openapi.0["components"]["schemas"]["UpdateJobRequest"]["properties"]["priority"] =
+        serde_json::json!({"$ref": "#/components/schemas/NullablePriority"});
+    *request_field_mut(&mut bindings, "priority") = "Option<Option<NullablePriority>>".into();
+    bindings.enums.insert(
+        "NullablePriority".into(),
+        vec![
+            rust_sdk_generator::VariantBinding {
+                name: "Integer".into(),
+                payload: Some("i64".into()),
+                wire_name: None,
+            },
+            rust_sdk_generator::VariantBinding {
+                name: "String".into(),
+                payload: Some("String".into()),
+                wire_name: None,
+            },
+        ],
+    );
+    bindings.symbol_paths.insert(
+        "NullablePriority".into(),
+        "crate::generated::types::NullablePriority".into(),
+    );
+
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive referenced nullable request");
+
+    assert_eq!(
+        derivation.report.operations["revise_job"].status,
+        DerivationStatus::Derived
+    );
+    let request = &derivation.definition.models["UpdateWorkJobsRequest"];
+    assert_eq!(request.raw.as_deref(), Some("UpdateJobRequest"));
+
+    let definition = derivation.definition;
+    generate(GenerateInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        definition: definition.clone(),
+        runtime: Runtime::default(),
+    })
+    .expect("referenced nullable request generates");
+
+    openapi.0["components"]["schemas"]["NullablePriority"]["anyOf"][1] =
+        serde_json::json!({"type": "boolean"});
+    let error = generate(GenerateInput {
+        openapi,
+        bindings,
+        definition,
+        runtime: Runtime::default(),
+    })
+    .expect_err("referenced nullable request drift must fail lowering");
+    assert_eq!(error.diagnostic.code, "lower.request_drift");
+}
