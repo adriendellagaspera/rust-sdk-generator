@@ -934,6 +934,32 @@ fn inline_array_response_model(
         ));
     }
 
+    let union_items = items.get("oneOf").is_some() || items.get("anyOf").is_some();
+    if union_items {
+        return Ok((
+            name.clone(),
+            vec![(
+                name,
+                ModelDefinition {
+                    schema: None,
+                    schema_path: None,
+                    raw: Some(raw.into()),
+                    constructor: None,
+                    exclude: None,
+                    adapters: None,
+                    union: None,
+                    simple_union: None,
+                    type_alias: None,
+                    map: None,
+                    scalar_enum: None,
+                    union_factory: None,
+                    borrowed: Some(false),
+                    accessors: Some(IndexMap::new()),
+                },
+            )],
+        ));
+    }
+
     Ok((
         name.clone(),
         vec![(
