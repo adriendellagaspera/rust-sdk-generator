@@ -585,8 +585,13 @@ fn request_object_value_matches(
     let Some(fields) = bindings.structs.get(raw) else {
         return false;
     };
+    // A canonical flattened map captures additional JSON members; it is not
+    // itself a named OpenAPI property. All actual properties are still checked
+    // recursively below using their exact wire and Rust types.
+    let flattened = flattened_json_response_object_matches(schema, raw, bindings);
     let by_name: BTreeMap<_, _> = fields
         .iter()
+        .filter(|field| !flattened || field.name != "additional_properties")
         .map(|field| (field.name.strip_prefix("r#").unwrap_or(&field.name), field))
         .collect();
     if by_name.len() != fields.len()
