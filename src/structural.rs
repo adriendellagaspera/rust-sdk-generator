@@ -494,7 +494,7 @@ fn request_union_matches_inner(
             if union_branches(referenced).is_some() {
                 return request_union_matches_inner(openapi, referenced, payload, bindings, seen);
             }
-            if openapi.object_schema(reference).is_ok() {
+            if referenced_request_object(openapi, reference, referenced).is_some() {
                 return request_object_matches_inner(openapi, reference, payload, bindings, seen);
             }
             return rust_type_matches_schema(referenced, payload, bindings);
@@ -556,6 +556,33 @@ fn request_union_collection<'a>(
     union_branches(referenced)
         .is_some()
         .then_some((referenced, inner.spelling.as_str()))
+}
+
+/// Only route referenced request shapes to object projection when they declare
+/// named properties (possibly through allOf). A map schema with solely
+/// additionalProperties is a raw map, not a nested request wrapper.
+pub(crate) fn referenced_request_object(
+    openapi: &OpenApiIndex,
+    reference: &str,
+    source: &Value,
+) -> Option<Value> {
+    if source.get("properties").is_none()
+        && source.get("allOf").is_none()
+        && source.get("$ref").is_none()
+    {
+        return None;
+    }
+    let composed = openapi.object_schema(reference).ok()?;
+    if source.get("properties").is_some()
+        || composed
+            .get("properties")
+            .and_then(Value::as_object)
+            .is_some_and(|properties| !properties.is_empty())
+    {
+        Some(composed)
+    } else {
+        None
+    }
 }
 
 fn request_object_value_matches(
@@ -630,7 +657,7 @@ fn request_object_value_matches(
                         bindings,
                         seen,
                     )
-            } else if openapi.object_schema(reference).is_ok() {
+            } else if referenced_request_object(openapi, reference, referenced).is_some() {
                 core.kind == TypeKind::Opaque
                     && request_object_matches_inner(
                         openapi,
