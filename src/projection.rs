@@ -1535,7 +1535,10 @@ fn canonical_request_discriminators(
             || discriminator.field_required
             || discriminator.field_nullable
             || discriminator.field_tri_state
-            || discriminator.rust_value_type != "Option<bool>"
+            || !matches!(
+                discriminator.rust_value_type.as_str(),
+                "bool" | "Option<bool>"
+            )
         {
             return Err("capability.request_discriminator_projection_required");
         }
