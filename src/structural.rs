@@ -650,6 +650,20 @@ pub(crate) fn referenced_request_object(
     }
 }
 
+fn single_all_of_annotation_branch(schema: &Value) -> Option<&Value> {
+    let object = schema.as_object()?;
+    if object.keys().any(|key| {
+        !matches!(
+            key.as_str(),
+            "allOf" | "title" | "description" | "deprecated" | "example" | "examples" | "default"
+        )
+    }) {
+        return None;
+    }
+    let branches = object.get("allOf")?.as_array()?;
+    (branches.len() == 1).then(|| &branches[0])
+}
+
 fn request_object_value_matches(
     openapi: &OpenApiIndex,
     schema: &Value,
@@ -697,6 +711,7 @@ fn request_object_value_matches(
     }
 
     for (name, property) in properties {
+        let property = single_all_of_annotation_branch(property).unwrap_or(property);
         let field = by_name[name.as_str()];
         let Some((core, option_depth)) = rust_option_core(&field.type_name) else {
             return false;
