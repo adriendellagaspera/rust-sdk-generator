@@ -303,6 +303,18 @@ fn binary_schema(schema: &Value) -> bool {
         && schema.get("format").and_then(Value::as_str) == Some("binary")
 }
 
+pub(crate) fn unconstrained_json_alias_matches(
+    schema: &Value,
+    raw_success: &str,
+    bindings: &Bindings,
+) -> bool {
+    schema.as_object().is_some_and(Map::is_empty)
+        && bindings
+            .aliases
+            .get(raw_success)
+            .is_some_and(|alias| alias == "serde_json::Value")
+}
+
 fn canonical_json_schema_matches(
     schema: &Value,
     schema_name: &str,
@@ -311,6 +323,9 @@ fn canonical_json_schema_matches(
 ) -> bool {
     if let Some(reference) = ref_name(schema) {
         return reference == schema_name;
+    }
+    if unconstrained_json_alias_matches(schema, &binding.success_type, bindings) {
+        return true;
     }
 
     let branches = schema
