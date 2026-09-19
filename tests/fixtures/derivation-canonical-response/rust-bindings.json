@@ -29,6 +29,18 @@
         "wire_name": "label",
         "type": "String"
       }
+    ],
+    "Marker": [
+      {
+        "name": "active",
+        "wire_name": "active",
+        "type": "bool"
+      },
+      {
+        "name": "id",
+        "wire_name": "id",
+        "type": "uuid::Uuid"
+      }
     ]
   },
   "enums": {},
@@ -85,11 +97,38 @@
         "request_discriminators": [],
         "stream_abi": null
       }
+    },
+    "raw_read_marker": {
+      "name": "raw_read_marker",
+      "parameters": [],
+      "return_type": "Result<Marker, Error>",
+      "success_type": "Marker",
+      "stream": null,
+      "metadata": {
+        "kind": "call_shape",
+        "source_operation": {
+          "operation_id": "read_marker",
+          "method": "GET",
+          "path": "/reports/marker"
+        },
+        "emitted_operation_id": "read_marker",
+        "representation": {
+          "kind": "json",
+          "schema_name": "Marker",
+          "media_type": "application/json"
+        },
+        "success_statuses": [
+          "200"
+        ],
+        "request_discriminators": [],
+        "stream_abi": null
+      }
     }
   },
   "symbol_paths": {
     "Report": "crate::generated::types::Report",
-    "ReportDetails": "crate::generated::types::ReportDetails"
+    "ReportDetails": "crate::generated::types::ReportDetails",
+    "Marker": "crate::generated::types::Marker"
   },
   "binding": {
     "client": {

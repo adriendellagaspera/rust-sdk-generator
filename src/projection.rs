@@ -13,7 +13,7 @@ use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, parse_type};
 use crate::structural::{
     ScalarFieldShape, ScalarKind as StructuralScalarKind, inline_array_object_item,
-    inline_object_union_mapping, multipart_filenames_binding, object_field_names_match,
+    inline_object_union_mapping, multipart_filenames_binding, object_value_matches,
     raw_scalar_struct_shape, request_object_matches, request_optional_boolean_field,
     request_union_mapping, request_union_matches, rust_type_matches_schema,
     scalar_named_object_matches, scalar_object_shape, sse_payload_schema_name,
@@ -569,12 +569,12 @@ fn response_view_for_schema_named(
         .object_schema(schema_name)
         .map_err(|_| RESPONSE_VIEW_UNPROVEN)?;
     let accessors = if let Some(wire) = scalar_object_shape(&schema) {
-        let raw_shape = raw_scalar_struct_shape(bindings, raw).ok_or(RESPONSE_VIEW_UNPROVEN)?;
-        if wire != raw_shape {
-            return Err(RESPONSE_VIEW_UNPROVEN);
+        match raw_scalar_struct_shape(bindings, raw) {
+            Some(raw_shape) if wire == raw_shape => scalar_view_accessors(wire)?,
+            _ if request_object_matches(openapi, schema_name, raw, bindings) => IndexMap::new(),
+            _ => return Err(RESPONSE_VIEW_UNPROVEN),
         }
-        scalar_view_accessors(wire)?
-    } else if object_field_names_match(&schema, raw, bindings) {
+    } else if request_object_matches(openapi, schema_name, raw, bindings) {
         IndexMap::new()
     } else {
         return Err(RESPONSE_VIEW_UNPROVEN);
@@ -631,18 +631,19 @@ fn response_view(
 }
 
 fn inline_response_view_named(
+    openapi: &OpenApiIndex,
     bindings: &Bindings,
     schema: &Value,
     raw: &str,
     name: String,
 ) -> Result<(String, ModelDefinition), &'static str> {
     let accessors = if let Some(wire) = scalar_object_shape(schema) {
-        let raw_shape = raw_scalar_struct_shape(bindings, raw).ok_or(RESPONSE_VIEW_UNPROVEN)?;
-        if wire != raw_shape {
-            return Err(RESPONSE_VIEW_UNPROVEN);
+        match raw_scalar_struct_shape(bindings, raw) {
+            Some(raw_shape) if wire == raw_shape => scalar_view_accessors(wire)?,
+            _ if object_value_matches(openapi, schema, raw, bindings) => IndexMap::new(),
+            _ => return Err(RESPONSE_VIEW_UNPROVEN),
         }
-        scalar_view_accessors(wire)?
-    } else if object_field_names_match(schema, raw, bindings) {
+    } else if object_value_matches(openapi, schema, raw, bindings) {
         IndexMap::new()
     } else {
         return Err(RESPONSE_VIEW_UNPROVEN);
@@ -673,6 +674,7 @@ fn inline_response_view_named(
 }
 
 fn inline_response_view(
+    openapi: &OpenApiIndex,
     bindings: &Bindings,
     schema: &Value,
     raw: &str,
@@ -680,6 +682,7 @@ fn inline_response_view(
     public_name: &str,
 ) -> Result<(String, ModelDefinition), &'static str> {
     inline_response_view_named(
+        openapi,
         bindings,
         schema,
         raw,
@@ -688,6 +691,7 @@ fn inline_response_view(
 }
 
 fn inline_array_response_model(
+    openapi: &OpenApiIndex,
     bindings: &Bindings,
     schema: &Value,
     raw: &str,
@@ -707,7 +711,7 @@ fn inline_array_response_model(
         let items = schema.get("items").ok_or(RESPONSE_VIEW_UNPROVEN)?;
         let item_name = format!("{name}Item");
         let (_, mut item_model) =
-            inline_response_view_named(bindings, items, &raw_item, item_name.clone())?;
+            inline_response_view_named(openapi, bindings, items, &raw_item, item_name.clone())?;
         item_model.borrowed = Some(true);
 
         let mut accessors = IndexMap::new();
@@ -1028,6 +1032,7 @@ fn response_model(
 }
 
 fn inline_union_response_model(
+    openapi: &OpenApiIndex,
     bindings: &Bindings,
     schema: &Value,
     raw_union: &str,
@@ -1058,7 +1063,7 @@ fn inline_union_response_model(
         let public_variant = format!("Variant{}", index + 1);
         let branch_name = format!("{union_name}{public_variant}");
         let (adapter, branch_model) =
-            inline_response_view_named(bindings, branch, &raw_payload, branch_name)
+            inline_response_view_named(openapi, bindings, branch, &raw_payload, branch_name)
                 .map_err(|_| RESPONSE_UNION_REQUIRED)?;
         models.push((adapter.clone(), branch_model));
         variants.insert(
@@ -1117,6 +1122,7 @@ fn union_response_model(
         .collect::<Option<Vec<_>>>();
     let Some(references) = references else {
         return inline_union_response_model(
+            openapi,
             bindings,
             schema,
             raw_union,
@@ -1320,16 +1326,28 @@ fn project_json_response_schema(
         return Ok(ProjectedResponse::Json { name, models });
     }
     if schema.get("type").and_then(Value::as_str) == Some("object") {
-        let (name, model) =
-            inline_response_view(bindings, schema, raw_success, resource_path, public_name)?;
+        let (name, model) = inline_response_view(
+            openapi,
+            bindings,
+            schema,
+            raw_success,
+            resource_path,
+            public_name,
+        )?;
         return Ok(ProjectedResponse::Json {
             name: name.clone(),
             models: vec![(name, model)],
         });
     }
     if schema.get("type").and_then(Value::as_str) == Some("array") {
-        let (name, models) =
-            inline_array_response_model(bindings, schema, raw_success, resource_path, public_name)?;
+        let (name, models) = inline_array_response_model(
+            openapi,
+            bindings,
+            schema,
+            raw_success,
+            resource_path,
+            public_name,
+        )?;
         return Ok(ProjectedResponse::Json { name, models });
     }
     Err(RESPONSE_VIEW_UNPROVEN)

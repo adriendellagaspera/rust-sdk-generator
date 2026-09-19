@@ -283,10 +283,18 @@ fn type_matches_schema(
 
     match schema.get("type").and_then(Value::as_str) {
         Some("string") => {
-            if schema.get("format").and_then(Value::as_str) == Some("binary") {
+            let format = schema.get("format").and_then(Value::as_str);
+            if format == Some("binary") {
                 binary_rust_type(syntax)
             } else {
                 syntax.spelling == "String"
+                    || matches!(
+                        (format, syntax.spelling.as_str()),
+                        (Some("uuid"), "uuid::Uuid")
+                            | (Some("date-time"), "chrono::DateTime<chrono::Utc>")
+                            | (Some("date"), "chrono::NaiveDate")
+                            | (Some("uri"), "url::Url")
+                    )
                     || scalar_enum_matches_schema(schema, &syntax.spelling, bindings)
             }
         }
@@ -687,6 +695,15 @@ pub(crate) fn request_object_matches(
     bindings: &Bindings,
 ) -> bool {
     request_object_matches_inner(openapi, schema_name, raw, bindings, &mut BTreeSet::new())
+}
+
+pub(crate) fn object_value_matches(
+    openapi: &OpenApiIndex,
+    schema: &Value,
+    raw: &str,
+    bindings: &Bindings,
+) -> bool {
+    request_object_value_matches(openapi, schema, raw, bindings, &mut BTreeSet::new())
 }
 
 fn expand_alias_syntax(
