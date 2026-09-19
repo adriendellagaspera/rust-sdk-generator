@@ -303,6 +303,12 @@ fn type_matches_schema(
         return matched;
     }
 
+    // Heap allocation is serialization-transparent. Keep recursive cycle
+    // detection on the underlying semantic type rather than on Box itself.
+    if let Some(inner) = syntax.unary("Box") {
+        return type_matches_schema(schema, inner, bindings, seen_aliases);
+    }
+
     // A referenced component and the emitted Rust symbol share canonical identity.
     // Preserve that identity inside collections as well as at a response root.
     if let Some(reference) = ref_name(schema) {
@@ -531,6 +537,14 @@ fn union_branches(schema: &Value) -> Option<&Vec<Value>> {
     (branches.len() >= 2).then_some(branches)
 }
 
+fn transparent_box_raw(type_name: &str) -> Option<String> {
+    let mut syntax = parse_type(type_name).ok()?;
+    while let Some(inner) = syntax.unary("Box") {
+        syntax = inner.clone();
+    }
+    Some(syntax.spelling)
+}
+
 fn request_union_mapping_inner(
     openapi: &OpenApiIndex,
     schema: &Value,
@@ -563,7 +577,8 @@ fn request_union_mapping_inner(
             .enumerate()
             .filter(|(_, variant)| {
                 variant.payload.as_ref().is_some_and(|payload| {
-                    request_object_matches_inner(openapi, &reference, payload, bindings, seen)
+                    let raw = transparent_box_raw(payload).unwrap_or_else(|| payload.clone());
+                    request_object_matches_inner(openapi, &reference, &raw, bindings, seen)
                 })
             })
             .collect::<Vec<_>>();
@@ -613,11 +628,12 @@ fn request_union_matches_inner(
             let Ok(referenced) = openapi.schema(reference) else {
                 return false;
             };
+            let raw = transparent_box_raw(payload).unwrap_or_else(|| payload.to_owned());
             if union_branches(referenced).is_some() {
-                return request_union_matches_inner(openapi, referenced, payload, bindings, seen);
+                return request_union_matches_inner(openapi, referenced, &raw, bindings, seen);
             }
             if referenced_request_object(openapi, reference, referenced).is_some() {
-                return request_object_matches_inner(openapi, reference, payload, bindings, seen);
+                return request_object_matches_inner(openapi, reference, &raw, bindings, seen);
             }
             return rust_type_matches_schema(referenced, payload, bindings);
         }
