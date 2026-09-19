@@ -1062,7 +1062,7 @@ fn inline_union_response_model(
         let public_variant = format!("Variant{}", index + 1);
         let branch_name = format!("{union_name}{public_variant}");
         let (adapter, branch_model) =
-            inline_response_view_named(bindings, branch, &raw_payload, branch_name)
+            inline_response_view_named(openapi, bindings, branch, &raw_payload, branch_name)
                 .map_err(|_| RESPONSE_UNION_REQUIRED)?;
         models.push((adapter.clone(), branch_model));
         variants.insert(
