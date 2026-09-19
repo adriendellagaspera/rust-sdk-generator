@@ -282,3 +282,67 @@ fn consumer_override_cannot_replace_canonical_discriminator() {
 
     assert_eq!(error.diagnostic.code, "overrides.conflict");
 }
+
+#[test]
+fn canonical_boolean_leaf_discriminator_uses_proven_optional_raw_field() {
+    let (openapi, mut bindings, surface) = fixture();
+    let discriminator = bindings
+        .operations
+        .get_mut("raw_watch_17")
+        .and_then(|binding| binding.metadata.as_mut())
+        .and_then(|metadata| metadata.request_discriminators.first_mut())
+        .expect("stream discriminator");
+    discriminator.rust_value_type = "bool".into();
+
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive");
+    assert_eq!(
+        derivation.report.operations["watch_job"].status,
+        DerivationStatus::Derived
+    );
+
+    generate(GenerateInput {
+        openapi,
+        bindings,
+        definition: derivation.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("canonical leaf discriminator must lower");
+}
+
+#[test]
+fn canonical_discriminator_must_not_hide_raw_field_type_drift() {
+    let (openapi, mut bindings, surface) = fixture();
+    let discriminator = bindings
+        .operations
+        .get_mut("raw_watch_17")
+        .and_then(|binding| binding.metadata.as_mut())
+        .and_then(|metadata| metadata.request_discriminators.first_mut())
+        .expect("stream discriminator");
+    discriminator.rust_value_type = "bool".into();
+    bindings
+        .structs
+        .get_mut("OpaqueWatch8")
+        .expect("request model")
+        .iter_mut()
+        .find(|field| field.name == "stream")
+        .expect("stream field")
+        .type_name = "bool".into();
+
+    let derivation = derive(DeriveInput {
+        openapi,
+        bindings,
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive");
+    assert_eq!(
+        derivation.report.operations["watch_job"].status,
+        DerivationStatus::Rejected
+    );
+}
