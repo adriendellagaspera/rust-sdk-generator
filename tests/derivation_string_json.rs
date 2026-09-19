@@ -41,7 +41,9 @@ fn fixture() -> (OpenApi, Bindings, PublicSdkSurface) {
     };
     metadata.success_statuses = vec!["200".into()];
     bindings.operations.insert("raw_read_title".into(), raw);
-    bindings.aliases.insert("ReportTitle".into(), "String".into());
+    bindings
+        .aliases
+        .insert("ReportTitle".into(), "String".into());
     bindings.symbol_paths.insert(
         "ReportTitle".into(),
         "crate::generated::types::ReportTitle".into(),
@@ -93,8 +95,8 @@ fn rejects_binary_enum_and_unbound_string_json_aliases() {
         serde_json::json!({"type": "object"}),
     ] {
         let mut drifted = openapi.clone();
-        drifted.0["paths"]["/reports/title"]["get"]["responses"]["200"]["content"]
-            ["application/json"]["schema"] = schema;
+        drifted.0["paths"]["/reports/title"]["get"]["responses"]["200"]["content"]["application/json"]
+            ["schema"] = schema;
         let derivation = derive(DeriveInput {
             openapi: drifted,
             bindings: bindings.clone(),
@@ -108,7 +110,9 @@ fn rejects_binary_enum_and_unbound_string_json_aliases() {
         );
     }
     let mut unbound = bindings;
-    unbound.aliases.insert("ReportTitle".into(), "serde_json::Value".into());
+    unbound
+        .aliases
+        .insert("ReportTitle".into(), "serde_json::Value".into());
     let derivation = derive(DeriveInput {
         openapi,
         bindings: unbound,
