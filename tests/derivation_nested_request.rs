@@ -550,7 +550,8 @@ fn derives_nullable_union_of_named_object_and_canonical_raw_json_map() {
             {"type": "object", "additionalProperties": true},
             {"type": "null"}
         ],
-        "title": "Optional input"
+        "title": "Optional input",
+        "default": null
     });
     bindings
         .structs
