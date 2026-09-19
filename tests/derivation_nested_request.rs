@@ -791,7 +791,17 @@ fn provable_root_with_unsafe_constructor_retains_owned_raw_request_view() {
     let types = &generated.files["facade_types.rs"];
     assert!(types.contains("pub struct CreatePlatformWidgetsRequest { raw: OpaqueRequest9 }"));
     assert!(types.contains("pub fn into_raw(self) -> OpaqueRequest9"));
-    assert!(!types.contains("impl CreatePlatformWidgetsRequest {\\n    pub fn new("));
+    let request_impl = types
+        .split("impl CreatePlatformWidgetsRequest {")
+        .nth(1)
+        .expect("root request implementation");
+    assert!(
+        !request_impl
+            .split("impl From<OpaqueRequest9> for CreatePlatformWidgetsRequest")
+            .next()
+            .expect("root request implementation end")
+            .contains("pub fn new(")
+    );
 
     bindings
         .structs
