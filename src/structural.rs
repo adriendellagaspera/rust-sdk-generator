@@ -870,6 +870,25 @@ pub(crate) fn raw_scalar_struct_shape(
     Some(result)
 }
 
+pub(crate) fn plain_string_json_alias_matches(
+    schema: &Value,
+    raw_success: &str,
+    bindings: &Bindings,
+) -> bool {
+    schema.as_object().is_some_and(|fields| {
+        fields.get("type").and_then(Value::as_str) == Some("string")
+            && fields.keys().all(|key| {
+                matches!(
+                    key.as_str(),
+                    "type" | "title" | "description" | "examples" | "default"
+                )
+            })
+    }) && bindings
+        .aliases
+        .get(raw_success)
+        .is_some_and(|alias| alias == "String")
+}
+
 pub(crate) fn object_field_names_match(schema: &Value, raw: &str, bindings: &Bindings) -> bool {
     let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
         return false;

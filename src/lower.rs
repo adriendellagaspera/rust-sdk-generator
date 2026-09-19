@@ -15,9 +15,9 @@ use crate::reconcile::unconstrained_json_alias_matches;
 use crate::rust_type::{Type, TypeKind, parse_type};
 use crate::structural::{
     inline_object_union_mapping, multipart_filenames_binding, object_field_names_match,
-    raw_scalar_struct_shape, request_object_matches, request_optional_boolean_field,
-    request_union_mapping, rust_type_matches_schema, scalar_named_object_matches,
-    scalar_object_shape, sse_payload_schema_name,
+    plain_string_json_alias_matches, raw_scalar_struct_shape, request_object_matches,
+    request_optional_boolean_field, request_union_mapping, rust_type_matches_schema,
+    scalar_named_object_matches, scalar_object_shape, sse_payload_schema_name,
 };
 use crate::symbols::{SymbolProvider, field_identifier};
 
@@ -1306,7 +1306,9 @@ fn response_matches(
     if let Some(referenced) = ref_name(schema) {
         return Ok(referenced == raw);
     }
-    if unconstrained_json_alias_matches(schema, raw, bindings) {
+    if unconstrained_json_alias_matches(schema, raw, bindings)
+        || plain_string_json_alias_matches(schema, raw, bindings)
+    {
         return Ok(true);
     }
     let branches = schema
