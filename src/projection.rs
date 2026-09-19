@@ -1336,14 +1336,43 @@ fn union_response_model(
         .map(|branch| ref_name(branch).map(str::to_owned))
         .collect::<Option<Vec<_>>>();
     let Some(references) = references else {
-        return inline_union_response_model(
+        match inline_union_response_model(
             openapi,
             bindings,
             schema,
             raw_union,
             resource_path,
             public_name,
-        );
+        ) {
+            Ok(projected) => return Ok(projected),
+            Err(RESPONSE_UNION_REQUIRED)
+                if bindings.enums.contains_key(raw_union)
+                    && rust_type_matches_schema(schema, raw_union, bindings) =>
+            {
+                let name = response_model_name(resource_path, public_name);
+                if !public_model_name_available(&name, bindings) {
+                    return Err("capability.public_model_name_collision");
+                }
+                let model = ModelDefinition {
+                    schema: None,
+                    schema_path: None,
+                    raw: Some(raw_union.into()),
+                    constructor: None,
+                    exclude: None,
+                    adapters: None,
+                    union: None,
+                    simple_union: None,
+                    type_alias: None,
+                    map: None,
+                    scalar_enum: None,
+                    union_factory: None,
+                    borrowed: Some(false),
+                    accessors: Some(IndexMap::new()),
+                };
+                return Ok((name.clone(), vec![(name, model)]));
+            }
+            Err(reason) => return Err(reason),
+        }
     };
     let reference_set: BTreeSet<_> = references.iter().cloned().collect();
     if reference_set.len() != references.len() {
