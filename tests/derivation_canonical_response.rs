@@ -1,6 +1,8 @@
+use std::collections::BTreeMap;
+
 use rust_sdk_generator::{
     Bindings, DerivationStatus, DeriveInput, GenerateInput, OpenApi, PublicSdkSurface, Runtime,
-    SdkOverrides, derive, generate,
+    OperationOverride, ResponseRepresentationDefinition, SdkOverrides, derive, generate,
 };
 
 fn fixture() -> (OpenApi, Bindings, PublicSdkSurface) {
@@ -214,5 +216,162 @@ fn lowering_revalidates_selected_empty_statuses() {
     })
     .expect_err("selected empty response drift must fail lowering");
 
+    assert_eq!(error.diagnostic.code, "lower.empty_response_drift");
+}
+
+fn canonical_multi_representation_fixture() -> (OpenApi, Bindings, PublicSdkSurface) {
+    let (mut openapi, mut bindings, mut surface) = fixture();
+    openapi.0["paths"]["/reports/current"]["get"]["responses"]["204"] =
+        serde_json::json!({"description": "empty response"});
+
+    let mut empty = bindings.operations["raw_purge_reports"].clone();
+    empty.name = "raw_read_report_empty".into();
+    let metadata = empty.metadata.as_mut().expect("canonical metadata");
+    metadata.source_operation.operation_id = "read_report".into();
+    metadata.source_operation.method = "GET".into();
+    metadata.source_operation.path = "/reports/current".into();
+    metadata.emitted_operation_id = "read_report".into();
+    bindings
+        .operations
+        .insert("raw_read_report_empty".into(), empty);
+    surface.operations.insert(
+        "read_report".into(),
+        vec!["reports.current".into(), "reports.current_empty".into()],
+    );
+    (openapi, bindings, surface)
+}
+
+fn multi_representation_overrides() -> SdkOverrides {
+    let mut overrides = SdkOverrides::default();
+    overrides.operations.insert(
+        "read_report".into(),
+        OperationOverride {
+            request_overrides: BTreeMap::new(),
+            response_representations: BTreeMap::from([
+                ("reports.current".into(), ResponseRepresentationDefinition::Json),
+                (
+                    "reports.current_empty".into(),
+                    ResponseRepresentationDefinition::Empty,
+                ),
+            ]),
+        },
+    );
+    overrides
+}
+
+#[test]
+fn multi_representation_operation_requires_explicit_transport_decisions() {
+    let (openapi, bindings, surface) = canonical_multi_representation_fixture();
+    let result = derive(DeriveInput {
+        openapi,
+        bindings,
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("closed-world derivation");
+    let operation = &result.report.operations["read_report"];
+    assert_eq!(operation.status, DerivationStatus::Rejected);
+    assert_eq!(
+        operation.reason.code,
+        "bindings.source_operation_identity_required"
+    );
+    assert!(operation.public_bindings.is_empty());
+}
+
+#[test]
+fn selects_each_public_call_shape_by_canonical_representation() {
+    let (openapi, bindings, surface) = canonical_multi_representation_fixture();
+    let derived = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides: multi_representation_overrides(),
+    })
+    .expect("explicit representation derivation");
+
+    let operation = &derived.report.operations["read_report"];
+    assert_eq!(operation.status, DerivationStatus::Overridden);
+    assert_eq!(operation.binding, None);
+    assert_eq!(
+        operation.public_bindings,
+        BTreeMap::from([
+            ("reports.current".into(), "raw_read_report".into()),
+            ("reports.current_empty".into(), "raw_read_report_empty".into()),
+        ])
+    );
+    let reports = &derived.definition.resources["reports"].operations;
+    assert_eq!(reports["current"].raw_method.as_deref(), Some("raw_read_report"));
+    assert_eq!(
+        reports["current_empty"].raw_method.as_deref(),
+        Some("raw_read_report_empty")
+    );
+    assert_eq!(reports["current_empty"].empty_response, Some(true));
+
+    let generated = generate(GenerateInput {
+        openapi,
+        bindings,
+        definition: derived.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("explicit representation lowering");
+    assert!(
+        generated.files.values().any(|source| {
+            source.contains("self.raw.raw_read_report_empty(")
+        })
+    );
+}
+
+#[test]
+fn rejects_unknown_or_unavailable_public_transport_decisions() {
+    let (openapi, bindings, surface) = canonical_multi_representation_fixture();
+    let mut overrides = multi_representation_overrides();
+    overrides.operations.get_mut("read_report").expect("override")
+        .response_representations
+        .insert("reports.unknown".into(), ResponseRepresentationDefinition::Text);
+    let error = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface: surface.clone(),
+        overrides,
+    })
+    .expect_err("unknown public alias");
+    assert_eq!(error.diagnostic.code, "overrides.unknown_public_path");
+
+    let mut overrides = multi_representation_overrides();
+    overrides.operations.get_mut("read_report").expect("override")
+        .response_representations
+        .insert("reports.current".into(), ResponseRepresentationDefinition::Text);
+    let error = derive(DeriveInput {
+        openapi,
+        bindings,
+        surface,
+        overrides,
+    })
+    .expect_err("no matching canonical transport");
+    assert_eq!(error.diagnostic.code, "overrides.unapplied");
+}
+
+#[test]
+fn lowering_refuses_selected_transport_drift() {
+    let (mut openapi, bindings, surface) = canonical_multi_representation_fixture();
+    let derived = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides: multi_representation_overrides(),
+    })
+    .expect("derive");
+
+    openapi.0["paths"]["/reports/current"]["get"]["responses"]["204"]["content"] =
+        serde_json::json!({"application/json": {
+            "schema": {"$ref": "#/components/schemas/Report"}
+        }});
+    let error = generate(GenerateInput {
+        openapi,
+        bindings,
+        definition: derived.definition,
+        runtime: Runtime::default(),
+    })
+    .expect_err("selected empty representation drift");
     assert_eq!(error.diagnostic.code, "lower.empty_response_drift");
 }
