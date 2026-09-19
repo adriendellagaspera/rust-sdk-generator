@@ -752,10 +752,9 @@ fn proven_nested_required_nullable_object_stays_raw_without_a_lossy_wrapper() {
 #[test]
 fn provable_root_with_unsafe_constructor_retains_owned_raw_request_view() {
     let (mut openapi, mut bindings, surface) = fixture();
-    openapi.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["name"] =
-        serde_json::json!({
-            "anyOf": [{"type": "string"}, {"type": "null"}]
-        });
+    openapi.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["name"] = serde_json::json!({
+        "anyOf": [{"type": "string"}, {"type": "null"}]
+    });
     bindings
         .structs
         .get_mut("OpaqueRequest9")
@@ -780,7 +779,11 @@ fn provable_root_with_unsafe_constructor_retains_owned_raw_request_view() {
     assert_eq!(root.raw.as_deref(), Some("OpaqueRequest9"));
     assert_eq!(root.borrowed, Some(false));
     assert!(root.constructor.is_none());
-    assert!(root.accessors.as_ref().is_some_and(indexmap::IndexMap::is_empty));
+    assert!(
+        root.accessors
+            .as_ref()
+            .is_some_and(indexmap::IndexMap::is_empty)
+    );
     let generated = generate(GenerateInput {
         openapi: openapi.clone(),
         bindings: bindings.clone(),
