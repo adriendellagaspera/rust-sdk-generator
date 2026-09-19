@@ -291,11 +291,7 @@ fn map_value_type<'a>(syntax: &'a Type, bindings: &'a Bindings) -> Option<Type> 
 /// representation, not a claim that Rust types enforce server-side validation.
 /// Keep this fallback restricted to a canonical flattened JSON map and a
 /// fully inspected finite union of JSON scalar/flat-array alternatives.
-fn lossless_primitive_json_map(
-    schema: &Value,
-    syntax: &Type,
-    bindings: &Bindings,
-) -> bool {
+fn lossless_primitive_json_map(schema: &Value, syntax: &Type, bindings: &Bindings) -> bool {
     let Some(fields) = bindings.structs.get(&syntax.spelling) else {
         return false;
     };
@@ -338,11 +334,9 @@ fn lossless_primitive_json_map(
                             "type" | "format" | "title" | "description" | "deprecated"
                         )
                     })
-                    && object
-                        .get("format")
-                        .is_none_or(|format| {
-                            kind == Some("string") && format.as_str() == Some("date-time")
-                        })
+                    && object.get("format").is_none_or(|format| {
+                        kind == Some("string") && format.as_str() == Some("date-time")
+                    })
             })
         };
         match object.get("type").and_then(Value::as_str) {
