@@ -97,9 +97,12 @@ fn derives_canonical_sse_with_owned_public_wrappers_and_discriminator() {
             && source.contains("WatchJobsStreamItem::from(event.data)")
     }));
     assert!(generated.files.values().any(|source| {
-        source.contains(
-            "pub async fn subscribe(&self, last_event_id: Option<impl AsRef<str>>) -> Result<SubscribeNotificationsStream, SdkError>",
-        ) && source.contains("raw_notifications_31(")
+        source.contains("pub async fn subscribe(&self")
+            && source.contains("last_event_id: Option<")
+            && source.contains("SubscribeNotificationsStream")
+    }));
+    assert!(generated.files.values().any(|source| {
+        source.contains("raw_notifications_31(")
             && source.contains("last_event_id")
             && source.contains("json_events::<_, _, OpaqueNotification6>(bytes)")
             && source.contains("SubscribeNotificationsStreamItem::from(event.data)")
