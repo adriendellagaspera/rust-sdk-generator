@@ -118,9 +118,10 @@ fn wraps_referenced_array_items_without_leaking_generated_rust_symbols() {
         }
     });
     openapi.0["paths"]["/reports/tags"]["get"]["responses"]["200"]["content"]["application/json"]
-        ["schema"]["items"] =
-        serde_json::json!({"$ref": "#/components/schemas/Record"});
-    bindings.aliases.insert("OpaqueList7".into(), "Vec<Record>".into());
+        ["schema"]["items"] = serde_json::json!({"$ref": "#/components/schemas/Record"});
+    bindings
+        .aliases
+        .insert("OpaqueList7".into(), "Vec<Record>".into());
     bindings.structs.insert(
         "Record".into(),
         vec![rust_sdk_generator::FieldBinding {
@@ -129,10 +130,9 @@ fn wraps_referenced_array_items_without_leaking_generated_rust_symbols() {
             type_name: "String".into(),
         }],
     );
-    bindings.symbol_paths.insert(
-        "Record".into(),
-        "crate::generated::types::Record".into(),
-    );
+    bindings
+        .symbol_paths
+        .insert("Record".into(), "crate::generated::types::Record".into());
 
     let derivation = derive(DeriveInput {
         openapi: openapi.clone(),
@@ -148,7 +148,13 @@ fn wraps_referenced_array_items_without_leaking_generated_rust_symbols() {
     let response = &derivation.definition.models["TagsReportsResponse"];
     assert_eq!(response.type_alias, None);
     assert_eq!(response.borrowed, Some(false));
-    assert!(response.accessors.as_ref().expect("iter accessor").contains_key("iter"));
+    assert!(
+        response
+            .accessors
+            .as_ref()
+            .expect("iter accessor")
+            .contains_key("iter")
+    );
     let item = &derivation.definition.models["TagsReportsResponseItem"];
     assert_eq!(item.raw.as_deref(), Some("Record"));
     assert_eq!(item.borrowed, Some(true));
@@ -166,8 +172,7 @@ fn wraps_referenced_array_items_without_leaking_generated_rust_symbols() {
     assert!(!types.contains("pub type TagsReportsResponse = Vec<Record>;"));
 
     openapi.0["paths"]["/reports/tags"]["get"]["responses"]["200"]["content"]["application/json"]
-        ["schema"]["items"] =
-        serde_json::json!({"$ref": "#/components/schemas/OtherRecord"});
+        ["schema"]["items"] = serde_json::json!({"$ref": "#/components/schemas/OtherRecord"});
     assert!(
         generate(GenerateInput {
             openapi,
