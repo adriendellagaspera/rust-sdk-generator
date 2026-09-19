@@ -11,7 +11,8 @@ use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::parse_type;
 use crate::structural::{
     ScalarFieldShape, inline_object_union_mapping, object_field_names_match, object_value_matches,
-    raw_scalar_struct_shape, request_object_matches_with_discriminators, rust_type_matches_schema,
+    raw_scalar_struct_shape, request_object_matches_with_discriminators,
+    response_array_union_matches, rust_type_matches_schema,
     scalar_object_shape,
 };
 
@@ -328,6 +329,7 @@ pub(crate) fn unconstrained_json_alias_matches(
 }
 
 fn canonical_json_schema_matches(
+    openapi: &OpenApiIndex,
     schema: &Value,
     schema_name: &str,
     binding: &OperationBinding,
@@ -375,9 +377,11 @@ fn canonical_json_schema_matches(
         return true;
     }
     rust_type_matches_schema(schema, &binding.success_type, bindings)
+        || response_array_union_matches(openapi, schema, &binding.success_type, bindings)
 }
 
 fn metadata_response_matches(
+    openapi: &OpenApiIndex,
     operation: &Value,
     binding: &OperationBinding,
     metadata: &OperationMetadataBinding,
@@ -403,7 +407,7 @@ fn metadata_response_matches(
             binding.success_type == *schema_name
                 && successes.iter().all(|(_, response)| {
                     response_payload(response, media_type).is_some_and(|schema| {
-                        canonical_json_schema_matches(schema, schema_name, binding, bindings)
+                        canonical_json_schema_matches(openapi, schema, schema_name, binding, bindings)
                     })
                 })
         }
@@ -582,7 +586,7 @@ fn binding_matches(
         return false;
     }
     if let Some(metadata) = &binding.metadata {
-        metadata_response_matches(operation, binding, metadata, bindings)
+        metadata_response_matches(openapi, operation, binding, metadata, bindings)
     } else {
         response.is_some_and(|shape| response_matches(shape, binding, bindings))
     }
