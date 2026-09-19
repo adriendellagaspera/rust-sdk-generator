@@ -470,3 +470,79 @@ fn explicit_json_and_sse_selection_preserves_canonical_discriminators() {
             .any(|source| source.contains("raw_watch_17("))
     );
 }
+
+
+#[test]
+fn canonical_discriminator_proves_matching_boolean_request_constant() {
+    let (mut openapi, bindings, surface) = fixture();
+    *openapi
+        .0
+        .pointer_mut("/components/schemas/WatchRequest/properties/stream")
+        .expect("stream schema") = serde_json::json!({
+        "type": "boolean",
+        "const": true,
+        "default": true
+    });
+
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("matching canonical Boolean discriminator should prove request constant");
+
+    assert_eq!(
+        derivation.report.operations["watch_job"].status,
+        DerivationStatus::Derived
+    );
+    let request = &derivation.definition.models["WatchJobsRequest"];
+    assert_eq!(request.raw.as_deref(), Some("OpaqueWatch8"));
+    assert!(request.constructor.is_none());
+    assert_eq!(request.exclude.as_deref(), Some(&["stream".to_owned()][..]));
+
+    generate(GenerateInput {
+        openapi,
+        bindings,
+        definition: derivation.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("discriminator-proven request constant must lower");
+}
+
+#[test]
+fn canonical_discriminator_rejects_conflicting_boolean_request_constant() {
+    let (mut openapi, mut bindings, surface) = fixture();
+    *openapi
+        .0
+        .pointer_mut("/components/schemas/WatchRequest/properties/stream")
+        .expect("stream schema") = serde_json::json!({
+        "type": "boolean",
+        "const": true,
+        "default": true
+    });
+    bindings
+        .operations
+        .get_mut("raw_watch_17")
+        .and_then(|binding| binding.metadata.as_mut())
+        .and_then(|metadata| metadata.request_discriminators.first_mut())
+        .expect("stream discriminator")
+        .value = rust_sdk_generator::RequestDiscriminatorValue::Bool(false);
+
+    let derivation = derive(DeriveInput {
+        openapi,
+        bindings,
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive");
+
+    assert_eq!(
+        derivation.report.operations["watch_job"].status,
+        DerivationStatus::Rejected
+    );
+    assert_eq!(
+        derivation.report.operations["watch_job"].reason.code,
+        "capability.request_model_not_structurally_provable"
+    );
+}
