@@ -110,16 +110,8 @@ fn derives_canonical_sse_with_owned_public_wrappers_and_discriminator() {
 }
 
 #[test]
-fn explicit_sse_accepts_exact_named_non_scalar_payload() {
+fn derives_exact_named_non_scalar_sse_payload() {
     let (mut openapi, mut bindings, surface) = fixture();
-    let mut definition = derive(DeriveInput {
-        openapi: openapi.clone(),
-        bindings: bindings.clone(),
-        surface,
-        overrides: SdkOverrides::default(),
-    })
-    .expect("derive")
-    .definition;
 
     *openapi
         .0
@@ -144,20 +136,39 @@ fn explicit_sse_accepts_exact_named_non_scalar_payload() {
         );
     }
 
-    definition.models["WatchJobsStreamItem"].raw = Some("JobChunk".into());
-    definition.resources["jobs"].operations["watch"]
-        .stream
-        .as_mut()
-        .expect("explicit stream definition")
-        .item = "JobChunk".into();
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive named complex SSE payload");
+    assert_eq!(
+        derivation.report.operations["watch_job"].status,
+        DerivationStatus::Derived
+    );
+    assert_eq!(
+        derivation.definition.models["WatchJobsStreamItem"]
+            .raw
+            .as_deref(),
+        Some("JobChunk")
+    );
+    assert_eq!(
+        derivation.definition.resources["jobs"].operations["watch"]
+            .stream
+            .as_ref()
+            .expect("derived stream")
+            .item,
+        "JobChunk"
+    );
 
     let generated = generate(GenerateInput {
         openapi,
         bindings,
-        definition,
+        definition: derivation.definition,
         runtime: Runtime::default(),
     })
-    .expect("exact named SSE payload should reconcile");
+    .expect("named complex SSE payload should generate");
 
     assert!(generated.files.values().any(|source| {
         source.contains("json_events::<_, _, JobChunk>(bytes)")
