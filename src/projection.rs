@@ -10,6 +10,7 @@ use crate::contracts::{
     SdkDefinition, SimpleUnionDefinition, SimpleUnionVariant, StreamDefinition,
 };
 use crate::openapi::{OpenApiIndex, ref_name};
+use crate::reconcile::unconstrained_json_alias_matches;
 use crate::rust_type::{Type, parse_type};
 use crate::structural::{
     ScalarFieldShape, ScalarKind as StructuralScalarKind, inline_array_object_item,
@@ -1313,6 +1314,34 @@ fn project_json_response_schema(
         return Ok(ProjectedResponse::Json {
             name: name.clone(),
             models: vec![(name, model)],
+        });
+    }
+    if unconstrained_json_alias_matches(schema, raw_success, bindings) {
+        let name = response_model_name(resource_path, public_name);
+        if !public_model_name_available(&name, bindings) {
+            return Err("capability.public_model_name_collision");
+        }
+        return Ok(ProjectedResponse::Json {
+            name: name.clone(),
+            models: vec![(
+                name,
+                ModelDefinition {
+                    schema: None,
+                    schema_path: None,
+                    raw: Some(raw_success.into()),
+                    constructor: None,
+                    exclude: None,
+                    adapters: None,
+                    union: None,
+                    simple_union: None,
+                    type_alias: Some(true),
+                    map: None,
+                    scalar_enum: None,
+                    union_factory: None,
+                    borrowed: None,
+                    accessors: None,
+                },
+            )],
         });
     }
     if schema.get("oneOf").is_some() || schema.get("anyOf").is_some() {
