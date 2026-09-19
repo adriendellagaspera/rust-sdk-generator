@@ -534,6 +534,9 @@ fn binding_matches(
                     parameter.type_name == *schema
                         || request_object_matches(openapi, schema, &parameter.type_name, bindings)
                 }
+                RequestBodyShape::InlineModel(_, schema) => {
+                    object_value_matches(openapi, schema, &parameter.type_name, bindings)
+                }
                 RequestBodyShape::Raw(_, type_name) => parameter.type_name == *type_name,
             })
             .map(|(index, _)| index)
