@@ -181,7 +181,7 @@ fn preserves_structurally_proven_required_nullable_inline_object_as_raw_request(
 
     let outcome = &derivation.report.operations["create_profile"];
     assert_eq!(outcome.status, DerivationStatus::Derived);
-    let request = &derivation.definition.models["CreatePlatformProfilesRequest"];
+    let request = &derivation.definition.models["CreateAccountsProfilesRequest"];
     assert!(request.constructor.is_none());
     assert!(request.accessors.as_ref().is_some_and(indexmap::IndexMap::is_empty));
     assert!(generate(GenerateInput {
