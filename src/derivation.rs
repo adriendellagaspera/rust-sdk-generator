@@ -48,7 +48,7 @@ impl Default for PublicSdkSurface {
 pub struct OperationOverride {
     #[serde(default)]
     pub request_overrides: BTreeMap<String, Option<bool>>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub response_representations: BTreeMap<String, ResponseRepresentationDefinition>,
 }
 
