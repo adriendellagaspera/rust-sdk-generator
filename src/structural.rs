@@ -1668,4 +1668,3 @@ mod transparent_box_tests {
         ));
     }
 }
-
