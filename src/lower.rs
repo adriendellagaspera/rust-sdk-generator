@@ -804,10 +804,18 @@ fn unwrap_nullable_schema(schema: &Value) -> &Value {
     }
 }
 
-fn schema_at<'a>(openapi: &'a OpenApiIndex, root: &str, path: &[String]) -> Result<&'a Value> {
-    let mut schema = openapi.schema(root)?;
+fn schema_at(openapi: &OpenApiIndex, root: &str, path: &[String]) -> Result<Value> {
+    let source = openapi.schema(root)?;
+    // Projection can address fields contributed by allOf branches. Resolve
+    // the same composed root during lowering instead of walking a raw schema
+    // whose properties may be defined only in referenced sibling branches.
+    let mut schema = if source.get("allOf").is_some() || source.get("$ref").is_some() {
+        openapi.object_schema(root)?
+    } else {
+        source.clone()
+    };
     for segment in path {
-        schema = unwrap_nullable_schema(schema);
+        schema = unwrap_nullable_schema(&schema).clone();
         schema = if segment == "items" {
             schema.get("items")
         } else {
@@ -815,6 +823,7 @@ fn schema_at<'a>(openapi: &'a OpenApiIndex, root: &str, path: &[String]) -> Resu
                 .get("properties")
                 .and_then(|properties| properties.get(segment))
         }
+        .cloned()
         .ok_or_else(|| {
             error(
                 "lower.schema_path",
@@ -822,7 +831,7 @@ fn schema_at<'a>(openapi: &'a OpenApiIndex, root: &str, path: &[String]) -> Resu
             )
         })?;
     }
-    Ok(unwrap_nullable_schema(schema))
+    Ok(unwrap_nullable_schema(&schema).clone())
 }
 
 fn resolve_map(
@@ -1886,7 +1895,7 @@ pub(crate) fn lower(
                 let path = config.schema_path.as_deref().unwrap_or(&[]);
                 let schema = schema_at(&index, root, path)?;
                 let mapping =
-                    request_union_mapping(&index, schema, &raw, bindings).ok_or_else(|| {
+                    request_union_mapping(&index, &schema, &raw, bindings).ok_or_else(|| {
                         error(
                             "lower.request_union_drift",
                             format!("OpenAPI/raw request union drift for {raw}"),
@@ -2604,6 +2613,82 @@ pub(crate) fn lower(
     validate_symbols(&ir, bindings)?;
     validate_runtime(&ir, runtime)?;
     Ok(ir)
+}
+
+#[cfg(test)]
+mod composed_schema_path_tests {
+    use super::schema_at;
+    use crate::OpenApi;
+    use crate::openapi::OpenApiIndex;
+
+    fn fixture() -> OpenApi {
+        OpenApi(serde_json::json!({
+            "openapi": "3.1.0",
+            "components": {
+                "schemas": {
+                    "BaseRequest": {
+                        "type": "object",
+                        "properties": {
+                            "tools": {
+                                "anyOf": [
+                                    {
+                                        "type": "array",
+                                        "items": {
+                                            "oneOf": [
+                                                {"$ref": "#/components/schemas/ToolA"},
+                                                {"$ref": "#/components/schemas/ToolB"}
+                                            ]
+                                        }
+                                    },
+                                    {"type": "null"}
+                                ]
+                            }
+                        }
+                    },
+                    "ComposedRequest": {
+                        "allOf": [
+                            {"$ref": "#/components/schemas/BaseRequest"},
+                            {
+                                "type": "object",
+                                "properties": {"stream": {"type": "boolean"}}
+                            }
+                        ]
+                    },
+                    "ToolA": {"type": "object", "properties": {"kind": {"type": "string"}}},
+                    "ToolB": {"type": "object", "properties": {"name": {"type": "string"}}}
+                }
+            }
+        }))
+    }
+
+    #[test]
+    fn lowers_nested_nullable_array_union_from_composed_request_root() {
+        let openapi = fixture();
+        let index = OpenApiIndex::new(&openapi).expect("index fixture");
+        let schema = schema_at(&index, "ComposedRequest", &["tools".into(), "items".into()])
+            .expect("composed root and nullable array item");
+        assert_eq!(
+            schema
+                .get("oneOf")
+                .and_then(serde_json::Value::as_array)
+                .map(Vec::len),
+            Some(2)
+        );
+        let stream = schema_at(&index, "ComposedRequest", &["stream".into()])
+            .expect("composed sibling property");
+        assert_eq!(stream["type"], "boolean");
+    }
+
+    #[test]
+    fn rejects_invalid_nested_path_in_composed_request() {
+        let mut openapi = fixture();
+        openapi.0["components"]["schemas"]["BaseRequest"]["properties"]["tools"] =
+            serde_json::json!({"type": "string"});
+        let index = OpenApiIndex::new(&openapi).expect("index drifted fixture");
+        let error = schema_at(&index, "ComposedRequest", &["tools".into(), "items".into()])
+            .expect_err("array item removed from wire contract");
+        assert_eq!(error.diagnostic.code, "lower.schema_path");
+    }
 }
 
 #[cfg(test)]
