@@ -2149,7 +2149,6 @@ pub(crate) fn lower(
                         ));
                     }
                     body.schema == model.raw
-                        && request_object_matches(&index, &body.schema, &model.raw, bindings)
                 };
                 if !request_matches {
                     return Err(error(
