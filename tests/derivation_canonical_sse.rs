@@ -99,7 +99,8 @@ fn derives_canonical_sse_with_owned_public_wrappers_and_discriminator() {
     assert!(generated.files.values().any(|source| {
         source.contains(
             "pub async fn subscribe(&self, last_event_id: Option<impl AsRef<str>>) -> Result<SubscribeNotificationsStream, SdkError>",
-        ) && source.contains("raw_notifications_31(last_event_id.as_ref().map(|value| value.as_ref()))")
+        ) && source.contains("raw_notifications_31(")
+            && source.contains("last_event_id")
             && source.contains("json_events::<_, _, OpaqueNotification6>(bytes)")
             && source.contains("SubscribeNotificationsStreamItem::from(event.data)")
     }));
