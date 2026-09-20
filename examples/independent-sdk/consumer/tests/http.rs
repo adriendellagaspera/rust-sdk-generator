@@ -4,7 +4,7 @@ use std::thread;
 use std::time::Duration;
 
 use futures_util::StreamExt;
-use independent_notebook_consumer::{generated::types::NewNote, sdk::{self, NotebookClient, SdkError}};
+use independent_notebook_consumer::{sdk::{self, NotebookClient, SdkError}};
 use serde_json::{Value, json};
 
 fn mock_once(status: &str, media_type: &str, payload: &[u8]) -> (String, thread::JoinHandle<String>) {
@@ -62,13 +62,10 @@ async fn serializes_json_request_and_deserializes_success_response() {
         br#"{"id":"n-1","title":"First note","subtitle":null,"priority":3}"#,
     );
     let client = NotebookClient::new("local-test").with_base_url(url);
-    let raw: NewNote = serde_json::from_value(json!({
-        "title": "First note"
-    })).expect("optional raw request");
-    let response = client.notes().create(sdk::CreateNotesRequest::from_raw(raw))
+    let response = client.notes().create(sdk::CreateNotesRequest::new("First note"))
         .await.expect("create note");
-    assert_eq!(response.as_raw().id, "n-1");
-    assert_eq!(response.as_raw().title, "First note");
+    assert_eq!(response.raw().id, "n-1");
+    assert_eq!(response.raw().title, "First note");
     let (headers, body) = request_parts(&server.join().expect("mock request"));
     assert!(headers.starts_with("POST /notes HTTP/1.1"), "{headers}");
     assert!(headers.to_ascii_lowercase().contains("content-type: application/json"));
@@ -86,8 +83,8 @@ async fn serializes_path_and_query_and_preserves_null_response() {
     let client = NotebookClient::new("local-test").with_base_url(url);
     let request = sdk::notes::ReadNotesRequest::new("n-2").verbose(true);
     let note = client.notes().read(request).await.expect("read note");
-    assert_eq!(note.as_raw().id, "n-2");
-    assert_eq!(note.as_raw().title, "Second");
+    assert_eq!(note.raw().id, "n-2");
+    assert_eq!(note.raw().title, "Second");
     let request = server.join().expect("mock request");
     assert!(request.starts_with("GET /notes/n-2?verbose=true HTTP/1.1"), "{request}");
 }
