@@ -20,12 +20,13 @@ pub fn read_bindings(path: impl AsRef<Path>) -> Result<Bindings, Error> {
 
     let sidecar = path.join(SIDECAR_NAME);
     if sidecar.is_file() {
-        let value = fs::read_to_string(&sidecar)
-            .ok()
-            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-            .and_then(|value| Bindings::from_value(value).ok())
-            .ok_or_else(|| Error::new(format!("invalid {SIDECAR_NAME}")))?;
-        return Ok(value);
+        let source = fs::read_to_string(&sidecar).map_err(|error| {
+            Error::new(format!("failed to read {}: {error}", sidecar.display()))
+        })?;
+        let value: Value = serde_json::from_str(&source)
+            .map_err(|error| Error::new(format!("invalid {SIDECAR_NAME} JSON: {error}")))?;
+        return Bindings::from_value(value)
+            .map_err(|error| Error::new(format!("invalid {SIDECAR_NAME}: {error}")));
     }
 
     Err(Error::new(format!(

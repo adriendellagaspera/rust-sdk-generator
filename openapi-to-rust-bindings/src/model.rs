@@ -2,7 +2,7 @@ use serde_json::{Map, Value};
 use std::collections::BTreeSet;
 use std::fmt;
 
-/// Error returned when generated Rust or a Bindings sidecar cannot be normalized.
+/// Error returned when structured backend metadata or a Bindings sidecar cannot be normalized.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Error {
     message: String,
