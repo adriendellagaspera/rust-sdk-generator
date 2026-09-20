@@ -320,27 +320,23 @@ pub(super) fn publish(
             .map_err(|error| io_error(output, "move previous output to backup", error))?;
     }
     if let Err(error) = fs::rename(&staged, output) {
-        if existed {
-            if let Err(rollback) = fs::rename(&backup, output) {
-                return Err(CliError::at(
-                    "cli.output_recovery",
-                    output,
-                    format!(
-                        "publication failed ({error}) and rollback failed ({rollback}); previous output is at {}",
-                        backup.display()
-                    ),
-                ));
-            }
+        if existed && let Err(rollback) = fs::rename(&backup, output) {
+            return Err(CliError::at(
+                "cli.output_recovery",
+                output,
+                format!(
+                    "publication failed ({error}) and rollback failed ({rollback}); previous output is at {}",
+                    backup.display()
+                ),
+            ));
         }
         return Err(io_error(output, "publish staged output", error));
     }
-    if existed {
-        if let Err(error) = fs::remove_dir_all(&backup) {
-            eprintln!(
-                "warning: published output, but could not remove backup {}: {error}",
-                backup.display()
-            );
-        }
+    if existed && let Err(error) = fs::remove_dir_all(&backup) {
+        eprintln!(
+            "warning: published output, but could not remove backup {}: {error}",
+            backup.display()
+        );
     }
     Ok(())
 }
