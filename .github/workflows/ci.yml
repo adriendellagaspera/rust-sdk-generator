@@ -23,6 +23,13 @@ jobs:
           persist-credentials: false
       - name: Validate agent and action-pin contracts
         run: python3 scripts/check_agent_contract.py
+      - name: Keep repository independent of downstream SDKs
+        shell: bash
+        run: |
+          if git grep --line-number --ignore-case --extended-regexp 'm[i]stral' -- .; then
+            echo 'Found consumer-specific references in the generator repository.' >&2
+            exit 1
+          fi
       - name: Validate pull-request title
         if: github.event_name == 'pull_request'
         env:
