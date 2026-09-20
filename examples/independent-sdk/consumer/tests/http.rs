@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 use independent_notebook_consumer::{sdk::{self, NotebookClient, SdkError}};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 fn mock_once(status: &str, media_type: &str, payload: &[u8]) -> (String, thread::JoinHandle<String>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind local mock");
