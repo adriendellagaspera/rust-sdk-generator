@@ -20,6 +20,12 @@ impl<E: std::fmt::Debug> From<ApiOpError<E>> for SdkError {
     }
 }
 
+impl From<reqwest::Error> for SdkError {
+    fn from(error: reqwest::Error) -> Self {
+        Self::Transport(error.to_string())
+    }
+}
+
 // The generator's default module contract requires these exports; the
 // independent proof only needs SdkError's two variants.
 pub type ApiError = SdkError;
