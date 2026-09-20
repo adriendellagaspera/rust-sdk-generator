@@ -30,7 +30,21 @@ rust-sdk-generator check \
   --openapi openapi.json \
   --bindings rust-bindings.json \
   --definition sdk-definition.json
+
+rust-sdk-generator check-generated \
+  --openapi openapi.json \
+  --bindings rust-bindings.json \
+  --definition sdk-definition.json \
+  --output src/sdk
 ```
+
+The original `check` command validates/compiles in memory and prints the public API inventory; it does **not** compare files on disk. `check-generated --output DIR` is read-only: stdout contains deterministic JSON arrays of `missing`, `changed`, `extra` and `conflicts` paths; exit code 0 means clean, 1 means stale, and 2 indicates an input/IO error (JSON diagnostic on stderr). `check-generated` does not accept `--inventory` because that would write a file.
+
+The CLI treats a file as generator-owned only when it begins with the exact `Runtime.generated_marker` configured for that generation. It refuses to overwrite an unmarked file at a generated path. On regeneration, it removes obsolete marked files, preserves unmarked handwritten files (including `src/sdk/error.rs` in a consumer), and stages a complete output-directory copy before publishing. Output paths must refer to a dedicated SDK directory, not the repository root; symlinks/special files inside that directory are rejected rather than followed.
+
+Publication swaps the previous directory into a uniquely named sibling backup, then moves the complete staging directory into place; on a normal second-rename failure it attempts to restore the backup. An operating-system crash between the two renames may temporarily leave the output directory absent. The next `generate` restores a single detected backup before proceeding; `check-generated` never changes the filesystem. An abandoned lock file (`.<output-name>.rust-sdk-generator.lock`) must be removed manually **only after confirming no generator is running**. Abandoned staging directories are ignored and can be removed manually. Concurrent generation targeting the same output directory is intentionally blocked by the lock.
+
+This is not a filesystem-wide atomic transaction: non-cooperating readers can observe the brief interval between directory renames, and an optional `--inventory` path outside the output directory is written separately after the SDK has been published. Consumers requiring an uninterrupted reader view should coordinate reads with generation. Do not change the generated marker silently between releases: files carrying an older marker are deliberately considered unmanaged and cause path conflicts rather than being deleted.
 
 The bindings adapter likewise exposes a Rust library and a small CLI:
 

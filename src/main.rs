@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::io::{self, Write};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::process;
 
 use rust_sdk_generator::{
@@ -13,13 +13,16 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 
-const USAGE: &str = "usage:\n  rust-sdk-generator derive --openapi FILE --bindings FILE [--surface FILE] [--overrides FILE]\n  rust-sdk-generator generate --openapi FILE --bindings FILE --definition FILE --output DIR [--runtime FILE] [--inventory FILE]\n  rust-sdk-generator check --openapi FILE --bindings FILE --definition FILE [--runtime FILE] [--inventory FILE]";
+mod output;
+
+const USAGE: &str = "usage:\n  rust-sdk-generator derive --openapi FILE --bindings FILE [--surface FILE] [--overrides FILE]\n  rust-sdk-generator generate --openapi FILE --bindings FILE --definition FILE --output DIR [--runtime FILE] [--inventory FILE]\n  rust-sdk-generator check --openapi FILE --bindings FILE --definition FILE [--runtime FILE] [--inventory FILE]\n  rust-sdk-generator check-generated --openapi FILE --bindings FILE --definition FILE --output DIR [--runtime FILE]";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CommandKind {
     Derive,
     Generate,
     Check,
+    CheckGenerated,
 }
 
 #[derive(Debug)]
@@ -95,6 +98,7 @@ where
         "derive" => CommandKind::Derive,
         "generate" => CommandKind::Generate,
         "check" => CommandKind::Check,
+        "check-generated" => CommandKind::CheckGenerated,
         _ => return Err(CliError::new("cli.usage", USAGE)),
     };
 
@@ -126,7 +130,7 @@ where
 
     let allowed: &[&str] = match command {
         CommandKind::Derive => &["--openapi", "--bindings", "--surface", "--overrides"],
-        CommandKind::Generate | CommandKind::Check => &[
+        CommandKind::Generate | CommandKind::Check | CommandKind::CheckGenerated => &[
             "--openapi",
             "--bindings",
             "--definition",
@@ -145,10 +149,10 @@ where
     }
 
     let output = options.get("--output").map(PathBuf::from);
-    if command == CommandKind::Generate && output.is_none() {
+    if matches!(command, CommandKind::Generate | CommandKind::CheckGenerated) && output.is_none() {
         return Err(CliError::new(
             "cli.usage",
-            format!("generate requires --output\n{USAGE}"),
+            format!("{command:?} requires --output\n{USAGE}"),
         ));
     }
     if command == CommandKind::Check && output.is_some() {
@@ -158,9 +162,18 @@ where
         ));
     }
 
+    if command == CommandKind::CheckGenerated && options.contains_key("--inventory") {
+        return Err(CliError::new(
+            "cli.usage",
+            format!("check-generated is read-only and does not accept --inventory\n{USAGE}"),
+        ));
+    }
+
     let definition = match command {
         CommandKind::Derive => None,
-        CommandKind::Generate | CommandKind::Check => Some(required("--definition")?),
+        CommandKind::Generate | CommandKind::Check | CommandKind::CheckGenerated => {
+            Some(required("--definition")?)
+        }
     };
 
     Ok(Some(Cli {
@@ -199,47 +212,6 @@ fn inventory_json(inventory: &ApiInventory) -> Result<Vec<u8>, CliError> {
     json_bytes(inventory)
 }
 
-fn safe_relative_path(name: &str) -> Result<&Path, CliError> {
-    let path = Path::new(name);
-    if path.is_absolute()
-        || path.components().any(|component| {
-            matches!(
-                component,
-                Component::ParentDir | Component::RootDir | Component::Prefix(_)
-            )
-        })
-    {
-        return Err(CliError::new(
-            "cli.output_path",
-            format!("generated path escapes output directory: {name}"),
-        ));
-    }
-    Ok(path)
-}
-
-fn write_generated(output: &Path, files: &BTreeMap<String, String>) -> Result<(), CliError> {
-    for (name, source) in files {
-        let path = output.join(safe_relative_path(name)?);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|error| {
-                CliError::at(
-                    "cli.io",
-                    parent,
-                    format!("failed to create output directory: {error}"),
-                )
-            })?;
-        }
-        fs::write(&path, source).map_err(|error| {
-            CliError::at(
-                "cli.io",
-                &path,
-                format!("failed to write generated source: {error}"),
-            )
-        })?;
-    }
-    Ok(())
-}
-
 fn write_inventory(path: &Path, inventory: &[u8]) -> Result<(), CliError> {
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
@@ -261,7 +233,7 @@ fn write_inventory(path: &Path, inventory: &[u8]) -> Result<(), CliError> {
     })
 }
 
-fn run(cli: Cli) -> Result<(), CliError> {
+fn run(cli: Cli) -> Result<i32, CliError> {
     let openapi: OpenApi = read_json(&cli.openapi, "OpenAPI")?;
     let bindings: Bindings = read_json(&cli.bindings, "Bindings")?;
 
@@ -283,7 +255,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
         io::stdout()
             .write_all(&json_bytes(&derivation)?)
             .map_err(|error| CliError::new("cli.io", format!("failed to write stdout: {error}")))?;
-        return Ok(());
+        return Ok(0);
     }
 
     let definition_path = cli.definition.as_deref().expect("generation definition");
@@ -292,6 +264,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
         Some(path) => read_json(path, "Runtime")?,
         None => Runtime::default(),
     };
+    let marker = runtime.generated_marker.clone();
     let generated = generate(GenerateInput {
         openapi,
         bindings,
@@ -299,8 +272,16 @@ fn run(cli: Cli) -> Result<(), CliError> {
         runtime,
     })?;
 
+    if cli.command == CommandKind::CheckGenerated {
+        let output = cli.output.as_deref().expect("checked output");
+        let diff = output::compare(output, &generated.files, &marker)?;
+        io::stdout()
+            .write_all(&json_bytes(&diff)?)
+            .map_err(|error| CliError::new("cli.io", format!("failed to write stdout: {error}")))?;
+        return Ok(if diff.is_clean() { 0 } else { 1 });
+    }
     if let Some(output) = &cli.output {
-        write_generated(output, &generated.files)?;
+        output::publish(output, &generated.files, &marker)?;
     }
     let inventory = inventory_json(&generated.inventory)?;
     if let Some(path) = &cli.inventory {
@@ -309,7 +290,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
     io::stdout()
         .write_all(&inventory)
         .map_err(|error| CliError::new("cli.io", format!("failed to write stdout: {error}")))?;
-    Ok(())
+    Ok(0)
 }
 
 fn emit_error(error: &CliError) {
@@ -324,12 +305,14 @@ fn emit_error(error: &CliError) {
 fn main() {
     match parse_args(env::args().skip(1)) {
         Ok(None) => println!("{USAGE}"),
-        Ok(Some(cli)) => {
-            if let Err(error) = run(cli) {
+        Ok(Some(cli)) => match run(cli) {
+            Ok(0) => {}
+            Ok(code) => process::exit(code),
+            Err(error) => {
                 emit_error(&error);
                 process::exit(2);
             }
-        }
+        },
         Err(error) => {
             emit_error(&error);
             process::exit(2);
