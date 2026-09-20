@@ -163,12 +163,17 @@ where
     }
 
     if command == CommandKind::CheckGenerated && options.contains_key("--inventory") {
-        return Err(CliError::new("cli.usage", format!("check-generated is read-only and does not accept --inventory\n{USAGE}")));
+        return Err(CliError::new(
+            "cli.usage",
+            format!("check-generated is read-only and does not accept --inventory\n{USAGE}"),
+        ));
     }
 
     let definition = match command {
         CommandKind::Derive => None,
-        CommandKind::Generate | CommandKind::Check | CommandKind::CheckGenerated => Some(required("--definition")?),
+        CommandKind::Generate | CommandKind::Check | CommandKind::CheckGenerated => {
+            Some(required("--definition")?)
+        }
     };
 
     Ok(Some(Cli {
