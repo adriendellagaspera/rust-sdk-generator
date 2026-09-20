@@ -9,9 +9,28 @@ This Cargo workspace contains two separate crates:
 
 The adapter is a producer of data, not a dependency of the root generator. Application-specific naming, source updates, integration runtime and publishing are owned by consumers.
 
+## Quickstart: independent Rust SDK
+
+From a clean repository checkout, with Rust 1.88+, Cargo, Git and first-run network access:
+
+```sh
+cargo run --locked --example independent-sdk-quickstart
+```
+
+This native Rust entry point checks out the immutable raw-backend revision pinned
+in `openapi-to-rust-bindings/COMPATIBILITY.json`, builds the backend, adapter and
+generator, then derives, generates, compiles and HTTP-tests a standalone notebook
+SDK. It prints the output directory. No Python or downstream consumer checkout
+is needed. [Follow the quickstart and adapt your own API](docs/getting-started.md).
+
+The example is turnkey for its **fixed API fixture**. Generating a new SDK from
+an arbitrary user-provided OpenAPI document with a single `init` command is a
+separate goal tracked in [#146](https://github.com/adriendellagaspera/rust-sdk-generator/issues/146).
+
 ## Start here
 
-Requirements: Rust 1.88+; Python 3.11+ and Git for the standalone example. From the workspace root:
+The underlying CLI remains available for integration. With Rust 1.88+ and a
+normalized Bindings JSON file, run from the workspace root:
 
 ```sh
 cargo test --workspace --all-targets --all-features
@@ -19,10 +38,13 @@ cargo run --quiet -p openapi-to-rust-bindings -- path/to/raw-output > rust-bindi
 
 cargo run --quiet -p rust-sdk-generator -- derive \
   --openapi openapi.json --bindings rust-bindings.json \
-  --surface surface.json --overrides overrides.json > derivation.json
+  --surface surface.json --overrides overrides.json \
+  --definition-output sdk-definition.json > derivation.json
 ```
 
-`--surface` and `--overrides` are optional; without them derivation uses its default evidence and overrides. Inspect `derivation.json` before publishing: it contains both `definition` and an exhaustive `report.operations` map with `derived`, `overridden`, `excluded` or `rejected` outcomes and reasons. A rejected operation is not silently generated. Extract `definition` into `sdk-definition.json`, then run:
+`--surface` and `--overrides` are optional; without them derivation uses its default evidence and overrides. Inspect `derivation.json` before publishing: it contains both `definition` and an exhaustive `report.operations` map with `derived`, `overridden`, `excluded` or `rejected` outcomes and reasons. A rejected operation is not silently generated. The optional
+`--definition-output` writes the derived definition directly, without an
+external JSON extraction script. Then run:
 
 ```sh
 cargo run --quiet -p rust-sdk-generator -- generate \
@@ -36,10 +58,13 @@ cargo run --quiet -p rust-sdk-generator -- check-generated \
 
 `generate` prints the public API inventory and publishes files to a dedicated output directory. `check` validates and compiles in memory, optionally writing an inventory; `check-generated` compares generated files with the directory without modifying it. See [contracts and CLI](docs/contracts.md) and [output publication](docs/output.md) before integrating either into a build.
 
-For a pinned raw-backend → manifest → Bindings v3 → derivation → generation → independent Cargo consumer proof, including mock HTTP tests, use [the independent SDK example](examples/independent-sdk/README.md). It supplies its own API fixture and minimal runtime, not an existing consumer's artifacts.
+For implementation details and failure diagnostics of the native independent
+proof, see [the independent SDK example](examples/independent-sdk/README.md).
+It supplies its own API fixture and minimal runtime, not an existing consumer's artifacts.
 
 ## Documentation
 
+- [Getting started](docs/getting-started.md): native Rust quickstart, artifacts and adoption limits.
 - [Architecture and ownership](docs/architecture.md): data flow, provenance and responsibility boundaries.
 - [Contracts and CLI](docs/contracts.md): versions, evidence, derivation report and error behavior.
 - [Output safety](docs/output.md): markers, conflicts, publication, crash recovery and read-only checks.

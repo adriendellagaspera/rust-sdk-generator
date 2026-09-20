@@ -1,6 +1,9 @@
 # Development and quality gates
 
-Requires Rust 1.88+ and Python 3.11+; the pinned raw-backend and standalone proof additionally require Git and a Rust toolchain to compile the independent consumer.
+The public independent SDK quickstart needs Rust 1.88+ with Cargo and Git;
+Python 3.11+ is used only for internal policy, lint and adapter integration
+checks. The pinned backend and consumer build also require first-run network
+access for source and Cargo dependencies.
 
 ```sh
 python3 scripts/check_agent_contract.py
