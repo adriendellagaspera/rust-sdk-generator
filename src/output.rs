@@ -29,15 +29,23 @@ fn io_error(path: &Path, action: &str, error: std::io::Error) -> CliError {
     CliError::at("cli.io", path, format!("{action}: {error}"))
 }
 
-fn expected_paths(files: &BTreeMap<String, String>, marker: &str) -> Result<BTreeSet<String>, CliError> {
+fn expected_paths(
+    files: &BTreeMap<String, String>,
+    marker: &str,
+) -> Result<BTreeSet<String>, CliError> {
     if marker.is_empty() {
-        return Err(CliError::new("cli.output_marker", "generated marker must not be empty"));
+        return Err(CliError::new(
+            "cli.output_marker",
+            "generated marker must not be empty",
+        ));
     }
     let mut paths = BTreeSet::new();
     for (name, source) in files {
         let path = Path::new(name);
         if name.is_empty()
-            || !path.components().all(|part| matches!(part, Component::Normal(_)))
+            || !path
+                .components()
+                .all(|part| matches!(part, Component::Normal(_)))
             || !source.starts_with(marker)
         {
             return Err(CliError::new(
@@ -51,14 +59,20 @@ fn expected_paths(files: &BTreeMap<String, String>, marker: &str) -> Result<BTre
             .collect::<Vec<_>>()
             .join("/");
         if canonical != *name || !paths.insert(canonical) {
-            return Err(CliError::new("cli.output_path", format!("non-canonical or duplicate generated path: {name:?}")));
+            return Err(CliError::new(
+                "cli.output_path",
+                format!("non-canonical or duplicate generated path: {name:?}"),
+            ));
         }
     }
     for path in &paths {
         let mut parent = Path::new(path).parent();
         while let Some(ancestor) = parent {
             if !ancestor.as_os_str().is_empty() && paths.contains(ancestor.to_str().unwrap_or("")) {
-                return Err(CliError::new("cli.output_path", format!("generated file and directory conflict: {path}")));
+                return Err(CliError::new(
+                    "cli.output_path",
+                    format!("generated file and directory conflict: {path}"),
+                ));
             }
             parent = ancestor.parent();
         }
@@ -69,7 +83,11 @@ fn expected_paths(files: &BTreeMap<String, String>, marker: &str) -> Result<BTre
 fn validate_root(output: &Path) -> Result<bool, CliError> {
     match fs::symlink_metadata(output) {
         Ok(metadata) if metadata.file_type().is_dir() => Ok(true),
-        Ok(_) => Err(CliError::at("cli.output_path", output, "output must be a directory, not a file or symlink")),
+        Ok(_) => Err(CliError::at(
+            "cli.output_path",
+            output,
+            "output must be a directory, not a file or symlink",
+        )),
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
         Err(error) => Err(io_error(output, "inspect output", error)),
     }
@@ -86,9 +104,15 @@ fn walk(
     for entry in fs::read_dir(dir).map_err(|error| io_error(dir, "read output directory", error))? {
         let entry = entry.map_err(|error| io_error(dir, "read directory entry", error))?;
         let path = entry.path();
-        let ty = entry.file_type().map_err(|error| io_error(&path, "inspect entry", error))?;
+        let ty = entry
+            .file_type()
+            .map_err(|error| io_error(&path, "inspect entry", error))?;
         if ty.is_symlink() || (!ty.is_dir() && !ty.is_file()) {
-            return Err(CliError::at("cli.output_path", &path, "symlinks and special files in output are not supported"));
+            return Err(CliError::at(
+                "cli.output_path",
+                &path,
+                "symlinks and special files in output are not supported",
+            ));
         }
         if ty.is_dir() {
             walk(root, &path, files, marker, seen, diff)?;
@@ -115,7 +139,11 @@ fn walk(
     Ok(())
 }
 
-pub(super) fn compare(output: &Path, files: &BTreeMap<String, String>, marker: &str) -> Result<OutputDiff, CliError> {
+pub(super) fn compare(
+    output: &Path,
+    files: &BTreeMap<String, String>,
+    marker: &str,
+) -> Result<OutputDiff, CliError> {
     let expected = expected_paths(files, marker)?;
     let mut diff = OutputDiff::default();
     let mut seen = BTreeSet::new();
@@ -170,8 +198,17 @@ fn sibling_info(output: &Path) -> Result<(PathBuf, String), CliError> {
         .file_name()
         .and_then(|name| name.to_str())
         .filter(|name| !name.is_empty())
-        .ok_or_else(|| CliError::at("cli.output_path", output, "output must name a directory, not the filesystem root or current directory"))?;
-    let parent = output.parent().filter(|path| !path.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
+        .ok_or_else(|| {
+            CliError::at(
+                "cli.output_path",
+                output,
+                "output must name a directory, not the filesystem root or current directory",
+            )
+        })?;
+    let parent = output
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
     Ok((parent.to_path_buf(), name.to_owned()))
 }
 
@@ -181,7 +218,9 @@ fn recover_backup(output: &Path, parent: &Path, name: &str) -> Result<(), CliErr
     }
     let prefix = format!(".{name}.rust-sdk-generator-backup-");
     let mut backups = Vec::new();
-    for entry in fs::read_dir(parent).map_err(|error| io_error(parent, "scan for interrupted publication", error))? {
+    for entry in fs::read_dir(parent)
+        .map_err(|error| io_error(parent, "scan for interrupted publication", error))?
+    {
         let entry = entry.map_err(|error| io_error(parent, "read directory entry", error))?;
         if entry.file_name().to_string_lossy().starts_with(&prefix) {
             backups.push(entry.path());
@@ -189,7 +228,8 @@ fn recover_backup(output: &Path, parent: &Path, name: &str) -> Result<(), CliErr
     }
     match backups.len() {
         0 => Ok(()),
-        1 => fs::rename(&backups[0], output).map_err(|error| io_error(output, "restore interrupted output publication", error)),
+        1 => fs::rename(&backups[0], output)
+            .map_err(|error| io_error(output, "restore interrupted output publication", error)),
         _ => Err(CliError::at(
             "cli.output_recovery",
             output,
@@ -199,32 +239,50 @@ fn recover_backup(output: &Path, parent: &Path, name: &str) -> Result<(), CliErr
 }
 
 fn copy_tree(source: &Path, destination: &Path) -> Result<(), CliError> {
-    for entry in fs::read_dir(source).map_err(|error| io_error(source, "read output directory", error))? {
+    for entry in
+        fs::read_dir(source).map_err(|error| io_error(source, "read output directory", error))?
+    {
         let entry = entry.map_err(|error| io_error(source, "read directory entry", error))?;
         let path = entry.path();
         let target = destination.join(entry.file_name());
-        let ty = entry.file_type().map_err(|error| io_error(&path, "inspect entry", error))?;
+        let ty = entry
+            .file_type()
+            .map_err(|error| io_error(&path, "inspect entry", error))?;
         if ty.is_dir() {
             fs::create_dir(&target).map_err(|error| io_error(&target, "stage directory", error))?;
             copy_tree(&path, &target)?;
         } else if ty.is_file() {
-            fs::copy(&path, &target).map_err(|error| io_error(&target, "stage handwritten/generated file", error))?;
+            fs::copy(&path, &target)
+                .map_err(|error| io_error(&target, "stage handwritten/generated file", error))?;
         } else {
-            return Err(CliError::at("cli.output_path", &path, "symlinks and special files in output are not supported"));
+            return Err(CliError::at(
+                "cli.output_path",
+                &path,
+                "symlinks and special files in output are not supported",
+            ));
         }
     }
     Ok(())
 }
 
-pub(super) fn publish(output: &Path, files: &BTreeMap<String, String>, marker: &str) -> Result<(), CliError> {
+pub(super) fn publish(
+    output: &Path,
+    files: &BTreeMap<String, String>,
+    marker: &str,
+) -> Result<(), CliError> {
     expected_paths(files, marker)?;
     let (parent, name) = sibling_info(output)?;
-    fs::create_dir_all(&parent).map_err(|error| io_error(&parent, "create output parent", error))?;
+    fs::create_dir_all(&parent)
+        .map_err(|error| io_error(&parent, "create output parent", error))?;
     let _lock = Lock::acquire(parent.join(format!(".{name}.rust-sdk-generator.lock")))?;
     recover_backup(output, &parent, &name)?;
     let diff = compare(output, files, marker)?;
     if let Some(conflict) = diff.conflicts.first() {
-        return Err(CliError::at("cli.output_conflict", &output.join(conflict), "refusing to overwrite a file without the current generated marker"));
+        return Err(CliError::at(
+            "cli.output_conflict",
+            &output.join(conflict),
+            "refusing to overwrite a file without the current generated marker",
+        ));
     }
     if diff.is_clean() && validate_root(output)? {
         return Ok(());
@@ -237,7 +295,8 @@ pub(super) fn publish(output: &Path, files: &BTreeMap<String, String>, marker: &
     let stamp = format!("{}-{nonce}", std::process::id());
     let staged = parent.join(format!(".{name}.rust-sdk-generator-stage-{stamp}"));
     let backup = parent.join(format!(".{name}.rust-sdk-generator-backup-{stamp}"));
-    fs::create_dir(&staged).map_err(|error| io_error(&staged, "create staging directory", error))?;
+    fs::create_dir(&staged)
+        .map_err(|error| io_error(&staged, "create staging directory", error))?;
     let _staging = Staging(staged.clone());
     let existed = validate_root(output)?;
     if existed {
@@ -245,17 +304,20 @@ pub(super) fn publish(output: &Path, files: &BTreeMap<String, String>, marker: &
     }
     for name in &diff.extra {
         let path = staged.join(name);
-        fs::remove_file(&path).map_err(|error| io_error(&path, "remove stale generated file from stage", error))?;
+        fs::remove_file(&path)
+            .map_err(|error| io_error(&path, "remove stale generated file from stage", error))?;
     }
     for (name, source) in files {
         let path = staged.join(name);
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|error| io_error(parent, "stage generated directory", error))?;
+            fs::create_dir_all(parent)
+                .map_err(|error| io_error(parent, "stage generated directory", error))?;
         }
         fs::write(&path, source).map_err(|error| io_error(&path, "stage generated file", error))?;
     }
     if existed {
-        fs::rename(output, &backup).map_err(|error| io_error(output, "move previous output to backup", error))?;
+        fs::rename(output, &backup)
+            .map_err(|error| io_error(output, "move previous output to backup", error))?;
     }
     if let Err(error) = fs::rename(&staged, output) {
         if existed {
@@ -263,7 +325,10 @@ pub(super) fn publish(output: &Path, files: &BTreeMap<String, String>, marker: &
                 return Err(CliError::at(
                     "cli.output_recovery",
                     output,
-                    format!("publication failed ({error}) and rollback failed ({rollback}); previous output is at {}", backup.display()),
+                    format!(
+                        "publication failed ({error}) and rollback failed ({rollback}); previous output is at {}",
+                        backup.display()
+                    ),
                 ));
             }
         }
@@ -271,7 +336,10 @@ pub(super) fn publish(output: &Path, files: &BTreeMap<String, String>, marker: &
     }
     if existed {
         if let Err(error) = fs::remove_dir_all(&backup) {
-            eprintln!("warning: published output, but could not remove backup {}: {error}", backup.display());
+            eprintln!(
+                "warning: published output, but could not remove backup {}: {error}",
+                backup.display()
+            );
         }
     }
     Ok(())
@@ -286,8 +354,12 @@ mod tests {
 
     impl Temp {
         fn new() -> Self {
-            let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-            let path = std::env::temp_dir().join(format!("rust-sdk-output-{}-{nonce}", std::process::id()));
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let path = std::env::temp_dir()
+                .join(format!("rust-sdk-output-{}-{nonce}", std::process::id()));
             fs::create_dir(&path).unwrap();
             Self(path)
         }
@@ -306,15 +378,24 @@ mod tests {
     const MARKER: &str = "// @generated test\n";
 
     fn files(entries: &[(&str, &str)]) -> BTreeMap<String, String> {
-        entries.iter().map(|(name, body)| ((*name).to_owned(), format!("{MARKER}{body}"))).collect()
+        entries
+            .iter()
+            .map(|(name, body)| ((*name).to_owned(), format!("{MARKER}{body}")))
+            .collect()
     }
 
     #[test]
     fn initial_unchanged_and_read_only_comparison() {
         let temp = Temp::new();
         let output = temp.output();
-        let expected = files(&[("mod.rs", "pub mod api;\n"), ("api.rs", "pub struct Api;\n")]);
-        assert_eq!(compare(&output, &expected, MARKER).unwrap().missing.len(), 2);
+        let expected = files(&[
+            ("mod.rs", "pub mod api;\n"),
+            ("api.rs", "pub struct Api;\n"),
+        ]);
+        assert_eq!(
+            compare(&output, &expected, MARKER).unwrap().missing.len(),
+            2
+        );
         publish(&output, &expected, MARKER).unwrap();
         let before = fs::read(output.join("mod.rs")).unwrap();
         assert!(compare(&output, &expected, MARKER).unwrap().is_clean());
@@ -335,11 +416,17 @@ mod tests {
         assert_eq!(diff.changed, vec!["mod.rs"]);
         assert_eq!(diff.missing, vec!["nested/new.rs"]);
         assert_eq!(diff.extra, vec!["old.rs"]);
-        assert_eq!(fs::read_to_string(output.join("mod.rs")).unwrap(), format!("{MARKER}changed"));
+        assert_eq!(
+            fs::read_to_string(output.join("mod.rs")).unwrap(),
+            format!("{MARKER}changed")
+        );
         publish(&output, &next, MARKER).unwrap();
         assert!(compare(&output, &next, MARKER).unwrap().is_clean());
         assert!(!output.join("old.rs").exists());
-        assert_eq!(fs::read_to_string(output.join("error.rs")).unwrap(), "handwritten runtime\n");
+        assert_eq!(
+            fs::read_to_string(output.join("error.rs")).unwrap(),
+            "handwritten runtime\n"
+        );
     }
 
     #[test]
@@ -349,11 +436,20 @@ mod tests {
         publish(&output, &files(&[("mod.rs", "old")]), MARKER).unwrap();
         fs::write(output.join("new.rs"), "handwritten").unwrap();
         let requested = files(&[("mod.rs", "new"), ("new.rs", "new")]);
-        assert_eq!(compare(&output, &requested, MARKER).unwrap().conflicts, vec!["new.rs"]);
+        assert_eq!(
+            compare(&output, &requested, MARKER).unwrap().conflicts,
+            vec!["new.rs"]
+        );
         let error = publish(&output, &requested, MARKER).unwrap_err();
         assert_eq!(error.code, "cli.output_conflict");
-        assert_eq!(fs::read_to_string(output.join("mod.rs")).unwrap(), format!("{MARKER}old"));
-        assert_eq!(fs::read_to_string(output.join("new.rs")).unwrap(), "handwritten");
+        assert_eq!(
+            fs::read_to_string(output.join("mod.rs")).unwrap(),
+            format!("{MARKER}old")
+        );
+        assert_eq!(
+            fs::read_to_string(output.join("new.rs")).unwrap(),
+            "handwritten"
+        );
     }
 
     #[test]
@@ -361,11 +457,19 @@ mod tests {
         let temp = Temp::new();
         let output = temp.output();
         publish(&output, &files(&[("mod.rs", "old")]), MARKER).unwrap();
-        for name in ["../escape.rs", "/absolute.rs", "a/./b.rs", "mod.rs/child.rs"] {
+        for name in [
+            "../escape.rs",
+            "/absolute.rs",
+            "a/./b.rs",
+            "mod.rs/child.rs",
+        ] {
             let mut bad = files(&[("mod.rs", "new")]);
             bad.insert(name.to_owned(), format!("{MARKER}bad"));
             assert!(publish(&output, &bad, MARKER).is_err(), "{name}");
-            assert_eq!(fs::read_to_string(output.join("mod.rs")).unwrap(), format!("{MARKER}old"));
+            assert_eq!(
+                fs::read_to_string(output.join("mod.rs")).unwrap(),
+                format!("{MARKER}old")
+            );
         }
     }
 
@@ -375,10 +479,21 @@ mod tests {
         let output = temp.output();
         publish(&output, &files(&[("mod.rs", "old")]), MARKER).unwrap();
         fs::write(output.join("nested"), "handwritten file").unwrap();
-        let error = publish(&output, &files(&[("mod.rs", "new"), ("nested/new.rs", "new")]), MARKER).unwrap_err();
+        let error = publish(
+            &output,
+            &files(&[("mod.rs", "new"), ("nested/new.rs", "new")]),
+            MARKER,
+        )
+        .unwrap_err();
         assert_eq!(error.code, "cli.io");
-        assert_eq!(fs::read_to_string(output.join("mod.rs")).unwrap(), format!("{MARKER}old"));
-        assert_eq!(fs::read_to_string(output.join("nested")).unwrap(), "handwritten file");
+        assert_eq!(
+            fs::read_to_string(output.join("mod.rs")).unwrap(),
+            format!("{MARKER}old")
+        );
+        assert_eq!(
+            fs::read_to_string(output.join("nested")).unwrap(),
+            "handwritten file"
+        );
     }
 
     #[test]
@@ -393,7 +508,10 @@ mod tests {
         fs::create_dir(&abandoned_stage).unwrap();
         fs::write(abandoned_stage.join("partial.rs"), "partial").unwrap();
         // A read-only check must not restore or delete anything.
-        assert_eq!(compare(&output, &previous, MARKER).unwrap().missing, vec!["mod.rs"]);
+        assert_eq!(
+            compare(&output, &previous, MARKER).unwrap().missing,
+            vec!["mod.rs"]
+        );
         assert!(backup.exists());
         let next = files(&[("mod.rs", "new")]);
         publish(&output, &next, MARKER).unwrap();
@@ -411,6 +529,9 @@ mod tests {
         publish(&output, &files(&[("mod.rs", "old")]), MARKER).unwrap();
         symlink(output.join("mod.rs"), output.join("alias.rs")).unwrap();
         assert!(publish(&output, &files(&[("mod.rs", "new")]), MARKER).is_err());
-        assert_eq!(fs::read_to_string(output.join("mod.rs")).unwrap(), format!("{MARKER}old"));
+        assert_eq!(
+            fs::read_to_string(output.join("mod.rs")).unwrap(),
+            format!("{MARKER}old")
+        );
     }
 }
