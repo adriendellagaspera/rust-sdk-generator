@@ -1,4 +1,4 @@
-//! Minimal, consumer-owned runtime adapter. No Mistral SDK dependency.
+//! Minimal, consumer-owned runtime adapter.
 use crate::generated::client::ApiOpError;
 
 #[derive(Debug)]
