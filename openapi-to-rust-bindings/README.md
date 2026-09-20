@@ -1,25 +1,21 @@
 # openapi-to-rust-bindings
 
-`openapi-to-rust-bindings` is the Rust compatibility layer between `openapi-to-rust` generator-owned metadata and the versioned `Bindings` JSON contract consumed by `rust-sdk-generator`.
+Adapter from the `openapi-to-rust` backend's structured `binding-manifest.json` to the backend-neutral Bindings JSON contract consumed by `rust-sdk-generator`. This crate has no runtime dependency on the root generator.
 
-The library API is deliberately small:
+## Input precedence
 
-```rust
-use openapi_to_rust_bindings::{parse_binding_manifest, read_bindings};
+`read_bindings(directory)` reads `binding-manifest.json` when present and converts it to canonical Bindings v3. An invalid manifest is an error, even if a sidecar also exists. If there is no manifest, a validated `rust-bindings.json` sidecar is accepted (v2 or v3). When neither exists, loading fails. Generated `types.rs` and `client.rs` are not parsed or treated as a fallback.
 
-let bindings = read_bindings("generated")?;
-let manifest = parse_binding_manifest(manifest_source)?;
-# Ok::<(), openapi_to_rust_bindings::Error>(())
+The manifest parser validates the backend's structured schema and layout, normalizes symbol paths into `crate::generated::...` paths and preserves the metadata required by generic derivation: source-operation identity, response representation, success statuses, request discriminators, stream ABI and wire field names. The root generator, not this adapter, chooses the public SDK surface and applies consumer policy.
+
+## Usage
+
+```sh
+cargo run --quiet -p openapi-to-rust-bindings -- path/to/raw-output > rust-bindings.json
 ```
 
-The CLI writes the same canonical value as JSON:
+The library exports `read_bindings(path)`, `parse_binding_manifest(&str)`, `Bindings::from_value(Value)` and `Bindings::as_value()`. The CLI writes the canonical value to stdout as pretty JSON. `MANIFEST_NAME` and `SIDECAR_NAME` expose the accepted file names.
 
-```text
-openapi-to-rust-bindings generated > rust-bindings.json
-```
+The authoritative producer pin and manifest contract are recorded in [COMPATIBILITY.json](COMPATIBILITY.json). The independent backend compatibility workflow compares a pinned baseline and a candidate using canonical Bindings, not source-text parsing; a separately pinned standalone SDK proof is described in [the example README](../examples/independent-sdk/README.md).
 
-`read_bindings()` consumes `binding-manifest.json` when present and fails closed if that generator-owned metadata is invalid. It also accepts a validated canonical `rust-bindings.json` sidecar when metadata has already been materialized separately. Generated `types.rs` and `client.rs` are no longer parsed as an input contract.
-
-The crate validates canonical Bindings v3 as well as legacy v2 sidecars without depending on the root generator crate. V3 carries source-operation identity, response representation, success statuses, request discriminators, full stream ABI, and field wire names. The manifest adapter owns `openapi-to-rust` schema/layout knowledge and normalizes generated-root-relative paths into canonical `crate::generated::...` paths.
-
-The generated-source parser was retired after the manifest equivalence matrix, standalone compatibility tracker, reviewed generator updates, and an independent downstream consumer all exercised the metadata-first path. Compatibility is now defined exclusively at the structured manifest / canonical Bindings boundary.
+See [architecture](../docs/architecture.md) and [contracts](../docs/contracts.md) for the boundary with the root generator.

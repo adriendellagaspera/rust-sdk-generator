@@ -40,9 +40,8 @@ impl Default for PublicSdkSurface {
 
 /// Partial consumer-authored decisions generic derivation must not guess.
 ///
-/// The initial contract supports explicit exclusion. Further semantic override
-/// fields are added only at the generic boundary; raw-generator method names are
-/// deliberately not part of this contract.
+/// Supports explicit exclusions, request overrides and structurally proven
+/// response-representation selection; raw-backend method names are not policy inputs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct OperationOverride {

@@ -169,9 +169,8 @@ pub struct BindingLayout {
     pub type_preludes: Vec<String>,
 }
 
-/// Explicit complete SDK definition accepted by generation today.
-///
-/// Automatic derivation of this contract is intentionally left to issue #1.
+/// Complete SDK definition accepted by generation, either explicitly supplied
+/// or inferred by `derive()` with an exhaustive operation report.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SdkDefinition {
@@ -388,7 +387,7 @@ impl Default for Runtime {
 
 /// Complete owned input for deterministic SDK generation.
 ///
-/// Semantic derivation of `SdkDefinition` remains the responsibility of issue #1.
+/// `definition` may be supplied directly or taken from a validated derivation result.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GenerateInput {

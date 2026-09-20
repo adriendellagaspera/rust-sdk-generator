@@ -8,7 +8,9 @@ boundaries and executable contracts, not a second implementation spec.
 
 - `src/*.rs`: canonical Rust generator library, CLI, contracts, lowering and emission.
 - `tests/fixtures/`, `tests/oracle/`, `tests/rust_surface.rs`: generic generator behavior and surface proofs.
-- `tests/test_bindings_integration.py`: adapter-sidecar-to-Rust-CLI integration proof.
+- `tests/test_bindings_integration.py`: adapter-to-Rust-CLI integration proof.
+- `examples/independent-sdk/`: pinned backend-to-standalone-consumer proof.
+- `docs/`: architecture, public contracts, publication and development guidance.
 - `openapi-to-rust-bindings/`: Rust conversion from `openapi-to-rust` output to normalized `Bindings` JSON.
 - `.github/workflows/`: required automation and quality gates.
 - `scripts/`: small repository-policy checks used locally and in CI.
@@ -27,7 +29,7 @@ cargo test -p openapi-to-rust-bindings --all-targets --all-features
 uvx --from ruff==0.16.8 ruff check --select E4,E7,E9,F63,F7,F82 tests/test_bindings_integration.py scripts openapi-to-rust-bindings/scripts
 ```
 
-Use the full GitHub CI before merge for the generic adapter-to-CLI integration check.
+Use the full GitHub CI before merge for the adapter-to-CLI and standalone SDK proofs.
 
 ## Gated invariants
 

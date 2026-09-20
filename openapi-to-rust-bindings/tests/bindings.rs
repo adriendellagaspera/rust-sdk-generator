@@ -310,7 +310,12 @@ fn invalid_sidecar_fails_closed() {
     let root = TestDir::new();
     fs::write(root.path().join("rust-bindings.json"), "{not json").expect("write sidecar");
     let error = read_bindings(root.path()).expect_err("invalid sidecar must fail");
-    assert_eq!(error.to_string(), "invalid rust-bindings.json");
+    assert!(
+        error
+            .to_string()
+            .starts_with("invalid rust-bindings.json JSON:")
+    );
+    assert!(error.to_string().contains("line 1 column"));
 }
 
 #[test]
@@ -327,7 +332,12 @@ fn schema_invalid_sidecar_fails_closed() {
     )
     .expect("write invalid sidecar");
     let error = read_bindings(root.path()).expect_err("schema-invalid sidecar must fail");
-    assert_eq!(error.to_string(), "invalid rust-bindings.json");
+    assert!(
+        error
+            .to_string()
+            .starts_with("invalid rust-bindings.json: invalid Bindings:")
+    );
+    assert!(error.to_string().contains("unexpected"));
 }
 
 #[test]
