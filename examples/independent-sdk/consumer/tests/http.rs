@@ -63,8 +63,8 @@ async fn serializes_json_request_and_deserializes_success_response() {
     );
     let client = NotebookClient::new("local-test").with_base_url(url);
     let raw: NewNote = serde_json::from_value(json!({
-        "title": "First note", "subtitle": null
-    })).expect("optional/nullable raw request");
+        "title": "First note"
+    })).expect("optional raw request");
     let response = client.notes().create(sdk::CreateNotesRequest::from_raw(raw))
         .await.expect("create note");
     assert_eq!(response.as_raw().id, "n-1");
