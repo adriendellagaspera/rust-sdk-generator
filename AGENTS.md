@@ -37,9 +37,9 @@ Use the full GitHub CI before merge for the generic adapter-to-CLI integration c
 - [policy] Workflows MUST NOT use `pull_request_target`.
 - [policy] Pull-request titles MUST follow the repository's conventional title grammar.
 - [generator] The root generator MUST remain independent of `openapi-to-rust` and `openapi-to-rust-bindings` implementation details.
-- [generator] Generic generator behavior MUST be demonstrated with non-Mistral fixtures.
+- [generator] Generic generator behavior MUST be demonstrated with independent fixtures.
 - [bindings] `openapi-to-rust-bindings` MUST only translate backend output/metadata into normalized `Bindings`; public SDK policy belongs in the root generator.
-- [integration] The generic adapter-to-generator boundary MUST remain covered end to end without a `mistralai-rs` checkout.
+- [integration] The generic adapter-to-generator boundary MUST remain covered end to end without any downstream consumer checkout.
 - [gate] Required CI jobs MUST converge on the single `gate` conclusion job before merge.
 
 ## Working guidance
@@ -49,5 +49,5 @@ unless a change explicitly owns an output migration. Add a regression fixture fo
 behavioral bugs. Keep comments for non-obvious constraints, provenance, invariants,
 or rationale; do not narrate straightforward code.
 
-Do not copy Mistral-specific orchestration, taxonomy, endpoint names, or source
+Do not copy consumer-specific orchestration, taxonomy, endpoint names, or source
 update policy into this repository. Consumer policy remains in consumer repositories.
