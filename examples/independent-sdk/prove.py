@@ -68,7 +68,10 @@ def assert_report(report: dict, definition: dict) -> None:
     # This independent fixture is deliberately within the existing structural
     # contract. A regression must surface the actual rejection, never silently
     # filter an operation or relax structural validation.
-    assert_equal("generator report", projected, OPERATIONS)
+    if projected != OPERATIONS:
+        missing = OPERATIONS - projected
+        outcomes = {name: report["operations"][name] for name in sorted(missing)}
+        raise AssertionError(f"[generator report] missing projections: {outcomes!r}")
     assert_equal("generator report", report["operations"]["export_note"]["status"], "overridden")
     for name in OPERATIONS - {"export_note"}:
         assert_equal("generator report", report["operations"][name]["status"], "derived")
@@ -81,7 +84,7 @@ def one_pass(backend: Path, adapter: Path, generator: Path, root: Path) -> dict:
     config = root / "openapi-to-rust.toml"
     config.write_text(
         "[generator]\n"
-        f'spec_path = "{(ROOT / "openapi.json").as_posix()}"\n'
+        f'spec_path = "{(ROOT / \'openapi.json\').as_posix()}"\n'
         f'output_dir = "{raw.as_posix()}"\n'
         'module_name = "notebook"\n'
         "binding_manifest = true\n\n"
@@ -123,8 +126,8 @@ def one_pass(backend: Path, adapter: Path, generator: Path, root: Path) -> dict:
         "--overrides", ROOT / "overrides.json",
     )
     derivation = json.loads(run("generator derive", generator, "derive", *derive_args))
-    assert_report(derivation["report"], derivation["definition"])
     (root / "derivation.json").write_text(json.dumps(derivation, indent=2, sort_keys=True) + "\n")
+    assert_report(derivation["report"], derivation["definition"])
     definition_path = root / "definition.json"
     definition_path.write_text(json.dumps(derivation["definition"], indent=2) + "\n")
 
