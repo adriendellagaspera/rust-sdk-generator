@@ -1,0 +1,74 @@
+name: Upstream Bindings evidence spike
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/upstream-evidence-spike.yml"
+      - "docs/research/upstream-bindings-evidence.md"
+      - "openapi-to-rust-bindings/scripts/probe_upstream_evidence.py"
+      - "openapi-to-rust-bindings/tests/fixtures/upstream-evidence/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-bindings-evidence-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  upstream-evidence:
+    name: upstream-only-evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Probe fail-closed correlation cases
+        run: |
+          python3 -m py_compile openapi-to-rust-bindings/scripts/probe_upstream_evidence.py
+          python3 openapi-to-rust-bindings/scripts/probe_upstream_evidence.py --self-test
+      - name: Fetch exact unmodified upstream commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          upstream_sha=5a3487edbe27cfd4efb32dda893774e23d7fa195
+          git init "$RUNNER_TEMP/upstream"
+          git -C "$RUNNER_TEMP/upstream" remote add origin https://github.com/gpu-cli/openapi-to-rust.git
+          git -C "$RUNNER_TEMP/upstream" fetch --depth=1 origin "$upstream_sha"
+          git -C "$RUNNER_TEMP/upstream" checkout --detach FETCH_HEAD
+          test "$(git -C "$RUNNER_TEMP/upstream" rev-parse HEAD)" = "$upstream_sha"
+      - name: Compile pinned upstream without patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup update stable
+          CARGO_TARGET_DIR="$RUNNER_TEMP/upstream-target" \
+            cargo build --locked --release \
+            --manifest-path "$RUNNER_TEMP/upstream/Cargo.toml" \
+            --bin openapi-to-rust
+      - name: Generate ordinary raw outputs and inspect source evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          spec="$PWD/openapi-to-rust-bindings/tests/fixtures/upstream-evidence/openapi.json"
+          output="$RUNNER_TEMP/upstream-generated"
+          "$RUNNER_TEMP/upstream-target/release/openapi-to-rust" \
+            generate "$spec" --output-dir "$output" --module-name upstream_probe --quiet
+          test -f "$output/client.rs"
+          test -f "$output/types.rs"
+          test ! -e "$output/binding-manifest.json"
+          python3 openapi-to-rust-bindings/scripts/probe_upstream_evidence.py \
+            --openapi "$spec" --generated "$output" \
+            --report "$RUNNER_TEMP/upstream-evidence-report.json"
+          {
+            echo '### Upstream-only evidence probe'
+            echo 'Pinned upstream: gpu-cli/openapi-to-rust@5a3487edbe27cfd4efb32dda893774e23d7fa195'
+            echo ''
+            echo 'Output contains no custom binding-manifest.json. Research probe only: no Bindings v3 emitted or production parity claimed.'
+            echo ''
+            echo '~~~json'
+            cat "$RUNNER_TEMP/upstream-evidence-report.json"
+            echo '~~~'
+          } >> "$GITHUB_STEP_SUMMARY"
