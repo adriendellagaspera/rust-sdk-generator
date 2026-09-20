@@ -22,4 +22,4 @@ openapi-to-rust-bindings generated > rust-bindings.json
 
 The crate validates canonical Bindings v3 as well as legacy v2 sidecars without depending on the root generator crate. V3 carries source-operation identity, response representation, success statuses, request discriminators, full stream ABI, and field wire names. The manifest adapter owns `openapi-to-rust` schema/layout knowledge and normalizes generated-root-relative paths into canonical `crate::generated::...` paths.
 
-The generated-source parser was retired after the manifest equivalence matrix, standalone compatibility tracker, reviewed generator updates, and the real Mistral consumer all exercised the metadata-first path. Compatibility is now defined exclusively at the structured manifest / canonical Bindings boundary.
+The generated-source parser was retired after the manifest equivalence matrix, standalone compatibility tracker, reviewed generator updates, and an independent downstream consumer all exercised the metadata-first path. Compatibility is now defined exclusively at the structured manifest / canonical Bindings boundary.
