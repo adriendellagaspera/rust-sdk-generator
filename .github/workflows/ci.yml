@@ -109,10 +109,61 @@ jobs:
           OPENAPI_TO_RUST_BINDINGS_BIN: target/debug/openapi-to-rust-bindings
         run: python3 -m unittest tests.test_bindings_integration
 
+  independent-sdk:
+    name: independent-sdk
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Fetch the pinned raw backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          backend_commit="$(python3 -c 'import json; print(json.load(open("openapi-to-rust-bindings/COMPATIBILITY.json"))["backend"]["baseline"]["commit"])')"
+          git init "${RUNNER_TEMP}/independent-backend"
+          git -C "${RUNNER_TEMP}/independent-backend" remote add origin https://github.com/adriendellagaspera/openapi-to-rust.git
+          git -C "${RUNNER_TEMP}/independent-backend" fetch --depth=1 origin "${backend_commit}"
+          git -C "${RUNNER_TEMP}/independent-backend" checkout --detach FETCH_HEAD
+          test "$(git -C "${RUNNER_TEMP}/independent-backend" rev-parse HEAD)" = "${backend_commit}"
+      - name: Build pinned raw backend and both independent contract crates
+        shell: bash
+        run: |
+          set -euo pipefail
+          CARGO_TARGET_DIR="${RUNNER_TEMP}/independent-backend-target" \
+            cargo build --locked --release \
+            --manifest-path "${RUNNER_TEMP}/independent-backend/Cargo.toml" \
+            --bin openapi-to-rust
+          cargo build --locked -p openapi-to-rust-bindings --bin openapi-to-rust-bindings
+          cargo build --locked -p rust-sdk-generator --bin rust-sdk-generator
+      - name: Prove independent SDK, compile and HTTP behavior
+        shell: bash
+        run: |
+          python3 examples/independent-sdk/prove.py \
+            --backend "${RUNNER_TEMP}/independent-backend-target/release/openapi-to-rust" \
+            --adapter target/debug/openapi-to-rust-bindings \
+            --generator target/debug/rust-sdk-generator \
+            --work-dir "${RUNNER_TEMP}/independent-sdk-proof"
+      - name: Inspect generated Rust and derivation report
+        if: always()
+        shell: bash
+        run: |
+          for file in "${RUNNER_TEMP}"/independent-sdk-proof/first/sdk/*.rs; do
+            if test -f "$file"; then
+              echo "::group::$(basename "$file")"
+              sed -n '1,240p' "$file"
+              echo "::endgroup::"
+            fi
+          done
+          if test -f "${RUNNER_TEMP}/independent-sdk-proof/first/derivation.json"; then
+            python3 -m json.tool "${RUNNER_TEMP}/independent-sdk-proof/first/derivation.json"
+          fi
+
   gate:
     name: gate
     if: always()
-    needs: [policy, lint, generator, bindings, integration]
+    needs: [policy, lint, generator, bindings, integration, independent-sdk]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -123,7 +174,8 @@ jobs:
           GENERATOR: ${{ needs.generator.result }}
           BINDINGS: ${{ needs.bindings.result }}
           INTEGRATION: ${{ needs.integration.result }}
+          INDEPENDENT_SDK: ${{ needs.independent-sdk.result }}
         run: |
-          for result in "$POLICY" "$LINT" "$GENERATOR" "$BINDINGS" "$INTEGRATION"; do
+          for result in "$POLICY" "$LINT" "$GENERATOR" "$BINDINGS" "$INTEGRATION" "$INDEPENDENT_SDK"; do
             test "$result" = success
           done
