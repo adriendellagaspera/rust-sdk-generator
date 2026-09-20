@@ -1,12 +1,11 @@
 # Independent SDK proof (#134)
 
-This example is a deliberately independent notebook API, not a Mistral
-fixture. The OpenAPI document declares JSON creation and lookup, path and
+This example uses a deliberately independent notebook API fixture. The OpenAPI document declares JSON creation and lookup, path and
 optional query parameters, an optional nullable field, an empty DELETE,
 documented JSON errors, and binary export. The pinned raw backend also emits
 buffered and byte-streaming binary methods; the public surface explicitly
-selects both. No Progenitor adapter, Mistral SDK definition, Mistral runtime,
-or Mistral build scripts are used.
+selects both. No downstream SDK definition, runtime, or build scripts are used;
+this proof does not implement the separate Progenitor adapter.
 
 ## Reproduce (Python 3.11+, Rust 1.88+, Git)
 
@@ -54,7 +53,7 @@ fragment, and the emitted SDK facade. The consumer's only hand-written
 runtime is `consumer/src/sdk/error.rs`. Its local TCP mock tests HTTP
 serialization, deserialization, empty/optional/nullable fields, API error
 status/body and buffered/streaming binary responses. The crate imports
-neither generator nor adapter nor any Mistral code. It uses a fresh Cargo
+neither generator nor adapter nor any downstream SDK code. It uses a fresh Cargo
 dependency resolution for the disposable consumer; the raw backend and
 both generation crates are built from their locked dependency graphs.
 
