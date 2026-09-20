@@ -66,7 +66,8 @@ async fn serializes_json_request_and_deserializes_success_response() {
         .await.expect("create note");
     assert_eq!(response.raw().id, "n-1");
     assert_eq!(response.raw().title, "First note");
-    let (headers, body) = request_parts(&server.join().expect("mock request"));
+    let captured_request = server.join().expect("mock request");
+    let (headers, body) = request_parts(&captured_request);
     assert!(headers.starts_with("POST /notes HTTP/1.1"), "{headers}");
     assert!(headers.to_ascii_lowercase().contains("content-type: application/json"));
     assert_eq!(body["title"], "First note");
