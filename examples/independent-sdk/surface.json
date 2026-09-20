@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "client": "NotebookClient",
+  "operations": {
+    "create_note": [
+      "notes.create"
+    ],
+    "read_note": [
+      "notes.read"
+    ],
+    "delete_note": [
+      "notes.delete"
+    ],
+    "export_note": [
+      "notes.export",
+      "notes.export_stream"
+    ]
+  }
+}

@@ -97,6 +97,6 @@ Owned by the root Rust generator: backend-neutral OpenAPI indexing, the normaliz
 
 Owned by `openapi-to-rust-bindings/`: generated-source parsing, sidecar-first loading, `openapi-to-rust` source-layout assumptions, producer-side Bindings v2 validation, generic Menagerie/Library normalization fixtures, and the backend compatibility tracker. The adapter has no runtime dependency on the generator implementation. Issue #8 evolves this boundary toward generator-owned binding metadata and defines source-parser retirement.
 
-Intentionally left in `mistralai-rs`: Mistral OpenAPI/source tracking and overlays, official SDK surface extraction, Mistral taxonomy/naming evidence, Mistral runtime integration, consumer generation/compatibility/release gates, and all Mistral-specific coverage decisions.
+Intentionally left to downstream consumers: their OpenAPI/source tracking and overlays, public SDK surface evidence, domain-specific naming, runtime integration, generation/compatibility/release gates, and consumer-specific coverage decisions.
 
 Consumers should pin immutable standalone commits. Language/runtime migrations in this repository do not implicitly repin downstream consumers.
