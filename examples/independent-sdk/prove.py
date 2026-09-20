@@ -84,7 +84,7 @@ def one_pass(backend: Path, adapter: Path, generator: Path, root: Path) -> dict:
     config = root / "openapi-to-rust.toml"
     config.write_text(
         "[generator]\n"
-        f'spec_path = "{(ROOT / \'openapi.json\').as_posix()}"\n'
+        'spec_path = "' + (ROOT / "openapi.json").as_posix() + '"\\n'
         f'output_dir = "{raw.as_posix()}"\n'
         'module_name = "notebook"\n'
         "binding_manifest = true\n\n"
