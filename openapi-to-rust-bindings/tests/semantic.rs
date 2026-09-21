@@ -592,3 +592,142 @@ fn empty_success_type_is_rejected_when_selected_source_response_has_content() {
     assert!(message.contains("extract.representation_unproven"), "{message}");
     assert!(message.contains("delete_inventory"), "{message}");
 }
+
+
+const MULTIPART_TYPES: &str = r#"
+pub struct UploadRequest {
+    pub file: Vec<u8>,
+}
+"#;
+
+const MULTIPART_CLIENT: &str = r#"
+use super::types::*;
+pub struct HttpClient {
+    base_url: String,
+    api_key: Option<String>,
+    http_client: reqwest::Client,
+}
+impl HttpClient {
+    pub fn new() -> Self {
+        Self {
+            base_url: String::new(),
+            api_key: None,
+            http_client: todo!(),
+        }
+    }
+    pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
+        self.base_url = base_url.into();
+        self
+    }
+    pub fn with_api_key(mut self, api_key: impl Into<String>) -> Self {
+        self.api_key = Some(api_key.into());
+        self
+    }
+
+    /// POST /uploads
+    pub async fn upload(&self, request: UploadRequest) -> Result<(), Error> {
+        let request_url = format!("{}{}", self.base_url, "/uploads");
+        let mut form = reqwest::multipart::Form::new();
+        form = form.part("file", reqwest::multipart::Part::bytes(request.file));
+        let req = self.http_client.post(request_url).multipart(form);
+        let response = req.send().await?;
+        let status_code = response.status().as_u16();
+        if status_code == 204 { Ok(()) } else { todo!() }
+    }
+
+    /// POST /uploads
+    pub async fn upload_with_multipart_filenames(
+        &self,
+        request: UploadRequest,
+        multipart_filenames: &[(&str, &str)],
+    ) -> Result<(), Error> {
+        let request_url = format!("{}{}", self.base_url, "/uploads");
+        let value = &request.file;
+        let part = reqwest::multipart::Part::bytes(value.to_vec());
+        let part = if let Some((_, filename)) = multipart_filenames
+            .iter()
+            .find(|(field, _)| *field == "file")
+        {
+            part.file_name((*filename).to_string())
+        } else {
+            part
+        };
+        let mut form = reqwest::multipart::Form::new();
+        form = form.part("file", part);
+        let req = self.http_client.post(request_url).multipart(form);
+        let response = req.send().await?;
+        let status_code = response.status().as_u16();
+        if status_code == 204 { Ok(()) } else { todo!() }
+    }
+}
+"#;
+
+const MULTIPART_OPENAPI: &str = r##"{
+  "openapi": "3.1.0",
+  "info": {"title": "multipart", "version": "1"},
+  "paths": {
+    "/uploads": {
+      "post": {
+        "operationId": "upload",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {"$ref": "#/components/schemas/UploadRequest"}
+            }
+          }
+        },
+        "responses": {"204": {"description": "uploaded"}}
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "UploadRequest": {
+        "type": "object",
+        "required": ["file"],
+        "properties": {
+          "file": {"type": "string", "format": "binary"}
+        }
+      }
+    }
+  }
+}"##;
+
+fn multipart_fixture(client: &str) -> Scratch {
+    let root = Scratch::new();
+    root.file("types.rs", MULTIPART_TYPES);
+    root.file("client.rs", client);
+    root.file("openapi.json", MULTIPART_OPENAPI);
+    root
+}
+
+#[test]
+fn multipart_filename_helper_requires_observable_filename_application() {
+    let root = multipart_fixture(MULTIPART_CLIENT);
+    let bindings = extract_bindings(root.path(), root.path().join("openapi.json"))
+        .expect("filename lookup must be tied to emitted multipart part construction");
+    assert_eq!(
+        bindings.as_value()["operations"]["upload_with_multipart_filenames"]["metadata"]["kind"],
+        "multipart_filenames"
+    );
+
+    let client = MULTIPART_CLIENT.replace(
+        r#"        let part = if let Some((_, filename)) = multipart_filenames
+            .iter()
+            .find(|(field, _)| *field == "file")
+        {
+            part.file_name((*filename).to_string())
+        } else {
+            part
+        };
+"#,
+        "",
+    );
+    let root = multipart_fixture(&client);
+    assert_extract_error(
+        &root,
+        "extract.multipart_helper_unproven",
+        "upload_with_multipart_filenames",
+    );
+}
