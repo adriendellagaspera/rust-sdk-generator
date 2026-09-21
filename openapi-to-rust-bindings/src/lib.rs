@@ -5,6 +5,7 @@ mod extract;
 mod manifest;
 mod model;
 mod reader;
+mod rust_type;
 mod semantic;
 mod structural;
 
