@@ -392,7 +392,6 @@ impl HttpClient {
     assert!(error.to_string().contains("extract.stream_abi_unproven"));
 }
 
-
 fn assert_extract_error(root: &Scratch, code: &str, context: &str) {
     let error = extract_bindings(root.path(), root.path().join("openapi.json"))
         .expect_err("fixture must fail closed");
@@ -458,11 +457,7 @@ fn base_url_builder_must_mutate_the_returned_base_url_state() {
         1,
     );
     let root = fixture(&client);
-    assert_extract_error(
-        &root,
-        "extract.client_layout_unproven",
-        "with_base_url",
-    );
+    assert_extract_error(&root, "extract.client_layout_unproven", "with_base_url");
 }
 
 #[test]
@@ -501,7 +496,10 @@ fn route_skeleton_collisions_are_rejected_as_ambiguous_source_identity() {
     let error = inspect_semantics(root.path(), root.path().join("openapi.json"))
         .expect_err("same verb and route skeleton must be ambiguous");
     let message = error.to_string();
-    assert!(message.contains("extract.source_identity_ambiguous"), "{message}");
+    assert!(
+        message.contains("extract.source_identity_ambiguous"),
+        "{message}"
+    );
     assert!(
         message.contains("fetch_inventory_without_naming_shortcut"),
         "{message}"
@@ -614,12 +612,11 @@ fn response_representation_is_selected_only_from_emitted_statuses() {
 fn empty_success_type_is_rejected_when_selected_source_response_has_content() {
     let root = fixture(CLIENT);
     let mut openapi: serde_json::Value = serde_json::from_str(OPENAPI).expect("fixture JSON");
-    openapi["paths"]["/inventory/{id}"]["delete"]["responses"]["204"]["content"] =
-        serde_json::json!({
-            "application/json": {
-                "schema": {"$ref": "#/components/schemas/Inventory"}
-            }
-        });
+    openapi["paths"]["/inventory/{id}"]["delete"]["responses"]["204"]["content"] = serde_json::json!({
+        "application/json": {
+            "schema": {"$ref": "#/components/schemas/Inventory"}
+        }
+    });
     root.file(
         "openapi.json",
         &serde_json::to_string_pretty(&openapi).expect("serialize OpenAPI"),
@@ -627,10 +624,12 @@ fn empty_success_type_is_rejected_when_selected_source_response_has_content() {
     let error = inspect_semantics(root.path(), root.path().join("openapi.json"))
         .expect_err("bodyless generated success cannot represent declared response content");
     let message = error.to_string();
-    assert!(message.contains("extract.representation_unproven"), "{message}");
+    assert!(
+        message.contains("extract.representation_unproven"),
+        "{message}"
+    );
     assert!(message.contains("delete_inventory"), "{message}");
 }
-
 
 const MULTIPART_TYPES: &str = r#"
 pub struct UploadRequest {
@@ -769,7 +768,6 @@ fn multipart_filename_helper_requires_observable_filename_application() {
         "upload_with_multipart_filenames",
     );
 }
-
 
 const DISCRIMINATOR_TYPES: &str = r#"
 pub struct RenderRequest {
@@ -922,10 +920,10 @@ fn discriminator_evidence_proves_scope_value_type_and_field_semantics() {
     let root = discriminator_fixture(DISCRIMINATOR_CLIENT);
     let bindings = extract_bindings(root.path(), root.path().join("openapi.json"))
         .expect("direct pre-serialization discriminator assignments are observable");
-    let discriminators = bindings.as_value()["operations"]["render"]["metadata"]
-        ["request_discriminators"]
-        .as_array()
-        .expect("discriminator metadata");
+    let discriminators =
+        bindings.as_value()["operations"]["render"]["metadata"]["request_discriminators"]
+            .as_array()
+            .expect("discriminator metadata");
     assert_eq!(discriminators.len(), 4);
 
     assert_eq!(discriminators[0]["wire_name"], "live-output");
@@ -962,11 +960,7 @@ fn discriminator_evidence_rejects_unrelated_or_nested_assignments() {
         1,
     );
     let root = discriminator_fixture(&unrelated);
-    assert_extract_error(
-        &root,
-        "extract.request_discriminator_unproven",
-        "render",
-    );
+    assert_extract_error(&root, "extract.request_discriminator_unproven", "render");
 
     let nested = DISCRIMINATOR_CLIENT.replacen(
         "request.live_output = __request_discriminator_value;",
@@ -1014,13 +1008,10 @@ fn discriminator_evidence_rejects_wrong_value_type_and_duplicate_target() {
 
 #[test]
 fn discriminator_evidence_rejects_conditional_or_post_serialization_mutation() {
-    let conditional_block = FIRST_DISCRIMINATOR_BLOCK
-        .replacen("        {\n", "        if true {\n", 1);
-    let conditional = DISCRIMINATOR_CLIENT.replacen(
-        FIRST_DISCRIMINATOR_BLOCK,
-        &conditional_block,
-        1,
-    );
+    let conditional_block =
+        FIRST_DISCRIMINATOR_BLOCK.replacen("        {\n", "        if true {\n", 1);
+    let conditional =
+        DISCRIMINATOR_CLIENT.replacen(FIRST_DISCRIMINATOR_BLOCK, &conditional_block, 1);
     let root = discriminator_fixture(&conditional);
     assert_extract_error(
         &root,
@@ -1050,7 +1041,6 @@ fn discriminator_evidence_rejects_conditional_or_post_serialization_mutation() {
         "before serialization",
     );
 }
-
 
 const STREAM_ALIAS_CLIENT: &str = r#"
 use super::types::*;
