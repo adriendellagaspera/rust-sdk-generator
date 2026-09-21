@@ -113,7 +113,7 @@
         "type": "object",
         "required": ["file"],
         "properties": {
-          "file": {"type": "string", "format": "binary"},
+          "file": {"type": "string", "format": "byte"},
           "caption": {"type": "string"}
         }
       }
