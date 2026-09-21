@@ -2,6 +2,8 @@
 
 Backend-specific adapter from `openapi-to-rust` output to the backend-neutral Bindings JSON contract consumed by `rust-sdk-generator`. This crate has no runtime dependency on the root generator.
 
+The producer-delta audit in [`FORK_CAPABILITIES.json`](FORK_CAPABILITIES.json) records why the pinned fork and unmodified upstream emit different ordinary Rust, which fork-only behaviors are retained or retired, and the evidence for each disposition. It is intentionally separate from the adapter-supported integration envelope tracked in #155.
+
 ## Input precedence
 
 The existing `read_bindings(directory)` path remains unchanged during the manifest-free migration. It reads `binding-manifest.json` when present and converts it to canonical Bindings v3. An invalid manifest is an error, even if a sidecar also exists. If there is no manifest, a validated `rust-bindings.json` sidecar is accepted (v2 or v3). When neither exists, loading fails.
