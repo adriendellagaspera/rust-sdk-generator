@@ -203,7 +203,7 @@ fn assert_report(derivation: &Value) -> ProofResult<()> {
 
 #[derive(PartialEq, Debug)]
 struct Pass {
-    manifest: Value,
+    manifest: Option<Value>,
     bindings: Value,
     derivation: Value,
     inventory: Value,
@@ -211,7 +211,13 @@ struct Pass {
     sdk: BTreeMap<PathBuf, Vec<u8>>,
 }
 
-fn pass(backend: &Path, adapter: &Path, generator: &Path, destination: &Path) -> ProofResult<Pass> {
+fn pass(
+    backend: &Path,
+    adapter: &Path,
+    generator: &Path,
+    destination: &Path,
+    manifest_free: bool,
+) -> ProofResult<Pass> {
     mkdir(destination)?;
     let raw = destination.join("raw");
     mkdir(&raw)?;
@@ -221,10 +227,15 @@ fn pass(backend: &Path, adapter: &Path, generator: &Path, destination: &Path) ->
         .map_err(|error| error.to_string())?;
     let raw_toml = serde_json::to_string(&raw.to_string_lossy().as_ref())
         .map_err(|error| error.to_string())?;
+    let manifest_setting = if manifest_free {
+        ""
+    } else {
+        "binding_manifest = true\n"
+    };
     write(
         &config,
         format!(
-            "[generator]\nspec_path = {spec_toml}\noutput_dir = {raw_toml}\nmodule_name = \"notebook\"\nbinding_manifest = true\n\n[features]\nenable_async_client = true\n\n[http_client]\nbase_url = \"http://127.0.0.1\"\n\n[http_client.retry]\nmax_retries = 0\n"
+            "[generator]\nspec_path = {spec_toml}\noutput_dir = {raw_toml}\nmodule_name = \"notebook\"\n{manifest_setting}\n[features]\nenable_async_client = true\n\n[http_client]\nbase_url = \"http://127.0.0.1\"\n\n[http_client.retry]\nmax_retries = 0\n"
         ),
     )?;
     run(
@@ -234,19 +245,37 @@ fn pass(backend: &Path, adapter: &Path, generator: &Path, destination: &Path) ->
             .arg(&config),
     )?;
     let manifest_path = raw.join("binding-manifest.json");
-    let manifest = json_file(&manifest_path)?;
-    assert_equal(
-        "raw backend manifest",
-        &manifest["schema"],
-        &json!("openapi-to-rust.binding-manifest"),
-    )?;
-    assert_equal(
-        "raw backend manifest version",
-        &manifest["schema_version"],
-        &json!(1),
-    )?;
+    let manifest = if manifest_free {
+        if manifest_path.exists() {
+            return Err(format!(
+                "[raw backend] manifest-free mode unexpectedly emitted {}",
+                manifest_path.display()
+            ));
+        }
+        None
+    } else {
+        let manifest = json_file(&manifest_path)?;
+        assert_equal(
+            "raw backend manifest",
+            &manifest["schema"],
+            &json!("openapi-to-rust.binding-manifest"),
+        )?;
+        assert_equal(
+            "raw backend manifest version",
+            &manifest["schema_version"],
+            &json!(1),
+        )?;
+        Some(manifest)
+    };
     let bindings_path = destination.join("rust-bindings.json");
-    let adapted = run("bindings adapter", Command::new(adapter).arg(&raw))?;
+    let adapted = if manifest_free {
+        run(
+            "bindings adapter manifest-free extraction",
+            Command::new(adapter).arg("--extract").arg(&raw).arg(&spec),
+        )?
+    } else {
+        run("bindings adapter", Command::new(adapter).arg(&raw))?
+    };
     write(&bindings_path, adapted.stdout)?;
     let bindings = json_file(&bindings_path)?;
     assert_equal("bindings version", &bindings["schema_version"], &json!(3))?;
@@ -389,30 +418,38 @@ fn consumer(work: &Path) -> ProofResult<()> {
 }
 
 fn main_inner() -> ProofResult<()> {
+    let mut manifest_free = false;
+    let mut work: Option<PathBuf> = None;
     let mut arguments = env::args_os().skip(1);
-    let work = match arguments.next() {
-        None => {
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(|error| error.to_string())?
-                .as_nanos();
-            env::temp_dir().join(format!("rust-sdk-quickstart-{}-{now}", std::process::id()))
-        }
-        Some(flag) if flag == "--help" || flag == "-h" => {
+    while let Some(argument) = arguments.next() {
+        if argument == "--manifest-free" {
+            manifest_free = true;
+        } else if argument == "--work-dir" {
+            if work.is_some() {
+                return Err("--work-dir may only be provided once".to_owned());
+            }
+            work = Some(PathBuf::from(
+                arguments.next().ok_or("missing path for --work-dir")?,
+            ));
+        } else if argument == "--help" || argument == "-h" {
             println!(
-                "usage: cargo run --locked --example independent-sdk-quickstart -- [--work-dir NEW_OR_EMPTY_DIR]"
+                "usage: cargo run --locked --example independent-sdk-quickstart -- [--manifest-free] [--work-dir NEW_OR_EMPTY_DIR]"
             );
             return Ok(());
+        } else {
+            return Err(format!(
+                "unsupported option: {}",
+                argument.to_string_lossy()
+            ));
         }
-        Some(flag) if flag == "--work-dir" => {
-            let path = PathBuf::from(arguments.next().ok_or("missing path for --work-dir")?);
-            if arguments.next().is_some() {
-                return Err("unexpected arguments after --work-dir".to_owned());
-            }
-            path
-        }
-        Some(flag) => return Err(format!("unsupported option: {}", flag.to_string_lossy())),
-    };
+    }
+    let work = work.unwrap_or_else(|| {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time after Unix epoch")
+            .as_nanos();
+        env::temp_dir().join(format!("rust-sdk-quickstart-{}-{now}", std::process::id()))
+    });
     if work.exists()
         && fs::read_dir(&work)
             .map_err(|error| error.to_string())?
@@ -489,16 +526,23 @@ fn main_inner() -> ProofResult<()> {
         &tools_target.join("debug/openapi-to-rust-bindings"),
         &tools_target.join("debug/rust-sdk-generator"),
         &work.join("first"),
+        manifest_free,
     )?;
     let second = pass(
         &backend_target.join("release/openapi-to-rust"),
         &tools_target.join("debug/openapi-to-rust-bindings"),
         &tools_target.join("debug/rust-sdk-generator"),
         &work.join("second"),
+        manifest_free,
     )?;
     assert_equal("two independent complete generations", &second, &first)?;
     println!(
-        "[pipeline] pinned backend, Bindings v3, derivation and byte-level determinism passed"
+        "[pipeline] pinned backend, Bindings v3, derivation and byte-level determinism passed ({})",
+        if manifest_free {
+            "manifest-free extraction"
+        } else {
+            "manifest adapter"
+        }
     );
     consumer(&work)?;
     println!(

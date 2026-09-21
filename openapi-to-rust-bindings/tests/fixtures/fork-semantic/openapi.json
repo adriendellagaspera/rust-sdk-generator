@@ -1,0 +1,122 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title": "Fork semantic parity", "version": "1.0.0"},
+  "paths": {
+    "/render/{item-id}": {
+      "post": {
+        "operationId": "render",
+        "parameters": [
+          {"name": "item-id", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/RenderRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "multiple representations",
+            "content": {
+              "application/json": {"schema": {"$ref": "#/components/schemas/RenderResult"}},
+              "text/event-stream": {"schema": {"type": "string"}},
+              "audio/wav": {"schema": {"type": "string", "format": "binary"}}
+            }
+          }
+        }
+      }
+    },
+    "/reserved-stream-name": {
+      "get": {
+        "operationId": "renderStream",
+        "responses": {
+          "200": {
+            "description": "reserve preferred suffix",
+            "content": {
+              "application/json": {"schema": {"$ref": "#/components/schemas/RenderResult"}}
+            }
+          }
+        }
+      }
+    },
+    "/download": {
+      "get": {
+        "operationId": "download",
+        "responses": {
+          "200": {
+            "description": "binary",
+            "content": {
+              "application/octet-stream": {"schema": {"type": "string", "format": "binary"}}
+            }
+          },
+          "206": {
+            "description": "partial binary",
+            "content": {
+              "application/octet-stream": {"schema": {"type": "string", "format": "binary"}}
+            }
+          }
+        }
+      }
+    },
+    "/upload": {
+      "post": {
+        "operationId": "upload",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {"$ref": "#/components/schemas/UploadRequest"}
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "uploaded",
+            "content": {
+              "application/json": {"schema": {"$ref": "#/components/schemas/RenderResult"}}
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "healthCheck",
+        "responses": {"204": {"description": "empty"}}
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "RenderMode": {
+        "type": "string",
+        "enum": ["buffered-result", "live-events"],
+        "x-enum-varnames": ["BufferedResult", "LiveEvents"]
+      },
+      "RenderRequest": {
+        "type": "object",
+        "required": ["live-output", "payload"],
+        "properties": {
+          "live-output": {"type": "boolean"},
+          "payload": {"type": "string"},
+          "mode": {"$ref": "#/components/schemas/RenderMode"}
+        }
+      },
+      "RenderResult": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {"id": {"type": "string"}}
+      },
+      "UploadRequest": {
+        "type": "object",
+        "required": ["file"],
+        "properties": {
+          "file": {"type": "string", "format": "byte"},
+          "caption": {"type": "string"}
+        }
+      }
+    }
+  }
+}
