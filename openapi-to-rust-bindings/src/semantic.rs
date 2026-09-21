@@ -454,7 +454,14 @@ fn success_media(operation: &OpenApiOperation) -> Result<Vec<(String, Value)>, E
             continue;
         };
         for (media_type, value) in content {
-            media.push((media_type.clone(), value.clone()));
+            if !media
+                .iter()
+                .any(|(existing_type, existing_value)| {
+                    existing_type == media_type && existing_value == value
+                })
+            {
+                media.push((media_type.clone(), value.clone()));
+            }
         }
     }
     Ok(media)
