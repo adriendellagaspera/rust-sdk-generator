@@ -45,6 +45,7 @@ pub struct OperationSemanticEvidence {
 pub struct SemanticEvidence {
     pub operations: BTreeMap<String, OperationSemanticEvidence>,
     pub unsupported_stream_methods: Vec<String>,
+    pub unmatched_source_operations: Vec<SourceOperationEvidence>,
 }
 
 #[derive(Clone, Debug)]
@@ -137,37 +138,6 @@ impl<'ast> Visit<'ast> for MethodSignals {
         literal_strings(node.mac.tokens.clone(), &mut self.string_literals);
         visit::visit_expr_macro(self, node);
     }
-}
-
-fn ascii_snake_case(value: &str) -> Option<String> {
-    if value.is_empty() || !value.is_ascii() {
-        return None;
-    }
-    let chars: Vec<_> = value.chars().collect();
-    let mut out = String::new();
-    for (index, ch) in chars.iter().copied().enumerate() {
-        if ch.is_ascii_alphanumeric() {
-            if ch.is_ascii_uppercase() {
-                let previous = index.checked_sub(1).and_then(|i| chars.get(i)).copied();
-                let next = chars.get(index + 1).copied();
-                let boundary = previous.is_some_and(|p| p.is_ascii_lowercase() || p.is_ascii_digit())
-                    || (previous.is_some_and(|p| p.is_ascii_uppercase())
-                        && next.is_some_and(|n| n.is_ascii_lowercase()));
-                if boundary && !out.ends_with('_') {
-                    out.push('_');
-                }
-                out.push(ch.to_ascii_lowercase());
-            } else {
-                out.push(ch);
-            }
-        } else if !out.is_empty() && !out.ends_with('_') {
-            out.push('_');
-        }
-    }
-    while out.ends_with('_') {
-        out.pop();
-    }
-    (!out.is_empty()).then_some(out)
 }
 
 fn operation_doc(attrs: &[Attribute]) -> Result<(String, String), Error> {
@@ -478,6 +448,7 @@ pub fn inspect_semantics(
         .collect();
     let mut operations = BTreeMap::new();
     let mut unsupported_stream_methods = Vec::new();
+    let mut matched_sources = BTreeSet::new();
 
     for method in client_methods(&client, &structural.client.path)? {
         let rust_method_name = method.sig.ident.to_string();
@@ -494,6 +465,7 @@ pub fn inspect_semantics(
                 format!("{rust_method_name}: documented {verb} {path} is not an exact OpenAPI operation"),
             )
         })?;
+        matched_sources.insert((verb.clone(), path.clone()));
         let mut signals = MethodSignals::default();
         signals.visit_block(&method.block);
         if signals.http_calls != BTreeSet::from([verb.clone()]) {
@@ -516,22 +488,6 @@ pub fn inspect_semantics(
             return Err(semantic_error(
                 "extract.success_statuses_unproven",
                 format!("{rust_method_name}: broad 2xx predicate not observed"),
-            ));
-        }
-        let expected_method = ascii_snake_case(&source_operation.identity.operation_id)
-            .ok_or_else(|| {
-                semantic_error(
-                    "extract.emitted_id_unproven",
-                    format!("{} cannot be conservatively mapped", source_operation.identity.operation_id),
-                )
-            })?;
-        if expected_method != rust_method_name {
-            return Err(semantic_error(
-                "extract.emitted_id_unproven",
-                format!(
-                    "{rust_method_name}: operationId {:?} maps to {expected_method:?}; allocator rename cannot be ruled out",
-                    source_operation.identity.operation_id
-                ),
             ));
         }
         let success_type = signature.success_type.as_deref().ok_or_else(|| {
@@ -564,26 +520,14 @@ pub fn inspect_semantics(
             return Err(semantic_error("extract.duplicate_client_method", rust_method_name));
         }
     }
+    let unmatched_source_operations = source
+        .iter()
+        .filter(|(key, _)| !matched_sources.contains(*key))
+        .map(|(_, operation)| operation.identity.clone())
+        .collect();
     Ok(SemanticEvidence {
         operations,
         unsupported_stream_methods,
+        unmatched_source_operations,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::ascii_snake_case;
-
-    #[test]
-    fn conservative_ascii_snake_case_matches_common_backend_names() {
-        assert_eq!(
-            ascii_snake_case("fetchInventoryWithoutNamingShortcut").as_deref(),
-            Some("fetch_inventory_without_naming_shortcut")
-        );
-        assert_eq!(ascii_snake_case("HTTPStatus").as_deref(), Some("http_status"));
-        assert_eq!(ascii_snake_case("create-book").as_deref(), Some("create_book"));
-        assert_eq!(ascii_snake_case("already_snake").as_deref(), Some("already_snake"));
-        assert_eq!(ascii_snake_case(""), None);
-        assert_eq!(ascii_snake_case("créate"), None);
-    }
 }
