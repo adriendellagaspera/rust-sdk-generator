@@ -416,11 +416,11 @@ fn prove_builder(
         ));
     };
     let parameter_type = compact(&tokens(&typed[0].ty));
-    if !matches!(parameter_type.as_str(), "String" | "implInto<String>") {
+    if parameter_type != "implInto<String>" {
         return Err(failure(
             "extract.client_layout_unproven",
             format!(
-                "{client_type}::{method_name}: argument type {parameter_type:?} does not accept the facade's owned String input"
+                "{client_type}::{method_name}: argument type {parameter_type:?} cannot accept the facade's forwarded impl Into<String> value"
             ),
         ));
     }
@@ -547,21 +547,45 @@ pub(crate) fn prove_client_layout(
 }
 
 
-fn filename_binding(pat: &Pat, names: &mut Vec<String>) {
+fn pattern_bindings(pat: &Pat, names: &mut Vec<String>) {
     match pat {
         Pat::Ident(value) => names.push(value.ident.to_string()),
         Pat::Tuple(value) => {
             for element in &value.elems {
-                filename_binding(element, names);
+                pattern_bindings(element, names);
             }
         }
         Pat::TupleStruct(value) => {
             for element in &value.elems {
-                filename_binding(element, names);
+                pattern_bindings(element, names);
             }
         }
-        Pat::Reference(value) => filename_binding(&value.pat, names),
+        Pat::Reference(value) => pattern_bindings(&value.pat, names),
         _ => {}
+    }
+}
+
+fn binding_operand(expr: &Expr, binding: &str) -> bool {
+    match expr {
+        Expr::Path(path) => path.path.is_ident(binding),
+        Expr::Unary(unary) if matches!(unary.op, syn::UnOp::Deref(_)) => {
+            binding_operand(&unary.expr, binding)
+        }
+        Expr::Paren(paren) => binding_operand(&paren.expr, binding),
+        Expr::Group(group) => binding_operand(&group.expr, binding),
+        _ => false,
+    }
+}
+
+fn literal_string(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Lit(value) if matches!(&value.lit, Lit::Str(_)) => {
+            let Lit::Str(value) = &value.lit else {
+                unreachable!()
+            };
+            Some(value.value())
+        }
+        _ => None,
     }
 }
 
@@ -584,59 +608,87 @@ fn filename_lookup_wire(expr: &Expr) -> Option<String> {
     let Expr::Closure(closure) = find.args.first()? else {
         return None;
     };
-    let mut literals = LiteralCollector::default();
-    literals.visit_expr(&closure.body);
-    let mut wires: Vec<_> = literals
-        .values
-        .into_iter()
-        .filter_map(|value| value.as_str().map(ToOwned::to_owned))
-        .collect();
-    wires.sort();
-    wires.dedup();
-    (wires.len() == 1).then(|| wires.remove(0))
+    if closure.inputs.len() != 1 {
+        return None;
+    }
+    let mut bindings = Vec::new();
+    pattern_bindings(closure.inputs.first()?, &mut bindings);
+    if bindings.len() != 1 {
+        return None;
+    }
+    let field = &bindings[0];
+    let Expr::Binary(comparison) = &*closure.body else {
+        return None;
+    };
+    if !matches!(comparison.op, syn::BinOp::Eq(_)) {
+        return None;
+    }
+    if binding_operand(&comparison.left, field) {
+        literal_string(&comparison.right)
+    } else if binding_operand(&comparison.right, field) {
+        literal_string(&comparison.left)
+    } else {
+        None
+    }
 }
 
-struct FileNameUse<'a> {
-    binding: &'a str,
+struct IdentUse<'a> {
+    ident: &'a str,
     count: usize,
 }
 
-impl<'ast> Visit<'ast> for FileNameUse<'_> {
-    fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
-        if node.method == "file_name"
-            && node.args.len() == 1
-            && compact(&tokens(node.args.first().expect("one file_name argument")))
-                .contains(self.binding)
-        {
+impl<'ast> Visit<'ast> for IdentUse<'_> {
+    fn visit_expr_path(&mut self, node: &'ast syn::ExprPath) {
+        if node.path.is_ident(self.ident) {
             self.count += 1;
         }
-        visit::visit_expr_method_call(self, node);
+        visit::visit_expr_path(self, node);
     }
+}
+
+fn filename_part_evidence(node: &syn::ExprIf) -> Option<(String, String)> {
+    let Expr::Let(condition) = &*node.cond else {
+        return None;
+    };
+    let mut filename_bindings = Vec::new();
+    pattern_bindings(&condition.pat, &mut filename_bindings);
+    if filename_bindings.len() != 1 {
+        return None;
+    }
+    let filename = &filename_bindings[0];
+    let wire_name = filename_lookup_wire(&condition.expr)?;
+
+    let Expr::MethodCall(file_name) = tail_expression(&node.then_branch)? else {
+        return None;
+    };
+    if file_name.method != "file_name" || file_name.args.len() != 1 {
+        return None;
+    }
+    let Expr::Path(part) = &*file_name.receiver else {
+        return None;
+    };
+    let part_name = part.path.get_ident()?.to_string();
+    let mut filename_use = IdentUse {
+        ident: filename,
+        count: 0,
+    };
+    filename_use.visit_expr(file_name.args.first()?);
+    if filename_use.count != 1 {
+        return None;
+    }
+    Some((wire_name, part_name))
 }
 
 #[derive(Default)]
 struct MultipartFilenameSignals {
-    lookup_fields: BTreeSet<String>,
-    form_fields: BTreeSet<String>,
+    filename_parts: BTreeSet<(String, String)>,
+    form_parts: BTreeSet<(String, String)>,
 }
 
 impl<'ast> Visit<'ast> for MultipartFilenameSignals {
     fn visit_expr_if(&mut self, node: &'ast syn::ExprIf) {
-        if let Expr::Let(condition) = &*node.cond {
-            let mut names = Vec::new();
-            filename_binding(&condition.pat, &mut names);
-            if names.len() == 1
-                && let Some(wire_name) = filename_lookup_wire(&condition.expr)
-            {
-                let mut file_name = FileNameUse {
-                    binding: &names[0],
-                    count: 0,
-                };
-                file_name.visit_block(&node.then_branch);
-                if file_name.count == 1 {
-                    self.lookup_fields.insert(wire_name);
-                }
-            }
+        if let Some(evidence) = filename_part_evidence(node) {
+            self.filename_parts.insert(evidence);
         }
         visit::visit_expr_if(self, node);
     }
@@ -647,11 +699,13 @@ impl<'ast> Visit<'ast> for MultipartFilenameSignals {
             && call.method == "part"
             && matches!(&*call.receiver, Expr::Path(path) if path.path.is_ident("form"))
             && call.args.len() == 2
-            && matches!(call.args.iter().nth(1), Some(Expr::Path(path)) if path.path.is_ident("part"))
             && let Some(Expr::Lit(value)) = call.args.first()
             && let Lit::Str(wire) = &value.lit
+            && let Some(Expr::Path(part)) = call.args.iter().nth(1)
+            && let Some(part) = part.path.get_ident()
         {
-            self.form_fields.insert(wire.value());
+            self.form_parts
+                .insert((wire.value(), part.to_string()));
         }
         visit::visit_expr_assign(self, node);
     }
@@ -691,11 +745,11 @@ fn multipart_kind(
     }
     let mut signals = MultipartFilenameSignals::default();
     signals.visit_block(&method.block);
-    if signals.lookup_fields.is_empty()
+    if signals.filename_parts.is_empty()
         || !signals
-            .lookup_fields
+            .filename_parts
             .iter()
-            .all(|field| signals.form_fields.contains(field))
+            .all(|part| signals.form_parts.contains(part))
     {
         return Err(failure(
             "extract.multipart_helper_unproven",
