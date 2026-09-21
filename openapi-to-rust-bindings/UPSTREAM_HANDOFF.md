@@ -10,7 +10,7 @@ This file contains narrowly scoped handoffs for `gpu-cli/openapi-to-rust`. They 
 
 **Expected:** Encode each scalar array element as a separate form field with the same original wire name; unwrap the unambiguous non-null schema branch for a nullable binary field and emit a binary part. Preserve the historical behavior of unrelated fields and absent optional fields.
 
-**Minimal fixture:** [`fork-producer-delta/openapi.json`](tests/fixtures/fork-producer-delta/openapi.json), operations `createUpload` and schemas `UploadRequest`/`File`/`Mode`. The fixture also includes independent fields for other checks; the multipart subset alone is sufficient for this issue.
+**Minimal fixture:** [`fork-producer-delta/openapi.json`](tests/producer-delta/openapi.json), operations `createUpload` and schemas `UploadRequest`/`File`/`Mode`. The fixture also includes independent fields for other checks; the multipart subset alone is sufficient for this issue.
 
 **Candidate implementation/test:** [fork commit `216ab55`](https://github.com/adriendellagaspera/openapi-to-rust/commit/216ab550b6e84db3601386acf123c246896eab50), especially `tests/client_multipart_capabilities_test.rs`. The pinned upstream and fork outputs are directly compared in `fork-manifest-removal-evidence.yml`; the capability requires examining the *generated form-building code*, not just the OpenAPI declaration.
 
