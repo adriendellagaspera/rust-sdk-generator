@@ -743,23 +743,6 @@ fn discriminator_ref_depth(expr: &Expr) -> Option<usize> {
 }
 
 #[derive(Default)]
-struct AssignmentCollector {
-    assignments: Vec<(Vec<String>, usize)>,
-}
-
-impl<'ast> Visit<'ast> for AssignmentCollector {
-    fn visit_expr_assign(&mut self, node: &'ast syn::ExprAssign) {
-        if let (Some(path), Some(depth)) = (
-            field_access(&node.left),
-            discriminator_ref_depth(&node.right),
-        ) {
-            self.assignments.push((path, depth));
-        }
-        visit::visit_expr_assign(self, node);
-    }
-}
-
-#[derive(Default)]
 struct LiteralCollector {
     values: Vec<Value>,
 }
@@ -807,23 +790,117 @@ fn typed_discriminator_local(block: &syn::Block) -> Option<(String, Value)> {
     None
 }
 
-struct DiscriminatorBlockVisitor {
-    blocks: Vec<(String, Value, Vec<String>, usize)>,
+#[derive(Default)]
+struct DiscriminatorMarker {
+    count: usize,
 }
 
-impl<'ast> Visit<'ast> for DiscriminatorBlockVisitor {
-    fn visit_block(&mut self, block: &'ast syn::Block) {
-        if let Some((rust_type, value)) = typed_discriminator_local(block) {
-            let mut assignments = AssignmentCollector::default();
-            assignments.visit_block(block);
-            if assignments.assignments.len() == 1 {
-                let (path, depth) = assignments.assignments.remove(0);
-                self.blocks.push((rust_type, value, path, depth));
-                return;
-            }
+impl<'ast> Visit<'ast> for DiscriminatorMarker {
+    fn visit_expr_path(&mut self, node: &'ast syn::ExprPath) {
+        if node.path.is_ident("__request_discriminator_value") {
+            self.count += 1;
         }
-        visit::visit_block(self, block);
+        visit::visit_expr_path(self, node);
     }
+}
+
+fn discriminator_block(
+    block: &syn::Block,
+) -> Result<Option<(String, Value, Vec<String>, usize)>, Error> {
+    let mut marker = DiscriminatorMarker::default();
+    marker.visit_block(block);
+    let local = typed_discriminator_local(block);
+    if local.is_none() && marker.count == 0 {
+        return Ok(None);
+    }
+    let (rust_type, value) = local.ok_or_else(|| {
+        failure(
+            "extract.request_discriminator_unproven",
+            "discriminator marker has no direct typed local",
+        )
+    })?;
+    let assignments: Vec<_> = block
+        .stmts
+        .iter()
+        .filter_map(|statement| match statement {
+            Stmt::Expr(Expr::Assign(assign), _) => {
+                let path = field_access(&assign.left)?;
+                let depth = discriminator_ref_depth(&assign.right)?;
+                Some((path, depth))
+            }
+            _ => None,
+        })
+        .collect();
+    if assignments.len() != 1 || marker.count != 1 {
+        return Err(failure(
+            "extract.request_discriminator_unproven",
+            format!(
+                "discriminator block must contain exactly one direct request assignment and one discriminator value use; found {} assignments and {} uses",
+                assignments.len(),
+                marker.count
+            ),
+        ));
+    }
+    let (path, depth) = assignments.into_iter().next().expect("one assignment");
+    Ok(Some((rust_type, value, path, depth)))
+}
+
+fn request_rebind(statement: &Stmt) -> bool {
+    let Stmt::Local(local) = statement else {
+        return false;
+    };
+    let Pat::Ident(pattern) = &local.pat else {
+        return false;
+    };
+    pattern.ident == "request"
+        && pattern.mutability.is_some()
+        && local
+            .init
+            .as_ref()
+            .is_some_and(|init| matches!(&*init.expr, Expr::Path(path) if path.path.is_ident("request")))
+}
+
+#[derive(Default)]
+struct JsonRequestSerialization {
+    count: usize,
+}
+
+impl<'ast> Visit<'ast> for JsonRequestSerialization {
+    fn visit_expr_call(&mut self, node: &'ast syn::ExprCall) {
+        if let Expr::Path(function) = &*node.func
+            && compact(&tokens(&function.path)) == "serde_json::to_vec"
+            && node.args.len() == 1
+            && matches!(
+                node.args.first(),
+                Some(Expr::Reference(reference))
+                    if matches!(&*reference.expr, Expr::Path(path) if path.path.is_ident("request"))
+            )
+        {
+            self.count += 1;
+        }
+        visit::visit_expr_call(self, node);
+    }
+}
+
+fn unwrap_option_layers(rust_type: &str, depth: usize) -> Option<String> {
+    let mut current: Type = syn::parse_str(rust_type).ok()?;
+    for _ in 0..depth {
+        let Type::Path(path) = current else {
+            return None;
+        };
+        let segment = path.path.segments.last()?;
+        if segment.ident != "Option" {
+            return None;
+        }
+        let PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+            return None;
+        };
+        let GenericArgument::Type(inner) = arguments.args.first()? else {
+            return None;
+        };
+        current = inner.clone();
+    }
+    Some(tokens(&current))
 }
 
 fn simple_type_name(rust_type: &str) -> Option<String> {
@@ -964,10 +1041,70 @@ fn request_discriminators(
     source_method: &str,
     source_path: &str,
 ) -> Result<Vec<RequestDiscriminatorEvidence>, Error> {
-    let mut visitor = DiscriminatorBlockVisitor { blocks: Vec::new() };
-    visitor.visit_block(&method.block);
-    if visitor.blocks.is_empty() {
+    let mut blocks = Vec::new();
+    let mut rebinds = Vec::new();
+    let mut serializations = Vec::new();
+    for (index, statement) in method.block.stmts.iter().enumerate() {
+        if request_rebind(statement) {
+            rebinds.push(index);
+        }
+        let mut serialization = JsonRequestSerialization::default();
+        serialization.visit_stmt(statement);
+        if serialization.count > 0 {
+            for _ in 0..serialization.count {
+                serializations.push(index);
+            }
+        }
+        if let Stmt::Expr(Expr::Block(block), _) = statement {
+            if let Some(evidence) = discriminator_block(&block.block).map_err(|error| {
+                failure(
+                    "extract.request_discriminator_unproven",
+                    format!("{}: {error}", structural_method.name),
+                )
+            })? {
+                blocks.push((index, evidence));
+                continue;
+            }
+        }
+        let mut marker = DiscriminatorMarker::default();
+        marker.visit_stmt(statement);
+        if marker.count > 0 {
+            return Err(failure(
+                "extract.request_discriminator_unproven",
+                format!(
+                    "{}: discriminator marker occurs outside a direct generated assignment block",
+                    structural_method.name
+                ),
+            ));
+        }
+    }
+    if blocks.is_empty() {
         return Ok(Vec::new());
+    }
+    if rebinds.len() != 1 || serializations.len() != 1 {
+        return Err(failure(
+            "extract.request_discriminator_unproven",
+            format!(
+                "{}: expected one direct mutable request rebind and one JSON serialization, found {} and {}",
+                structural_method.name,
+                rebinds.len(),
+                serializations.len()
+            ),
+        ));
+    }
+    let rebind = rebinds[0];
+    let serialization = serializations[0];
+    if blocks
+        .iter()
+        .any(|(index, _)| *index <= rebind || *index >= serialization)
+    {
+        return Err(failure(
+            "extract.request_discriminator_unproven",
+            format!(
+                "{}: discriminator assignments must be unconditional, after request rebinding and before serialization",
+                structural_method.name
+            ),
+        ));
     }
     let request_parameter = structural_method
         .parameters
@@ -1003,7 +1140,7 @@ fn request_discriminators(
         })?;
 
     let mut output = Vec::new();
-    for (local_type, value, access_path, assignment_depth) in visitor.blocks {
+    for (_, (local_type, value, access_path, assignment_depth)) in blocks {
         if access_path.len() != 1 {
             return Err(failure(
                 "extract.request_discriminator_unproven",
@@ -1014,15 +1151,6 @@ fn request_discriminators(
             ));
         }
         let field = field_for_access(structural, &request_parameter.rust_type, &access_path)?;
-        if compact(&local_type) != compact(&field.rust_type) {
-            return Err(failure(
-                "extract.request_discriminator_unproven",
-                format!(
-                    "{} discriminator local type {} disagrees with field type {}",
-                    structural_method.name, local_type, field.rust_type
-                ),
-            ));
-        }
         let wire_name = field.wire_name.clone().ok_or_else(|| {
             failure(
                 "extract.request_discriminator_unproven",
@@ -1054,10 +1182,29 @@ fn request_discriminators(
                 ),
             ));
         }
+        let expected_local_type =
+            unwrap_option_layers(&field.rust_type, expected_depth).ok_or_else(|| {
+                failure(
+                    "extract.request_discriminator_unproven",
+                    format!(
+                        "{} field type {} cannot realize required/nullable/tri-state depth {expected_depth}",
+                        structural_method.name, field.rust_type
+                    ),
+                )
+            })?;
+        if compact(&local_type) != compact(&expected_local_type) {
+            return Err(failure(
+                "extract.request_discriminator_unproven",
+                format!(
+                    "{} discriminator local type {} disagrees with assigned value type {} for field {}",
+                    structural_method.name, local_type, expected_local_type, field.rust_type
+                ),
+            ));
+        }
         output.push(RequestDiscriminatorEvidence {
             wire_name,
             rust_access_path: access_path,
-            rust_value_type: canonical_rust_type(&field.rust_type)?,
+            rust_value_type: canonical_rust_type(&local_type)?,
             value,
             field_required,
             field_nullable,
