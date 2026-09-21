@@ -16,7 +16,8 @@
     },
     "manifest_removal_pr": "https://github.com/adriendellagaspera/openapi-to-rust/pull/18",
     "manifest_removal_candidate_commit": "a2371955a668c0a99d6cea5616a3be3804757116",
-    "reproduction": "The workflow .github/workflows/fork-manifest-removal-evidence.yml checks out all immutable revisions, generates and compares ordinary Rust and compiles the manifest-free facade."
+    "reproduction": "The workflow .github/workflows/fork-manifest-removal-evidence.yml checks out all immutable revisions, generates and compares ordinary Rust and compiles the manifest-free facade.",
+    "manifest_removal_merged_commit": "ef5632c019982de6fd8bf1a7d86a9fcd868b9c55"
   },
   "classification": {
     "A": "actual generated-Rust/runtime capability",
