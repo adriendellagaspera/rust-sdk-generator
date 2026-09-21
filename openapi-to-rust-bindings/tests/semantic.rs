@@ -946,7 +946,7 @@ fn discriminator_evidence_rejects_unrelated_or_nested_assignments() {
 #[test]
 fn discriminator_evidence_rejects_conditional_or_post_serialization_mutation() {
     let conditional_block = FIRST_DISCRIMINATOR_BLOCK
-        .replace("        {\n", "        if true {\n", 1);
+        .replacen("        {\n", "        if true {\n", 1);
     let conditional = DISCRIMINATOR_CLIENT.replacen(
         FIRST_DISCRIMINATOR_BLOCK,
         &conditional_block,
