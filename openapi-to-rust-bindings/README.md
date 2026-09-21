@@ -38,7 +38,7 @@ cargo run --locked -p openapi-to-rust-bindings -- \
   --extract path/to/raw-output effective-openapi.json > rust-bindings.json
 ```
 
-The extractor fails closed when source coverage is incomplete or required evidence is unavailable. During #150, streamed responses remain unsupported by canonical extraction until their complete native/WASM ABI is proven; request discriminators and multipart helper semantics likewise require direct emitted-code evidence. These limitations are not replaced by naming guesses or by replaying OpenAPI declarations.
+The extractor fails closed when source coverage is incomplete or required evidence is unavailable. Owned streams are accepted only when the emitted Rust exposes a complete native/WASM alias with matching item/error/lifetime ABI. Request discriminators and multipart helper semantics likewise require direct emitted-code evidence. Anonymous upstream stream return types, ambiguous aliases and unsupported discriminator projections remain explicit failures rather than naming guesses or replayed OpenAPI declarations.
 
 ## Existing canonical loader
 
