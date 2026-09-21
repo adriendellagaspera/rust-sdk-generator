@@ -1,7 +1,7 @@
 //! Canonical Bindings v3 normalization from proved structural + semantic
 //! evidence. This remains separate from read_bindings until #151 cuts over the
 //! default manifest-free path.
-use crate::details::{OperationKindEvidence, inspect_details};
+use crate::details::{OperationKindEvidence, inspect_details, prove_client_layout};
 use crate::rust_type::canonical_rust_type;
 use crate::semantic::{RepresentationEvidence, inspect_semantics};
 use crate::structural::{EnumEvidence, StructuralEvidence, inspect_generated};
@@ -249,6 +249,7 @@ pub fn extract_bindings(
     effective_openapi: impl AsRef<Path>,
 ) -> Result<Bindings, Error> {
     let structural = inspect_generated(&generated)?;
+    prove_client_layout(&generated, &structural)?;
     let semantic = inspect_semantics(&generated, &effective_openapi)?;
 
     if !semantic.unmatched_source_operations.is_empty() {
