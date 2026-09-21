@@ -353,6 +353,23 @@ fn lossless_primitive_json_map(schema: &Value, syntax: &Type, bindings: &Binding
     })
 }
 
+/// Identical alternatives in anyOf are semantically redundant; oneOf is not.
+pub(crate) fn redundant_any_of_alternative(schema: &Value) -> Option<&Value> {
+    let object = schema.as_object()?;
+    if object.keys().any(|key| {
+        !matches!(
+            key.as_str(),
+            "anyOf" | "title" | "description" | "example" | "examples" | "default"
+                | "deprecated" | "$comment"
+        )
+    }) {
+        return None;
+    }
+    let branches = object.get("anyOf")?.as_array()?;
+    let first = branches.first()?;
+    (branches.len() >= 2 && branches.iter().all(|branch| branch == first)).then_some(first)
+}
+
 fn type_matches_schema(
     schema: &Value,
     syntax: &Type,
@@ -392,6 +409,10 @@ fn type_matches_schema(
     }
     if syntax.unary("Option").is_some() {
         return false;
+    }
+
+    if let Some(alternative) = redundant_any_of_alternative(schema) {
+        return type_matches_schema(alternative, syntax, bindings, seen_aliases);
     }
 
     if let Some(object) = schema.as_object() {
@@ -1041,6 +1062,11 @@ fn request_object_value_matches(
         }
 
         if union_branches(wire).is_some() {
+            if redundant_any_of_alternative(wire).is_some_and(|alternative| {
+                type_matches_schema(alternative, &core, bindings, &mut BTreeSet::new())
+            }) {
+                continue;
+            }
             if core.kind != TypeKind::Opaque
                 || !request_union_matches_inner(openapi, wire, &core.spelling, bindings, seen)
             {
