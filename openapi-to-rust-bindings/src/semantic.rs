@@ -192,6 +192,62 @@ fn conservative_snake_case(value: &str) -> Option<String> {
     (!output.is_empty()).then_some(output)
 }
 
+fn base_rust_method(
+    source: &SourceOperationEvidence,
+    methods: &[String],
+) -> Result<String, Error> {
+    let candidates: Vec<_> = methods
+        .iter()
+        .filter(|candidate| {
+            methods.iter().all(|method| {
+                method == *candidate || method.starts_with(&format!("{candidate}_"))
+            })
+        })
+        .collect();
+    if candidates.len() != 1 {
+        return Err(semantic_error(
+            "extract.emitted_id_unproven",
+            format!(
+                "{} {} ({:?}) has no unique emitted base method among {:?}",
+                source.method, source.path, source.operation_id, methods
+            ),
+        ));
+    }
+    Ok(candidates[0].clone())
+}
+
+fn emitted_operation_id(
+    source: &SourceOperationEvidence,
+    base_method: &str,
+    operation_count: usize,
+) -> Result<String, Error> {
+    let mut candidates = vec![source.operation_id.clone()];
+    let method_suffix = source.method.to_ascii_lowercase();
+    candidates.push(format!("{}_{}", source.operation_id, method_suffix));
+    for suffix in 2..=operation_count.saturating_add(1) {
+        candidates.push(format!(
+            "{}_{}_{}",
+            source.operation_id, method_suffix, suffix
+        ));
+    }
+    let matches: Vec<_> = candidates
+        .into_iter()
+        .filter(|candidate| {
+            conservative_snake_case(candidate).as_deref() == Some(base_method)
+        })
+        .collect();
+    if matches.len() != 1 {
+        return Err(semantic_error(
+            "extract.emitted_id_unproven",
+            format!(
+                "{} {} ({:?}) base method {:?} matched emitted-ID candidates {:?}",
+                source.method, source.path, source.operation_id, base_method, matches
+            ),
+        ));
+    }
+    Ok(matches.into_iter().next().expect("one emitted operation id"))
+}
+
 fn operation_doc(attrs: &[Attribute]) -> Result<Option<(String, String)>, Error> {
     let mut matches = Vec::new();
     for attr in attrs.iter().filter(|attr| attr.path().is_ident("doc")) {
@@ -262,7 +318,6 @@ fn index_openapi(value: &Value) -> Result<BTreeMap<(String, String), OpenApiOper
             semantic_error("extract.openapi_paths_required", "paths must be an object")
         })?;
     let mut operations = BTreeMap::new();
-    let mut ids = BTreeSet::new();
     for (path, item) in paths {
         let item = item.as_object().ok_or_else(|| {
             semantic_error("extract.openapi_path_item_invalid", format!("paths.{path}"))
@@ -291,12 +346,6 @@ fn index_openapi(value: &Value) -> Result<BTreeMap<(String, String), OpenApiOper
                         format!("{method} {path}"),
                     )
                 })?;
-            if !ids.insert(operation_id.to_owned()) {
-                return Err(semantic_error(
-                    "extract.openapi_operation_id_duplicate",
-                    operation_id,
-                ));
-            }
             operations.insert(
                 (method.clone(), path.clone()),
                 OpenApiOperation {
@@ -775,38 +824,22 @@ pub fn inspect_semantics(
             ));
         }
     }
-    let mut source_groups: BTreeMap<SourceOperationEvidence, Vec<&OperationSemanticEvidence>> =
-        BTreeMap::new();
+    let mut source_groups: BTreeMap<SourceOperationEvidence, Vec<String>> = BTreeMap::new();
     for operation in operations.values() {
         source_groups
             .entry(operation.source_operation.clone())
             .or_default()
-            .push(operation);
+            .push(operation.rust_method_name.clone());
     }
-    for (source_operation, emitted) in source_groups {
-        let expected_base = conservative_snake_case(&source_operation.operation_id).ok_or_else(|| {
-            semantic_error(
-                "extract.emitted_id_unproven",
-                format!(
-                    "source operationId {:?} cannot be conservatively mapped to the backend's ordinary Rust method name",
-                    source_operation.operation_id
-                ),
-            )
-        })?;
-        if !emitted
-            .iter()
-            .any(|operation| operation.rust_method_name == expected_base)
-        {
-            return Err(semantic_error(
-                "extract.emitted_id_unproven",
-                format!(
-                    "{} {} ({:?}) has no observed base method {:?}; analyzer renaming cannot be ruled out",
-                    source_operation.method,
-                    source_operation.path,
-                    source_operation.operation_id,
-                    expected_base,
-                ),
-            ));
+    for (source_operation, emitted_methods) in source_groups {
+        let base_method = base_rust_method(&source_operation, &emitted_methods)?;
+        let emitted_id =
+            emitted_operation_id(&source_operation, &base_method, source.len())?;
+        for method_name in emitted_methods {
+            let operation = operations
+                .get_mut(&method_name)
+                .expect("grouped operation remains present");
+            operation.emitted_operation_id = emitted_id.clone();
         }
     }
 
