@@ -252,3 +252,118 @@ fn analyzer_or_base_method_rename_fails_when_emitted_id_is_not_provable() {
         .expect_err("source identity alone does not prove the emitted analyzer id");
     assert!(error.to_string().contains("extract.emitted_id_unproven"));
 }
+
+
+#[test]
+fn duplicate_source_operation_ids_fail_closed() {
+    let root = fixture(CLIENT);
+    let mut openapi: serde_json::Value = serde_json::from_str(OPENAPI).expect("fixture JSON");
+    openapi["paths"]["/render"]["post"]["operationId"] =
+        serde_json::Value::String("fetchInventoryWithoutNamingShortcut".into());
+    root.file(
+        "openapi.json",
+        &serde_json::to_string_pretty(&openapi).expect("serialize OpenAPI"),
+    );
+    let error = inspect_semantics(root.path(), root.path().join("openapi.json"))
+        .expect_err("duplicate operation IDs must be rejected");
+    assert!(
+        error
+            .to_string()
+            .contains("extract.openapi_operation_id_duplicate")
+    );
+}
+
+#[test]
+fn source_operations_without_emitted_methods_fail_closed() {
+    let root = fixture(CLIENT);
+    let mut openapi: serde_json::Value = serde_json::from_str(OPENAPI).expect("fixture JSON");
+    openapi["paths"]["/ghost"] = serde_json::json!({
+        "get": {
+            "operationId": "ghostOperation",
+            "responses": {
+                "204": {"description": "never emitted"}
+            }
+        }
+    });
+    root.file(
+        "openapi.json",
+        &serde_json::to_string_pretty(&openapi).expect("serialize OpenAPI"),
+    );
+    let error = extract_bindings(root.path(), root.path().join("openapi.json"))
+        .expect_err("unemitted source operation must be rejected");
+    assert!(
+        error
+            .to_string()
+            .contains("extract.source_operation_unemitted")
+    );
+}
+
+#[test]
+fn anonymous_stream_return_type_fails_without_a_proven_cross_target_abi() {
+    const STREAM_CLIENT: &str = r#"
+use super::types::*;
+pub struct HttpClient {
+    base_url: String,
+    api_key: Option<String>,
+    http_client: reqwest::Client,
+}
+impl HttpClient {
+    pub fn new() -> Self { todo!() }
+    pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
+        self.base_url = base_url.into();
+        self
+    }
+    pub fn with_api_key(mut self, api_key: impl Into<String>) -> Self {
+        self.api_key = Some(api_key.into());
+        self
+    }
+
+    /// GET /events
+    pub async fn events(
+        &self,
+    ) -> Result<
+        impl futures_util::Stream<Item = Result<bytes::Bytes, reqwest::Error>>,
+        Error,
+    > {
+        let request_url = format!("{}{}", self.base_url, "/events");
+        let mut req = self.http_client.get(request_url);
+        req = req.header(reqwest::header::ACCEPT, "text/event-stream");
+        let response = req.send().await?;
+        let status = response.status();
+        let status_code = status.as_u16();
+        if status_code == 200 {
+            Ok(response.bytes_stream())
+        } else {
+            todo!()
+        }
+    }
+}
+"#;
+    const STREAM_OPENAPI: &str = r#"{
+      "openapi": "3.1.0",
+      "info": {"title": "stream", "version": "1"},
+      "paths": {
+        "/events": {
+          "get": {
+            "operationId": "events",
+            "responses": {
+              "200": {
+                "description": "events",
+                "content": {
+                  "text/event-stream": {"schema": {"type": "string"}}
+                }
+              }
+            }
+          }
+        }
+      }
+    }"#;
+
+    let root = Scratch::new();
+    root.file("types.rs", "");
+    root.file("client.rs", STREAM_CLIENT);
+    root.file("openapi.json", STREAM_OPENAPI);
+    let error = extract_bindings(root.path(), root.path().join("openapi.json"))
+        .expect_err("anonymous streams have no proven native/WASM alias ABI");
+    assert!(error.to_string().contains("extract.stream_abi_unproven"));
+}
