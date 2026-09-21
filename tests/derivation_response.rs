@@ -71,7 +71,6 @@ fn derives_owned_scalar_response_view_and_generates_it() {
     assert_eq!(generated.inventory.resources[1].operations, vec!["get"]);
 }
 
-
 #[test]
 fn derives_closed_empty_response_view_but_not_an_open_map() {
     let mut openapi: OpenApi =
@@ -105,7 +104,12 @@ fn derives_closed_empty_response_view_but_not_an_open_map() {
     let response = &derivation.definition.models["GetFleetSensorsResponse"];
     assert_eq!(response.raw.as_deref(), Some("SensorResponse"));
     assert_eq!(response.borrowed, Some(false));
-    assert!(response.accessors.as_ref().is_some_and(|items| items.is_empty()));
+    assert!(
+        response
+            .accessors
+            .as_ref()
+            .is_some_and(|items| items.is_empty())
+    );
     generate(GenerateInput {
         openapi: openapi.clone(),
         bindings: bindings.clone(),
