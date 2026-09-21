@@ -241,26 +241,14 @@ fn route_doc_is_not_accepted_without_matching_http_body_evidence() {
 }
 
 #[test]
-fn allocated_rust_method_name_remains_distinct_from_the_source_operation_id() {
+fn analyzer_or_base_method_rename_fails_when_emitted_id_is_not_provable() {
     let client = CLIENT.replacen(
         "fetch_inventory_without_naming_shortcut(",
         "fetch_inventory_without_naming_shortcut_2(",
         1,
     );
     let root = fixture(&client);
-    let evidence = inspect_semantics(root.path(), root.path().join("openapi.json"))
-        .expect("route/body evidence identifies the source independently of Rust naming");
-    let operation = &evidence.operations["fetch_inventory_without_naming_shortcut_2"];
-    assert_eq!(
-        operation.source_operation.operation_id,
-        "fetchInventoryWithoutNamingShortcut"
-    );
-    assert_eq!(
-        operation.emitted_operation_id,
-        "fetchInventoryWithoutNamingShortcut"
-    );
-    assert_eq!(
-        operation.rust_method_name,
-        "fetch_inventory_without_naming_shortcut_2"
-    );
+    let error = inspect_semantics(root.path(), root.path().join("openapi.json"))
+        .expect_err("source identity alone does not prove the emitted analyzer id");
+    assert!(error.to_string().contains("extract.emitted_id_unproven"));
 }
