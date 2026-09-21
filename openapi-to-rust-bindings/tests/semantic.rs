@@ -159,10 +159,16 @@ fn exact_route_and_body_evidence_select_the_emitted_representation() {
         .expect("semantic evidence");
 
     let fetch = &evidence.operations["fetch_inventory_without_naming_shortcut"];
-    assert_eq!(fetch.source_operation.operation_id, "fetchInventoryWithoutNamingShortcut");
+    assert_eq!(
+        fetch.source_operation.operation_id,
+        "fetchInventoryWithoutNamingShortcut"
+    );
     assert_eq!(fetch.source_operation.method, "GET");
     assert_eq!(fetch.source_operation.path, "/inventory/{id}");
-    assert_eq!(fetch.emitted_operation_id, "fetchInventoryWithoutNamingShortcut");
+    assert_eq!(
+        fetch.emitted_operation_id,
+        "fetchInventoryWithoutNamingShortcut"
+    );
     assert_eq!(fetch.success_statuses, Vec::<String>::new());
     assert!(matches!(
         fetch.representation,
@@ -195,8 +201,8 @@ fn proved_non_streaming_semantics_normalize_to_bindings_v3() {
         "crate::generated::client::HttpClient"
     );
     assert_eq!(
-        value["operations"]["fetch_inventory_without_naming_shortcut"]["metadata"]
-            ["source_operation"]["operation_id"],
+        value["operations"]["fetch_inventory_without_naming_shortcut"]["metadata"]["source_operation"]
+            ["operation_id"],
         "fetchInventoryWithoutNamingShortcut"
     );
     assert_eq!(
@@ -227,7 +233,11 @@ fn route_doc_is_not_accepted_without_matching_http_body_evidence() {
     let root = fixture(&client);
     let error = inspect_semantics(root.path(), root.path().join("openapi.json"))
         .expect_err("verb mismatch must fail");
-    assert!(error.to_string().contains("extract.source_identity_ambiguous"));
+    assert!(
+        error
+            .to_string()
+            .contains("extract.source_identity_ambiguous")
+    );
 }
 
 #[test]
