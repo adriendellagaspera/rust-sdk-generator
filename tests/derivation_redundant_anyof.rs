@@ -54,7 +54,8 @@ fn fixture() -> (OpenApi, Bindings, PublicSdkSurface) {
             },
             "type_preludes": ["crate::generated::types::*"]
         }
-    })).expect("bindings fixture");
+    }))
+    .expect("bindings fixture");
     let surface = PublicSdkSurface {
         schema_version: 1,
         client: Some("AudioClient".into()),
@@ -74,7 +75,8 @@ fn derives_redundant_anyof_string_alias_without_losing_nullability() {
         bindings: bindings.clone(),
         surface,
         overrides: SdkOverrides::default(),
-    }).expect("derive redundant anyOf request");
+    })
+    .expect("derive redundant anyOf request");
 
     assert_eq!(
         derivation.report.operations["synthesize"].status,
@@ -82,14 +84,18 @@ fn derives_redundant_anyof_string_alias_without_losing_nullability() {
     );
     let request = &derivation.definition.models["SynthesizeAudioRequest"];
     assert_eq!(request.raw.as_deref(), Some("SynthRequest"));
-    assert_eq!(request.constructor.as_deref(), Some(&["input".to_owned()][..]));
+    assert_eq!(
+        request.constructor.as_deref(),
+        Some(&["input".to_owned()][..])
+    );
 
     generate(GenerateInput {
         openapi,
         bindings,
         definition: derivation.definition,
         runtime: Runtime::default(),
-    }).expect("generate exact request and empty response");
+    })
+    .expect("generate exact request and empty response");
 }
 
 #[test]
@@ -111,14 +117,14 @@ fn mixed_or_exclusive_or_constrained_unions_are_not_collapsed() {
         }),
     ] {
         let mut changed_openapi = openapi.clone();
-        changed_openapi.0["components"]["schemas"]["SynthRequest"]["properties"]["audio"] =
-            changed;
+        changed_openapi.0["components"]["schemas"]["SynthRequest"]["properties"]["audio"] = changed;
         let derivation = derive(DeriveInput {
             openapi: changed_openapi,
             bindings: bindings.clone(),
             surface: surface.clone(),
             overrides: SdkOverrides::default(),
-        }).expect("unsupported shape is classified");
+        })
+        .expect("unsupported shape is classified");
         assert_eq!(
             derivation.report.operations["synthesize"].status,
             DerivationStatus::Rejected
