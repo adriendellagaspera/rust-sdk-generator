@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 use syn::visit::{self, Visit};
-use syn::{Expr, GenericArgument, ImplItem, Item, Lit, PathArguments, Type};
+use syn::{Expr, FnArg, GenericArgument, ImplItem, Item, Lit, Pat, PathArguments, ReturnType, Stmt, Type};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct StreamAbiEvidence {
@@ -180,6 +180,356 @@ fn stream_abi(
         native_type: canonical_rust_type(&native.rust_type)?,
         wasm_type: canonical_rust_type(&wasm.rust_type)?,
     }))
+}
+
+
+fn output_is_self(method: &syn::ImplItemFn) -> bool {
+    matches!(
+        &method.sig.output,
+        ReturnType::Type(_, ty) if matches!(&**ty, Type::Path(path) if path.path.is_ident("Self"))
+    )
+}
+
+fn client_impl_functions<'a>(
+    client: &'a syn::File,
+    client_type: &str,
+) -> Result<BTreeMap<String, &'a syn::ImplItemFn>, Error> {
+    let type_name = client_type
+        .rsplit("::")
+        .next()
+        .ok_or_else(|| failure("extract.client_layout_unproven", client_type))?;
+    let mut functions = BTreeMap::new();
+    for item in &client.items {
+        let Item::Impl(imp) = item else { continue };
+        if imp.trait_.is_some() || compact(&tokens(&imp.self_ty)) != type_name {
+            continue;
+        }
+        for item in &imp.items {
+            let ImplItem::Fn(method) = item else { continue };
+            if !matches!(method.vis, syn::Visibility::Public(_)) {
+                continue;
+            }
+            let name = method.sig.ident.to_string();
+            if functions.insert(name.clone(), method).is_some() {
+                return Err(failure(
+                    "extract.client_layout_unproven",
+                    format!("{client_type}: duplicate public method {name}"),
+                ));
+            }
+        }
+    }
+    Ok(functions)
+}
+
+fn tail_expression(block: &syn::Block) -> Option<&Expr> {
+    match block.stmts.last()? {
+        Stmt::Expr(expr, semicolon) if semicolon.is_none() => Some(expr),
+        _ => None,
+    }
+}
+
+fn constructor_fields(
+    method_name: &str,
+    method: &syn::ImplItemFn,
+    functions: &BTreeMap<String, &syn::ImplItemFn>,
+    visiting: &mut BTreeSet<String>,
+) -> Result<BTreeSet<String>, Error> {
+    if !visiting.insert(method_name.to_owned()) {
+        return Err(failure(
+            "extract.client_layout_unproven",
+            format!("{method_name}: recursive constructor delegation"),
+        ));
+    }
+    let result = (|| {
+        let expr = tail_expression(&method.block).ok_or_else(|| {
+            failure(
+                "extract.client_layout_unproven",
+                format!("{method_name}: constructor does not return a directly provable client state"),
+            )
+        })?;
+        match expr {
+            Expr::Struct(value) if value.path.is_ident("Self") => Ok(value
+                .fields
+                .iter()
+                .filter_map(|field| match &field.member {
+                    syn::Member::Named(name) => Some(name.to_string()),
+                    syn::Member::Unnamed(_) => None,
+                })
+                .collect()),
+            Expr::Call(call) => {
+                let Expr::Path(path) = &*call.func else {
+                    return Err(failure(
+                        "extract.client_layout_unproven",
+                        format!("{method_name}: unsupported constructor delegation"),
+                    ));
+                };
+                let segments: Vec<_> = path.path.segments.iter().collect();
+                if segments.len() != 2 || segments[0].ident != "Self" {
+                    return Err(failure(
+                        "extract.client_layout_unproven",
+                        format!("{method_name}: constructor delegation must target Self::<method>"),
+                    ));
+                }
+                let delegated = segments[1].ident.to_string();
+                let target = functions.get(&delegated).ok_or_else(|| {
+                    failure(
+                        "extract.client_layout_unproven",
+                        format!("{method_name}: delegated constructor {delegated} is not a public client method"),
+                    )
+                })?;
+                if target.sig.receiver().is_some()
+                    || !output_is_self(target)
+                    || target.sig.asyncness.is_some()
+                    || target.sig.inputs.len() != call.args.len()
+                {
+                    return Err(failure(
+                        "extract.client_layout_unproven",
+                        format!("{method_name}: delegated constructor {delegated} has an incompatible signature"),
+                    ));
+                }
+                constructor_fields(&delegated, target, functions, visiting)
+            }
+            _ => Err(failure(
+                "extract.client_layout_unproven",
+                format!("{method_name}: unsupported constructor return expression"),
+            )),
+        }
+    })();
+    visiting.remove(method_name);
+    result
+}
+
+fn self_assignment_field(expr: &Expr) -> Option<&syn::Ident> {
+    let Expr::Field(field) = expr else {
+        return None;
+    };
+    let Expr::Path(base) = &*field.base else {
+        return None;
+    };
+    if !base.path.is_ident("self") {
+        return None;
+    }
+    let syn::Member::Named(name) = &field.member else {
+        return None;
+    };
+    Some(name)
+}
+
+fn builder_parameter_value(expr: &Expr, parameter: &str) -> bool {
+    match expr {
+        Expr::Path(path) => path.path.is_ident(parameter),
+        Expr::MethodCall(call)
+            if call.method == "into"
+                && call.args.is_empty()
+                && matches!(&*call.receiver, Expr::Path(path) if path.path.is_ident(parameter)) =>
+        {
+            true
+        }
+        _ => false,
+    }
+}
+
+fn api_key_builder_value(expr: &Expr, parameter: &str) -> bool {
+    let Expr::Call(call) = expr else {
+        return false;
+    };
+    let Expr::Path(function) = &*call.func else {
+        return false;
+    };
+    function.path.is_ident("Some")
+        && call.args.len() == 1
+        && builder_parameter_value(call.args.first().expect("one Some argument"), parameter)
+}
+
+struct SelfFieldAssignmentCount<'a> {
+    field: &'a str,
+    count: usize,
+}
+
+impl<'ast> Visit<'ast> for SelfFieldAssignmentCount<'_> {
+    fn visit_expr_assign(&mut self, node: &'ast syn::ExprAssign) {
+        if self_assignment_field(&node.left).is_some_and(|name| name == self.field) {
+            self.count += 1;
+        }
+        visit::visit_expr_assign(self, node);
+    }
+}
+
+fn prove_builder(
+    client_type: &str,
+    method: &syn::ImplItemFn,
+    target_field: &str,
+    wraps_some: bool,
+) -> Result<(), Error> {
+    let method_name = method.sig.ident.to_string();
+    let Some(receiver) = method.sig.receiver() else {
+        return Err(failure(
+            "extract.client_layout_unproven",
+            format!("{client_type}::{method_name}: expected a by-value self receiver"),
+        ));
+    };
+    if receiver.reference.is_some() || receiver.mutability.is_none() {
+        return Err(failure(
+            "extract.client_layout_unproven",
+            format!("{client_type}::{method_name}: expected mut self so returned state can be updated"),
+        ));
+    }
+    if method.sig.asyncness.is_some() || !output_is_self(method) {
+        return Err(failure(
+            "extract.client_layout_unproven",
+            format!("{client_type}::{method_name}: expected a synchronous builder returning Self"),
+        ));
+    }
+    let typed: Vec<_> = method
+        .sig
+        .inputs
+        .iter()
+        .filter_map(|input| match input {
+            FnArg::Typed(value) => Some(value),
+            FnArg::Receiver(_) => None,
+        })
+        .collect();
+    if typed.len() != 1 {
+        return Err(failure(
+            "extract.client_layout_unproven",
+            format!("{client_type}::{method_name}: expected exactly one builder argument"),
+        ));
+    }
+    let Pat::Ident(parameter) = &*typed[0].pat else {
+        return Err(failure(
+            "extract.client_layout_unproven",
+            format!("{client_type}::{method_name}: unsupported builder argument pattern"),
+        ));
+    };
+    let parameter_type = compact(&tokens(&typed[0].ty));
+    if !matches!(parameter_type.as_str(), "String" | "implInto<String>") {
+        return Err(failure(
+            "extract.client_layout_unproven",
+            format!(
+                "{client_type}::{method_name}: argument type {parameter_type:?} does not accept the facade's owned String input"
+            ),
+        ));
+    }
+
+    let mut all_assignments = SelfFieldAssignmentCount {
+        field: target_field,
+        count: 0,
+    };
+    all_assignments.visit_block(&method.block);
+    if all_assignments.count != 1 {
+        return Err(failure(
+            "extract.client_layout_unproven",
+            format!(
+                "{client_type}::{method_name}: expected exactly one assignment to self.{target_field}, found {}",
+                all_assignments.count
+            ),
+        ));
+    }
+    let assignments: Vec<_> = method
+        .block
+        .stmts
+        .iter()
+        .filter_map(|stmt| match stmt {
+            Stmt::Expr(Expr::Assign(assign), _)
+                if self_assignment_field(&assign.left).is_some_and(|name| name == target_field) =>
+            {
+                Some(assign)
+            }
+            _ => None,
+        })
+        .collect();
+    if assignments.len() != 1 {
+        return Err(failure(
+            "extract.client_layout_unproven",
+            format!(
+                "{client_type}::{method_name}: self.{target_field} assignment is conditional or nested"
+            ),
+        ));
+    }
+    let parameter_name = parameter.ident.to_string();
+    let correct_value = if wraps_some {
+        api_key_builder_value(&assignments[0].right, &parameter_name)
+    } else {
+        builder_parameter_value(&assignments[0].right, &parameter_name)
+    };
+    if !correct_value {
+        return Err(failure(
+            "extract.client_layout_unproven",
+            format!(
+                "{client_type}::{method_name}: self.{target_field} is not assigned from {parameter_name}"
+            ),
+        ));
+    }
+    if !matches!(
+        tail_expression(&method.block),
+        Some(Expr::Path(path)) if path.path.is_ident("self")
+    ) {
+        return Err(failure(
+            "extract.client_layout_unproven",
+            format!("{client_type}::{method_name}: builder does not return the mutated self value"),
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn prove_client_layout(
+    generated: impl AsRef<Path>,
+    structural: &StructuralEvidence,
+) -> Result<(), Error> {
+    let client_path = generated.as_ref().join("client.rs");
+    let source = fs::read_to_string(&client_path).map_err(|error| {
+        failure(
+            "extract.source_unreadable",
+            format!("{}: {error}", client_path.display()),
+        )
+    })?;
+    let client =
+        syn::parse_file(&source).map_err(|error| failure("extract.rust_parse", error))?;
+    let functions = client_impl_functions(&client, &structural.client.path)?;
+    let constructor = functions.get("new").ok_or_else(|| {
+        failure(
+            "extract.client_layout_unproven",
+            format!("{}: public new constructor is missing", structural.client.path),
+        )
+    })?;
+    if constructor.sig.receiver().is_some()
+        || constructor.sig.asyncness.is_some()
+        || !constructor.sig.inputs.is_empty()
+        || !output_is_self(constructor)
+    {
+        return Err(failure(
+            "extract.client_layout_unproven",
+            format!("{}::new: expected public fn new() -> Self", structural.client.path),
+        ));
+    }
+    let fields = constructor_fields("new", constructor, &functions, &mut BTreeSet::new())?;
+    for required in ["base_url", "api_key"] {
+        if !fields.contains(required) {
+            return Err(failure(
+                "extract.client_layout_unproven",
+                format!(
+                    "{}::new: returned client state does not initialize {required}",
+                    structural.client.path
+                ),
+            ));
+        }
+    }
+
+    let base_url = functions.get("with_base_url").ok_or_else(|| {
+        failure(
+            "extract.client_layout_unproven",
+            format!("{}::with_base_url is missing", structural.client.path),
+        )
+    })?;
+    prove_builder(&structural.client.path, base_url, "base_url", false)?;
+
+    let api_key = functions.get("with_api_key").ok_or_else(|| {
+        failure(
+            "extract.client_layout_unproven",
+            format!("{}::with_api_key is missing", structural.client.path),
+        )
+    })?;
+    prove_builder(&structural.client.path, api_key, "api_key", true)
 }
 
 fn multipart_kind(
