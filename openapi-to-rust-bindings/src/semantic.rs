@@ -192,16 +192,13 @@ fn conservative_snake_case(value: &str) -> Option<String> {
     (!output.is_empty()).then_some(output)
 }
 
-fn base_rust_method(
-    source: &SourceOperationEvidence,
-    methods: &[String],
-) -> Result<String, Error> {
+fn base_rust_method(source: &SourceOperationEvidence, methods: &[String]) -> Result<String, Error> {
     let candidates: Vec<_> = methods
         .iter()
         .filter(|candidate| {
-            methods.iter().all(|method| {
-                method == *candidate || method.starts_with(&format!("{candidate}_"))
-            })
+            methods
+                .iter()
+                .all(|method| method == *candidate || method.starts_with(&format!("{candidate}_")))
         })
         .collect();
     if candidates.len() != 1 {
