@@ -8,6 +8,29 @@ Adapter from the `openapi-to-rust` backend's structured `binding-manifest.json` 
 
 The manifest parser validates the backend's structured schema and layout, normalizes symbol paths into `crate::generated::...` paths and preserves the metadata required by generic derivation: source-operation identity, response representation, success statuses, request discriminators, stream ABI and wire field names. The root generator, not this adapter, chooses the public SDK surface and applies consumer policy.
 
+
+## Structural inspection (migration stage #149)
+
+The separate Rust-native inspection path reads **ordinary generated `types.rs` and
+`client.rs`** without any producer manifest or canonical sidecar:
+
+```sh
+cargo run --locked -p openapi-to-rust-bindings -- --inspect path/to/raw-output > structural-evidence.json
+```
+
+It reports the actual public model fields/serde names, enums, aliases (including
+target-specific `cfg` alternatives), client and public async method signatures
+with source locations. Unknown layouts, unsupported serde transforms and
+ambiguous client identity fail with stage-specific diagnostics. The pinned
+unmodified upstream integration fixture exercises this mode in CI.
+
+**This evidence is not Bindings v3:** exact source operation identity, transport
+representation, success statuses, owned stream ABI and request discriminators
+remain unproven until #150. `read_bindings` and the normal CLI mode retain
+their existing manifest/sidecar behavior; inspection never silently substitutes
+partial data into the canonical contract. The mandatory manifest is removed
+from the default user path only after #151 proves end-to-end compatibility.
+
 ## Usage
 
 ```sh
