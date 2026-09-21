@@ -2,6 +2,7 @@
 //! evidence. This remains separate from read_bindings until #151 cuts over the
 //! default manifest-free path.
 use crate::details::{OperationKindEvidence, inspect_details};
+use crate::rust_type::canonical_rust_type;
 use crate::semantic::{RepresentationEvidence, inspect_semantics};
 use crate::structural::{EnumEvidence, StructuralEvidence, inspect_generated};
 use crate::{Bindings, Error};
@@ -81,7 +82,11 @@ fn enum_json(item: &EnumEvidence, name: &str) -> Result<Value, Error> {
         };
         variants.push(json!({
             "name": variant.name,
-            "payload": payload,
+            "payload": if let Value::String(value) = payload {
+                Value::String(canonical_rust_type(&value)?)
+            } else {
+                payload
+            },
             "wire_name": wire_name,
         }));
     }
@@ -130,7 +135,7 @@ fn normalize_structural(structural: &StructuralEvidence) -> Result<CanonicalStru
                 json!({
                     "name": field.name,
                     "wire_name": field.wire_name,
-                    "type": field.rust_type,
+                    "type": canonical_rust_type(&field.rust_type)?,
                 })
             })
             .collect();
@@ -170,7 +175,7 @@ fn normalize_structural(structural: &StructuralEvidence) -> Result<CanonicalStru
         }
         aliases.insert(
             name.to_owned(),
-            Value::String(definitions[0].rust_type.clone()),
+            Value::String(canonical_rust_type(&definitions[0].rust_type)?),
         );
         insert_symbol(&mut symbols, name, path)?;
     }
@@ -287,7 +292,7 @@ pub fn extract_bindings(
             .map(|parameter| {
                 json!({
                     "name": parameter.name,
-                    "type": parameter.rust_type,
+                    "type": canonical_rust_type(&parameter.rust_type)?,
                 })
             })
             .collect::<Vec<_>>();
@@ -344,8 +349,8 @@ pub fn extract_bindings(
             json!({
                 "name": name,
                 "parameters": parameters,
-                "return_type": signature.return_type,
-                "success_type": success_type,
+                "return_type": canonical_rust_type(&signature.return_type)?,
+                "success_type": canonical_rust_type(success_type)?,
                 "stream": stream,
                 "metadata": {
                     "kind": kind,
