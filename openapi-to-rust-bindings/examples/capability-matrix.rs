@@ -527,14 +527,17 @@ fn main_inner() -> Result<()> {
 
         let fork_manifest = read_bindings(fork_root.join(id).join("raw"))
             .map_err(|error| format!("capability.oracle_unreadable: {id}: {error}"))?;
-        let fork_extracted = fork
-            .bindings
-            .as_ref()
-            .ok_or_else(|| format!(
+        let fork_extracted = fork.bindings.as_ref().ok_or_else(|| {
+            format!(
                 "capability.oracle_mismatch: {id}: fork extraction failed: {} (semantic: {})",
-                fork.diagnostic.as_deref().unwrap_or("no extraction diagnostic"),
-                fork.report["semantic"]["diagnostic"].as_str().unwrap_or("none"),
-            ))?;
+                fork.diagnostic
+                    .as_deref()
+                    .unwrap_or("no extraction diagnostic"),
+                fork.report["semantic"]["diagnostic"]
+                    .as_str()
+                    .unwrap_or("none"),
+            )
+        })?;
         compare_oracle(fork_manifest.as_value(), fork_extracted)?;
 
         let upstream_status = scenario_status(&upstream);
