@@ -15,7 +15,7 @@ use serde_json::json;
 
 mod output;
 
-const USAGE: &str = "usage:\n  rust-sdk-generator derive --openapi FILE --bindings FILE [--surface FILE] [--overrides FILE]\n  rust-sdk-generator generate --openapi FILE --bindings FILE --definition FILE --output DIR [--runtime FILE] [--inventory FILE]\n  rust-sdk-generator check --openapi FILE --bindings FILE --definition FILE [--runtime FILE] [--inventory FILE]\n  rust-sdk-generator check-generated --openapi FILE --bindings FILE --definition FILE --output DIR [--runtime FILE]";
+const USAGE: &str = "usage:\n  rust-sdk-generator derive --openapi FILE --bindings FILE [--surface FILE] [--overrides FILE] [--definition-output FILE]\n  rust-sdk-generator generate --openapi FILE --bindings FILE --definition FILE --output DIR [--runtime FILE] [--inventory FILE]\n  rust-sdk-generator check --openapi FILE --bindings FILE --definition FILE [--runtime FILE] [--inventory FILE]\n  rust-sdk-generator check-generated --openapi FILE --bindings FILE --definition FILE --output DIR [--runtime FILE]";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CommandKind {
@@ -33,6 +33,7 @@ struct Cli {
     surface: Option<PathBuf>,
     overrides: Option<PathBuf>,
     definition: Option<PathBuf>,
+    definition_output: Option<PathBuf>,
     runtime: Option<PathBuf>,
     output: Option<PathBuf>,
     inventory: Option<PathBuf>,
@@ -129,7 +130,13 @@ where
     };
 
     let allowed: &[&str] = match command {
-        CommandKind::Derive => &["--openapi", "--bindings", "--surface", "--overrides"],
+        CommandKind::Derive => &[
+            "--openapi",
+            "--bindings",
+            "--surface",
+            "--overrides",
+            "--definition-output",
+        ],
         CommandKind::Generate | CommandKind::Check | CommandKind::CheckGenerated => &[
             "--openapi",
             "--bindings",
@@ -183,6 +190,7 @@ where
         surface: options.get("--surface").map(PathBuf::from),
         overrides: options.get("--overrides").map(PathBuf::from),
         definition,
+        definition_output: options.get("--definition-output").map(PathBuf::from),
         runtime: options.get("--runtime").map(PathBuf::from),
         output,
         inventory: options.get("--inventory").map(PathBuf::from),
@@ -212,7 +220,7 @@ fn inventory_json(inventory: &ApiInventory) -> Result<Vec<u8>, CliError> {
     json_bytes(inventory)
 }
 
-fn write_inventory(path: &Path, inventory: &[u8]) -> Result<(), CliError> {
+fn write_json_file(path: &Path, bytes: &[u8], kind: &str) -> Result<(), CliError> {
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
     {
@@ -220,17 +228,12 @@ fn write_inventory(path: &Path, inventory: &[u8]) -> Result<(), CliError> {
             CliError::at(
                 "cli.io",
                 parent,
-                format!("failed to create inventory directory: {error}"),
+                format!("failed to create {kind} directory: {error}"),
             )
         })?;
     }
-    fs::write(path, inventory).map_err(|error| {
-        CliError::at(
-            "cli.io",
-            path,
-            format!("failed to write API inventory: {error}"),
-        )
-    })
+    fs::write(path, bytes)
+        .map_err(|error| CliError::at("cli.io", path, format!("failed to write {kind}: {error}")))
 }
 
 fn run(cli: Cli) -> Result<i32, CliError> {
@@ -252,6 +255,9 @@ fn run(cli: Cli) -> Result<i32, CliError> {
             surface,
             overrides,
         })?;
+        if let Some(path) = &cli.definition_output {
+            write_json_file(path, &json_bytes(&derivation.definition)?, "SdkDefinition")?;
+        }
         io::stdout()
             .write_all(&json_bytes(&derivation)?)
             .map_err(|error| CliError::new("cli.io", format!("failed to write stdout: {error}")))?;
@@ -285,7 +291,7 @@ fn run(cli: Cli) -> Result<i32, CliError> {
     }
     let inventory = inventory_json(&generated.inventory)?;
     if let Some(path) = &cli.inventory {
-        write_inventory(path, &inventory)?;
+        write_json_file(path, &inventory, "API inventory")?;
     }
     io::stdout()
         .write_all(&inventory)

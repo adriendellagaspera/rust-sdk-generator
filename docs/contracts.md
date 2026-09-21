@@ -19,17 +19,21 @@ Canonical Bindings include Rust symbols, qualified paths, call shapes and, in v3
 
 A `PublicSdkSurface` entry may list multiple paths for a single source operation (for example a buffered and streaming view). Explicit `response_representations` choose among structurally supported variants; `request_overrides` and exclusions are applied only through the validated generic contract. An override of a rejected operation is an error, not a way to bypass structural validation.
 
-The report records `derived`, `overridden`, `excluded` and `rejected` with a reason for every relevant OpenAPI operation. Check it explicitly against the consumer's expected operation inventory. A successful `derive` invocation does **not** mean every source operation was generated. Extract the top-level `definition` value from the returned JSON before passing it to generation; do not pass the entire derivation object to `--definition`.
+The report records `derived`, `overridden`, `excluded` and `rejected` with a reason for every relevant OpenAPI operation. Check it explicitly against the consumer's expected operation inventory. A successful `derive` invocation does **not** mean every source operation was generated. Use `derive --definition-output FILE` to write the top-level `definition`
+while keeping the full derivation JSON on stdout. Do not pass the entire
+derivation object to `--definition`.
 
 ## CLI commands
 
 ```text
-rust-sdk-generator derive --openapi FILE --bindings FILE [--surface FILE] [--overrides FILE]
+rust-sdk-generator derive --openapi FILE --bindings FILE [--surface FILE] [--overrides FILE] [--definition-output FILE]
 rust-sdk-generator generate --openapi FILE --bindings FILE --definition FILE --output DIR [--runtime FILE] [--inventory FILE]
 rust-sdk-generator check --openapi FILE --bindings FILE --definition FILE [--runtime FILE] [--inventory FILE]
 rust-sdk-generator check-generated --openapi FILE --bindings FILE --definition FILE --output DIR [--runtime FILE]
 ```
 
-`derive` writes the derivation and report. `generate` writes generated files and prints the inventory; its optional `--inventory` writes a separate inventory file. `check` validates/compiles in memory, prints the inventory, and can write it to `--inventory`; it does not compare files on disk. `check-generated` is read-only and prints JSON arrays `missing`, `changed`, `extra` and `conflicts`; it rejects `--inventory` because that would write a file.
+`derive` prints the complete derivation and report on stdout; optional
+`--definition-output` also writes its derived `SdkDefinition` to a separate
+JSON file. `generate` writes generated files and prints the inventory; its optional `--inventory` writes a separate inventory file. `check` validates/compiles in memory, prints the inventory, and can write it to `--inventory`; it does not compare files on disk. `check-generated` is read-only and prints JSON arrays `missing`, `changed`, `extra` and `conflicts`; it rejects `--inventory` because that would write a file.
 
 Exit code 0 indicates a successful command (or a clean comparison), 1 indicates a stale `check-generated` comparison and 2 indicates a CLI/input/IO/generation failure. CLI errors are JSON objects on stderr containing `code`, `message` and `path`. For safe output-directory behavior and crash recovery, read [output publication](output.md).

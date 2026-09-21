@@ -113,6 +113,10 @@ fn cli_and_library_derive_identical_contracts() {
     })
     .expect("library derivation");
 
+    let output_dir = temp_dir();
+    fs::create_dir_all(&output_dir).expect("create definition output dir");
+    let definition_output = output_dir.join("derived-definition.json");
+
     let result = Command::new(env!("CARGO_BIN_EXE_rust-sdk-generator"))
         .args([
             "derive",
@@ -123,6 +127,8 @@ fn cli_and_library_derive_identical_contracts() {
                 .to_str()
                 .expect("utf8 path"),
         ])
+        .args(["--definition-output"])
+        .arg(&definition_output)
         .output()
         .expect("run derive CLI");
     assert!(
@@ -133,6 +139,11 @@ fn cli_and_library_derive_identical_contracts() {
     let actual: Derivation =
         serde_json::from_slice(&result.stdout).expect("machine-readable derivation");
     assert_eq!(actual, expected);
+    let saved: rust_sdk_generator::SdkDefinition =
+        serde_json::from_slice(&fs::read(&definition_output).expect("saved definition"))
+            .expect("valid SdkDefinition");
+    assert_eq!(saved, expected.definition);
+    fs::remove_dir_all(output_dir).expect("cleanup definition output");
 }
 
 #[test]
