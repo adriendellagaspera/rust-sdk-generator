@@ -731,3 +731,253 @@ fn multipart_filename_helper_requires_observable_filename_application() {
         "upload_with_multipart_filenames",
     );
 }
+
+
+const DISCRIMINATOR_TYPES: &str = r#"
+pub struct RenderRequest {
+    #[serde(rename = "live-output")]
+    pub live_output: bool,
+    pub mode: Option<String>,
+    #[serde(rename = "nullable-mode")]
+    pub nullable_mode: Option<String>,
+    pub tri: Option<Option<String>>,
+}
+pub struct RenderResult {
+    pub id: String,
+}
+"#;
+
+const FIRST_DISCRIMINATOR_BLOCK: &str = r#"        {
+            let __request_discriminator_value: bool =
+                serde_json::from_value(serde_json::Value::Bool(true))
+                    .map_err(HttpError::serialization_error)?;
+            request.live_output = __request_discriminator_value;
+        }
+"#;
+
+const DISCRIMINATOR_CLIENT: &str = r#"
+use super::types::*;
+pub struct HttpClient {
+    base_url: String,
+    api_key: Option<String>,
+    http_client: reqwest::Client,
+}
+impl HttpClient {
+    pub fn new() -> Self {
+        Self {
+            base_url: String::new(),
+            api_key: None,
+            http_client: todo!(),
+        }
+    }
+    pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
+        self.base_url = base_url.into();
+        self
+    }
+    pub fn with_api_key(mut self, api_key: impl Into<String>) -> Self {
+        self.api_key = Some(api_key.into());
+        self
+    }
+
+    /// POST /render
+    pub async fn render(&self, request: RenderRequest) -> Result<RenderResult, Error> {
+        let request_url = format!("{}{}", self.base_url, "/render");
+        let mut req = self.http_client.post(request_url);
+        let mut request = request;
+        {
+            let __request_discriminator_value: bool =
+                serde_json::from_value(serde_json::Value::Bool(true))
+                    .map_err(HttpError::serialization_error)?;
+            request.live_output = __request_discriminator_value;
+        }
+        {
+            let __request_discriminator_value: String =
+                serde_json::from_value(serde_json::Value::String("fast".to_string()))
+                    .map_err(HttpError::serialization_error)?;
+            request.mode = Some(__request_discriminator_value);
+        }
+        {
+            let __request_discriminator_value: String =
+                serde_json::from_value(serde_json::Value::String("nullable".to_string()))
+                    .map_err(HttpError::serialization_error)?;
+            request.nullable_mode = Some(__request_discriminator_value);
+        }
+        {
+            let __request_discriminator_value: String =
+                serde_json::from_value(serde_json::Value::String("tri".to_string()))
+                    .map_err(HttpError::serialization_error)?;
+            request.tri = Some(Some(__request_discriminator_value));
+        }
+        req = req.body(
+            serde_json::to_vec(&request).map_err(HttpError::serialization_error)?
+        );
+        let response = req.send().await?;
+        let status_code = response.status().as_u16();
+        let body_text = response.text().await?;
+        if status_code == 200 {
+            Ok(serde_json::from_str(&body_text)?)
+        } else {
+            todo!()
+        }
+    }
+}
+"#;
+
+const DISCRIMINATOR_OPENAPI: &str = r##"{
+  "openapi": "3.1.0",
+  "info": {"title": "discriminators", "version": "1"},
+  "paths": {
+    "/render": {
+      "post": {
+        "operationId": "render",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/RenderRequest"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/RenderResult"}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "RenderRequest": {
+        "type": "object",
+        "required": ["live-output", "nullable-mode"],
+        "properties": {
+          "live-output": {"type": "boolean"},
+          "mode": {"type": "string"},
+          "nullable-mode": {"type": ["string", "null"]},
+          "tri": {"type": ["string", "null"]}
+        }
+      },
+      "RenderResult": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {"id": {"type": "string"}}
+      }
+    }
+  }
+}"##;
+
+fn discriminator_fixture(client: &str) -> Scratch {
+    let root = Scratch::new();
+    root.file("types.rs", DISCRIMINATOR_TYPES);
+    root.file("client.rs", client);
+    root.file("openapi.json", DISCRIMINATOR_OPENAPI);
+    root
+}
+
+#[test]
+fn discriminator_evidence_proves_scope_value_type_and_field_semantics() {
+    let root = discriminator_fixture(DISCRIMINATOR_CLIENT);
+    let bindings = extract_bindings(root.path(), root.path().join("openapi.json"))
+        .expect("direct pre-serialization discriminator assignments are observable");
+    let discriminators = bindings.as_value()["operations"]["render"]["metadata"]
+        ["request_discriminators"]
+        .as_array()
+        .expect("discriminator metadata");
+    assert_eq!(discriminators.len(), 4);
+
+    assert_eq!(discriminators[0]["wire_name"], "live-output");
+    assert_eq!(discriminators[0]["rust_value_type"], "bool");
+    assert_eq!(discriminators[0]["value"], true);
+    assert_eq!(discriminators[0]["field_required"], true);
+    assert_eq!(discriminators[0]["field_nullable"], false);
+    assert_eq!(discriminators[0]["field_tri_state"], false);
+
+    assert_eq!(discriminators[1]["wire_name"], "mode");
+    assert_eq!(discriminators[1]["rust_value_type"], "String");
+    assert_eq!(discriminators[1]["field_required"], false);
+    assert_eq!(discriminators[1]["field_nullable"], false);
+    assert_eq!(discriminators[1]["field_tri_state"], false);
+
+    assert_eq!(discriminators[2]["wire_name"], "nullable-mode");
+    assert_eq!(discriminators[2]["rust_value_type"], "String");
+    assert_eq!(discriminators[2]["field_required"], true);
+    assert_eq!(discriminators[2]["field_nullable"], true);
+    assert_eq!(discriminators[2]["field_tri_state"], false);
+
+    assert_eq!(discriminators[3]["wire_name"], "tri");
+    assert_eq!(discriminators[3]["rust_value_type"], "String");
+    assert_eq!(discriminators[3]["field_required"], false);
+    assert_eq!(discriminators[3]["field_nullable"], true);
+    assert_eq!(discriminators[3]["field_tri_state"], true);
+}
+
+#[test]
+fn discriminator_evidence_rejects_unrelated_or_nested_assignments() {
+    let unrelated = DISCRIMINATOR_CLIENT.replacen(
+        "request.live_output = __request_discriminator_value;",
+        "other.live_output = __request_discriminator_value;",
+        1,
+    );
+    let root = discriminator_fixture(&unrelated);
+    assert_extract_error(
+        &root,
+        "extract.request_discriminator_unproven",
+        "render",
+    );
+
+    let nested = DISCRIMINATOR_CLIENT.replacen(
+        "request.live_output = __request_discriminator_value;",
+        "request.options.live_output = __request_discriminator_value;",
+        1,
+    );
+    let root = discriminator_fixture(&nested);
+    assert_extract_error(
+        &root,
+        "extract.request_discriminator_unproven",
+        "nested discriminator path",
+    );
+}
+
+#[test]
+fn discriminator_evidence_rejects_conditional_or_post_serialization_mutation() {
+    let conditional_block = FIRST_DISCRIMINATOR_BLOCK
+        .replace("        {\n", "        if true {\n", 1);
+    let conditional = DISCRIMINATOR_CLIENT.replacen(
+        FIRST_DISCRIMINATOR_BLOCK,
+        &conditional_block,
+        1,
+    );
+    let root = discriminator_fixture(&conditional);
+    assert_extract_error(
+        &root,
+        "extract.request_discriminator_unproven",
+        "outside a direct generated assignment block",
+    );
+
+    let moved = DISCRIMINATOR_CLIENT
+        .replacen(FIRST_DISCRIMINATOR_BLOCK, "", 1)
+        .replacen(
+            r#"        req = req.body(
+            serde_json::to_vec(&request).map_err(HttpError::serialization_error)?
+        );
+"#,
+            &format!(
+                r#"        req = req.body(
+            serde_json::to_vec(&request).map_err(HttpError::serialization_error)?
+        );
+{FIRST_DISCRIMINATOR_BLOCK}"#
+            ),
+            1,
+        );
+    let root = discriminator_fixture(&moved);
+    assert_extract_error(
+        &root,
+        "extract.request_discriminator_unproven",
+        "before serialization",
+    );
+}
