@@ -1,4 +1,4 @@
-use openapi_to_rust_bindings::{RepresentationEvidence, inspect_semantics};
+use openapi_to_rust_bindings::{RepresentationEvidence, extract_bindings, inspect_semantics};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -36,12 +36,22 @@ pub struct Inventory {
 "#;
 
 const CLIENT: &str = r#"
+use super::types::*;
 pub struct HttpClient {
     base_url: String,
+    api_key: Option<String>,
     http_client: reqwest::Client,
 }
 impl HttpClient {
     pub fn new() -> Self { todo!() }
+    pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
+        self.base_url = base_url.into();
+        self
+    }
+    pub fn with_api_key(mut self, api_key: impl Into<String>) -> Self {
+        self.api_key = Some(api_key.into());
+        self
+    }
 
     /// GET /inventory/{id}
     pub async fn fetch_inventory_without_naming_shortcut(
@@ -170,6 +180,41 @@ fn exact_route_and_body_evidence_select_the_emitted_representation() {
     let delete = &evidence.operations["delete_inventory"];
     assert_eq!(delete.representation, RepresentationEvidence::Empty);
     assert!(evidence.unsupported_stream_methods.is_empty());
+}
+
+#[test]
+fn proved_non_streaming_semantics_normalize_to_bindings_v3() {
+    let root = fixture(CLIENT);
+    let bindings = extract_bindings(root.path(), root.path().join("openapi.json"))
+        .expect("canonical bindings");
+    let value = bindings.as_value();
+
+    assert_eq!(value["schema_version"], 3);
+    assert_eq!(
+        value["binding"]["client"]["type_path"],
+        "crate::generated::client::HttpClient"
+    );
+    assert_eq!(
+        value["operations"]["fetch_inventory_without_naming_shortcut"]["metadata"]
+            ["source_operation"]["operation_id"],
+        "fetchInventoryWithoutNamingShortcut"
+    );
+    assert_eq!(
+        value["operations"]["render_inventory"]["metadata"]["representation"]["kind"],
+        "json"
+    );
+    assert_eq!(
+        value["operations"]["delete_inventory"]["metadata"]["representation"]["kind"],
+        "empty"
+    );
+    assert_eq!(
+        value["operations"]["render_inventory"]["metadata"]["success_statuses"],
+        serde_json::json!([])
+    );
+    assert_eq!(
+        value["symbol_paths"]["Inventory"],
+        "crate::generated::types::Inventory"
+    );
 }
 
 #[test]
