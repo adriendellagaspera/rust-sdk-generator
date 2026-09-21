@@ -37,8 +37,14 @@ jobs:
           set -euo pipefail
           cargo fmt --all
           for file in \
+            examples/independent-sdk/quickstart.rs \
             openapi-to-rust-bindings/src/details.rs \
-            openapi-to-rust-bindings/src/extract.rs
+            openapi-to-rust-bindings/src/extract.rs \
+            openapi-to-rust-bindings/src/lib.rs \
+            openapi-to-rust-bindings/src/main.rs \
+            openapi-to-rust-bindings/src/rust_type.rs \
+            openapi-to-rust-bindings/src/semantic.rs \
+            openapi-to-rust-bindings/tests/semantic.rs
           do
             echo "__RUSTFMT_BEGIN__$file"
             base64 -w0 "$file"
