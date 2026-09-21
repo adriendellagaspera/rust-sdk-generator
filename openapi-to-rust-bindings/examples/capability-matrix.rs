@@ -320,6 +320,61 @@ fn observe_backend(raw: &Path, spec: &Path) -> Result<BackendState> {
     })
 }
 
+// Keep the five capability questions adjacent for each source operation.
+// An unproved source identity is *not* evidence that the raw method is absent.
+fn source_observation(declaration: &Value, backend: &BackendState) -> Value {
+    let operation_id = &declaration["operation_id"];
+    let method = &declaration["method"];
+    let path = &declaration["path"];
+    let semantic_operations = backend.report["semantic"]["evidence"]["operations"].as_object();
+    let raw_methods = semantic_operations.map(|operations| {
+        operations
+            .iter()
+            .filter(|(_, evidence)| {
+                evidence["source_operation"]["operation_id"] == *operation_id
+                    && evidence["source_operation"]["method"] == *method
+                    && evidence["source_operation"]["path"] == *path
+            })
+            .map(|(name, evidence)| json!({"rust_method": name, "evidence": evidence}))
+            .collect::<Vec<_>>()
+    });
+    let bindings = backend.bindings.as_ref().map(|bindings| {
+        bindings["operations"]
+            .as_object()
+            .into_iter()
+            .flat_map(|operations| operations.iter())
+            .filter(|(_, operation)| {
+                operation["metadata"]["source_operation"]["operation_id"] == *operation_id
+                    && operation["metadata"]["source_operation"]["method"] == *method
+                    && operation["metadata"]["source_operation"]["path"] == *path
+            })
+            .map(|(name, operation)| (name.clone(), operation.clone()))
+            .collect::<BTreeMap<_, _>>()
+    });
+    let supported = backend.diagnostic.is_none()
+        && raw_methods.as_ref().is_some_and(|methods| !methods.is_empty())
+        && bindings.as_ref().is_some_and(|bindings| !bindings.is_empty());
+    let diagnostic = if let Some(diagnostic) = &backend.diagnostic {
+        Some(diagnostic.clone())
+    } else if raw_methods.as_ref().is_some_and(Vec::is_empty) {
+        Some("raw.source_operation_not_emitted".to_owned())
+    } else {
+        None
+    };
+    json!({
+        "raw_backend": {
+            "emitted": raw_methods.as_ref().map(|methods| !methods.is_empty()),
+            "methods": raw_methods,
+        },
+        "adapter": {
+            "proven": supported,
+            "diagnostic": diagnostic,
+        },
+        "bindings_v3": bindings,
+        "supported": supported,
+    })
+}
+
 fn operation_matches(operation: &Value, operation_id: &str, selector: &Value) -> bool {
     let metadata = &operation["metadata"];
     if metadata["source_operation"]["operation_id"].as_str() != Some(operation_id) {
@@ -569,9 +624,20 @@ fn main_inner() -> Result<()> {
             json!({"proved": false, "reason": "not equivalent or upstream shape rejected"})
         };
 
+        let operations = declarations
+            .iter()
+            .map(|declaration| {
+                json!({
+                    "openapi": declaration,
+                    "upstream": source_observation(declaration, &upstream),
+                    "fork_oracle": source_observation(declaration, &fork),
+                })
+            })
+            .collect::<Vec<_>>();
         scenario_reports.insert(
             id.to_owned(),
             json!({
+                "operations": operations,
                 "openapi": declarations,
                 "upstream": upstream.report,
                 "fork_oracle": {
