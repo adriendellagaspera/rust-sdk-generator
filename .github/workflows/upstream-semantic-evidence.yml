@@ -152,6 +152,25 @@ jobs:
           cargo check --manifest-path "$consumer/Cargo.toml" --all-targets
           echo "Unmodified upstream -> Bindings v3 -> generated standalone facade: compiled."
 
+      - name: Generate generic unmodified-upstream call-shape matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture="$RUNNER_TEMP/upstream-call-shapes"
+          cp -R "$PWD/openapi-to-rust-bindings/tests/fixtures/call-shape-matrix" "$fixture"
+          (
+            cd "$fixture"
+            "$RUNNER_TEMP/upstream-target/debug/openapi-to-rust" generate --config compat.toml
+          )
+          test -f "$fixture/raw/client.rs"
+          test -f "$fixture/raw/types.rs"
+          test ! -e "$fixture/raw/binding-manifest.json"
+
+          cargo run --locked -p openapi-to-rust-bindings --example call_shape_matrix -- \
+            "$fixture/raw" "$RUNNER_TEMP/call-shape-consumer" "$RUNNER_TEMP/capabilities-v1.json"
+          echo "Versioned capability matrix backed by actual generated methods:"
+          cat "$RUNNER_TEMP/capabilities-v1.json"
+
       - name: Checkout immutable fork oracle
         shell: bash
         run: |
