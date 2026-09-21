@@ -4,7 +4,9 @@
 //! generated Rust through the real adapter, compares the fork manifest oracle,
 //! and emits one deterministic JSON report suitable for compatibility diffs.
 
-use openapi_to_rust_bindings::{extract_bindings, inspect_generated, inspect_semantics, read_bindings};
+use openapi_to_rust_bindings::{
+    extract_bindings, inspect_generated, inspect_semantics, read_bindings,
+};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 use std::env;
@@ -55,7 +57,10 @@ fn compact_type(value: &str) -> String {
 }
 
 fn normalize_oracle_types(bindings: &mut Value) {
-    let Some(operations) = bindings.get_mut("operations").and_then(Value::as_object_mut) else {
+    let Some(operations) = bindings
+        .get_mut("operations")
+        .and_then(Value::as_object_mut)
+    else {
         return;
     };
     for operation in operations.values_mut() {
@@ -92,8 +97,7 @@ fn first_difference(left: &Value, right: &Value, path: &str) -> Option<String> {
             for key in keys {
                 match (left.get(key), right.get(key)) {
                     (Some(left), Some(right)) => {
-                        if let Some(diff) =
-                            first_difference(left, right, &format!("{path}.{key}"))
+                        if let Some(diff) = first_difference(left, right, &format!("{path}.{key}"))
                         {
                             return Some(diff);
                         }
@@ -111,9 +115,7 @@ fn first_difference(left: &Value, right: &Value, path: &str) -> Option<String> {
         }
         (Value::Array(left), Value::Array(right)) if left.len() == right.len() => {
             for (index, (left, right)) in left.iter().zip(right).enumerate() {
-                if let Some(diff) =
-                    first_difference(left, right, &format!("{path}[{index}]"))
-                {
+                if let Some(diff) = first_difference(left, right, &format!("{path}[{index}]")) {
                     return Some(diff);
                 }
             }
@@ -178,7 +180,9 @@ fn operation_declarations(spec: &Value) -> Result<Vec<Value>> {
         .ok_or("capability.invalid_fixture: OpenAPI paths must be an object")?;
     let mut declarations = Vec::new();
     for (path, item) in paths {
-        let Some(item) = item.as_object() else { continue };
+        let Some(item) = item.as_object() else {
+            continue;
+        };
         for (verb, operation) in item {
             let method = verb.to_ascii_uppercase();
             if !matches!(
@@ -448,9 +452,7 @@ fn compare_supported_subset(upstream: &Value, fork: &Value) -> Result<Vec<String
         upstream_operation = upstream_wrapper["operations"][name].clone();
         fork_operation = fork_wrapper["operations"][name].clone();
         if let Some(diff) = first_difference(&upstream_operation, &fork_operation, "$") {
-            return Err(format!(
-                "capability.cross_backend_mismatch: {name}: {diff}"
-            ));
+            return Err(format!("capability.cross_backend_mismatch: {name}: {diff}"));
         }
         matched.push(name.clone());
     }
@@ -483,15 +485,11 @@ fn main_inner() -> Result<()> {
             ));
         };
         if target.is_some() {
-            return Err(format!(
-                "duplicate option {}",
-                argument.to_string_lossy()
-            ));
+            return Err(format!("duplicate option {}", argument.to_string_lossy()));
         }
-        *target = Some(PathBuf::from(
-            args.next()
-                .ok_or_else(|| format!("missing value for {}", argument.to_string_lossy()))?,
-        ));
+        *target = Some(PathBuf::from(args.next().ok_or_else(|| {
+            format!("missing value for {}", argument.to_string_lossy())
+        })?));
     }
 
     let matrix_path = matrix_path.ok_or("missing --matrix")?;
@@ -580,7 +578,13 @@ fn main_inner() -> Result<()> {
                 "cross_backend_parity": cross_backend,
             }),
         );
-        states.insert(id.to_owned(), ScenarioState { upstream, fork_oracle: fork });
+        states.insert(
+            id.to_owned(),
+            ScenarioState {
+                upstream,
+                fork_oracle: fork,
+            },
+        );
     }
 
     let capabilities = matrix
@@ -604,9 +608,9 @@ fn main_inner() -> Result<()> {
         let selector = capability
             .get("selector")
             .ok_or("capability.invalid_matrix: capability.selector")?;
-        let state = states.get(scenario).ok_or_else(|| {
-            format!("capability.invalid_matrix: unknown scenario {scenario:?}")
-        })?;
+        let state = states
+            .get(scenario)
+            .ok_or_else(|| format!("capability.invalid_matrix: unknown scenario {scenario:?}"))?;
         let upstream = capability_status(id, operation_id, selector, &state.upstream);
         let fork = capability_status(id, operation_id, selector, &state.fork_oracle);
         assert_expected(
