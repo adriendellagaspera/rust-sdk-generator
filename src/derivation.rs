@@ -712,41 +712,52 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
             }
         };
         if let Some(operation_override) = overrides.operations.get(&operation_id) {
-            if outcome.status != DerivationStatus::Derived {
-                return Err(DerivationError::at(
-                    "overrides.unapplied",
-                    format!("overrides.operations.{operation_id}"),
-                    format!(
-                        "operation {operation_id} could not accept overrides because generic derivation ended as {:?} ({})",
-                        outcome.status, outcome.reason.code
-                    ),
-                ));
-            }
-            apply_operation_override(
-                &index,
-                &bindings,
-                &mut definition,
-                &operation_id,
-                operation_override,
-            )?;
-            outcome.status = DerivationStatus::Overridden;
-            outcome.reason = DerivationReason {
-                code: if operation_override.response_representations.is_empty() {
-                    "override.request_overrides"
-                } else {
-                    "override.response_representations"
+            if outcome.status == DerivationStatus::Rejected {
+                let unapplied = format!(
+                    "configured override was not applied because generic derivation rejected the operation ({})",
+                    outcome.reason.code
+                );
+                outcome.reason.detail = Some(match outcome.reason.detail.take() {
+                    Some(detail) => format!("{detail}; {unapplied}"),
+                    None => unapplied,
+                });
+            } else {
+                if outcome.status != DerivationStatus::Derived {
+                    return Err(DerivationError::at(
+                        "overrides.unapplied",
+                        format!("overrides.operations.{operation_id}"),
+                        format!(
+                            "operation {operation_id} could not accept overrides because generic derivation ended as {:?} ({})",
+                            outcome.status, outcome.reason.code
+                        ),
+                    ));
                 }
-                .into(),
-                detail: Some(
-                    operation_override
-                        .request_overrides
-                        .keys()
-                        .chain(operation_override.response_representations.keys())
-                        .cloned()
-                        .collect::<Vec<_>>()
-                        .join(","),
-                ),
-            };
+                apply_operation_override(
+                    &index,
+                    &bindings,
+                    &mut definition,
+                    &operation_id,
+                    operation_override,
+                )?;
+                outcome.status = DerivationStatus::Overridden;
+                outcome.reason = DerivationReason {
+                    code: if operation_override.response_representations.is_empty() {
+                        "override.request_overrides"
+                    } else {
+                        "override.response_representations"
+                    }
+                    .into(),
+                    detail: Some(
+                        operation_override
+                            .request_overrides
+                            .keys()
+                            .chain(operation_override.response_representations.keys())
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join(","),
+                    ),
+                };
+            }
         }
         operations.insert(operation_id, outcome);
     }
@@ -877,6 +888,44 @@ mod tests {
         .expect_err("empty operationId must fail closed");
 
         assert_eq!(error.diagnostic.code, "openapi.operation_id_required");
+    }
+
+    #[test]
+    fn rejected_override_target_remains_in_exhaustive_report() {
+        let mut overrides = SdkOverrides::default();
+        overrides.operations.insert(
+            "create_widget".into(),
+            OperationOverride {
+                request_overrides: BTreeMap::from([("stream".into(), Some(true))]),
+                ..OperationOverride::default()
+            },
+        );
+
+        let derivation = derive(DeriveInput {
+            openapi: openapi(),
+            bindings: bindings(),
+            surface: PublicSdkSurface::default(),
+            overrides,
+        })
+        .expect("rejected override target must remain reportable");
+
+        assert_eq!(derivation.report.operations.len(), 2);
+        let outcome = &derivation.report.operations["create_widget"];
+        assert_eq!(outcome.status, DerivationStatus::Rejected);
+        assert_ne!(outcome.reason.code, "overrides.unapplied");
+        assert!(
+            outcome
+                .reason
+                .detail
+                .as_deref()
+                .is_some_and(|detail| detail.contains("configured override was not applied"))
+        );
+        assert!(derivation.definition.resources.values().all(|resource| {
+            resource
+                .operations
+                .values()
+                .all(|operation| operation.operation_id != "create_widget")
+        }));
     }
 
     #[test]
