@@ -255,8 +255,13 @@ fn analyzer_or_base_method_rename_fails_when_emitted_id_is_not_provable() {
 
 
 #[test]
-fn duplicate_source_operation_ids_fail_closed() {
-    let root = fixture(CLIENT);
+fn duplicate_source_operation_ids_recover_the_backend_emitted_id() {
+    let client = CLIENT.replacen(
+        "render_inventory(&self)",
+        "fetch_inventory_without_naming_shortcut_post(&self)",
+        1,
+    );
+    let root = fixture(&client);
     let mut openapi: serde_json::Value = serde_json::from_str(OPENAPI).expect("fixture JSON");
     openapi["paths"]["/render"]["post"]["operationId"] =
         serde_json::Value::String("fetchInventoryWithoutNamingShortcut".into());
@@ -264,13 +269,18 @@ fn duplicate_source_operation_ids_fail_closed() {
         "openapi.json",
         &serde_json::to_string_pretty(&openapi).expect("serialize OpenAPI"),
     );
-    let error = inspect_semantics(root.path(), root.path().join("openapi.json"))
-        .expect_err("duplicate operation IDs must be rejected");
-    assert!(
-        error
-            .to_string()
-            .contains("extract.openapi_operation_id_duplicate")
+    let evidence = inspect_semantics(root.path(), root.path().join("openapi.json"))
+        .expect("backend duplicate-ID allocation is observable from the emitted base method");
+    let duplicate = &evidence.operations["fetch_inventory_without_naming_shortcut_post"];
+    assert_eq!(
+        duplicate.source_operation.operation_id,
+        "fetchInventoryWithoutNamingShortcut"
     );
+    assert_eq!(
+        duplicate.emitted_operation_id,
+        "fetchInventoryWithoutNamingShortcut_post"
+    );
+    assert_eq!(duplicate.rust_method_name, "fetch_inventory_without_naming_shortcut_post");
 }
 
 #[test]
