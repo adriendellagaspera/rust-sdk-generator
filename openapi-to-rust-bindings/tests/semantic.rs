@@ -413,6 +413,44 @@ fn client_constructor_signature_must_match_the_facade_contract() {
 }
 
 #[test]
+fn client_constructor_must_return_a_provable_client_state() {
+    let client = CLIENT.replacen(
+        r#"    pub fn new() -> Self {
+        Self {
+            base_url: String::new(),
+            api_key: None,
+            http_client: todo!(),
+        }
+    }
+"#,
+        "    pub fn new() -> Self { todo!() }\n",
+        1,
+    );
+    let root = fixture(&client);
+    assert_extract_error(&root, "extract.client_layout_unproven", "::new");
+}
+
+#[test]
+fn client_builders_must_accept_the_facade_forwarded_into_string_value() {
+    for (signature, replacement, method) in [
+        (
+            "with_base_url(mut self, base_url: impl Into<String>)",
+            "with_base_url(mut self, base_url: String)",
+            "with_base_url",
+        ),
+        (
+            "with_api_key(mut self, api_key: impl Into<String>)",
+            "with_api_key(mut self, api_key: String)",
+            "with_api_key",
+        ),
+    ] {
+        let client = CLIENT.replacen(signature, replacement, 1);
+        let root = fixture(&client);
+        assert_extract_error(&root, "extract.client_layout_unproven", method);
+    }
+}
+
+#[test]
 fn base_url_builder_must_mutate_the_returned_base_url_state() {
     let client = CLIENT.replacen(
         "self.base_url = base_url.into();",
@@ -944,6 +982,37 @@ fn discriminator_evidence_rejects_unrelated_or_nested_assignments() {
 }
 
 #[test]
+fn discriminator_evidence_rejects_wrong_value_type_and_duplicate_target() {
+    let wrong_type = DISCRIMINATOR_CLIENT.replacen(
+        "let __request_discriminator_value: bool =",
+        "let __request_discriminator_value: String =",
+        1,
+    );
+    let root = discriminator_fixture(&wrong_type);
+    assert_extract_error(
+        &root,
+        "extract.request_discriminator_unproven",
+        "assigned value type",
+    );
+
+    let duplicate_block = FIRST_DISCRIMINATOR_BLOCK.replace(
+        "serde_json::Value::Bool(true)",
+        "serde_json::Value::Bool(false)",
+    );
+    let duplicate = DISCRIMINATOR_CLIENT.replacen(
+        FIRST_DISCRIMINATOR_BLOCK,
+        &format!("{FIRST_DISCRIMINATOR_BLOCK}{duplicate_block}"),
+        1,
+    );
+    let root = discriminator_fixture(&duplicate);
+    assert_extract_error(
+        &root,
+        "extract.request_discriminator_unproven",
+        "more than once",
+    );
+}
+
+#[test]
 fn discriminator_evidence_rejects_conditional_or_post_serialization_mutation() {
     let conditional_block = FIRST_DISCRIMINATOR_BLOCK
         .replacen("        {\n", "        if true {\n", 1);
@@ -1079,6 +1148,16 @@ fn owned_native_and_wasm_stream_aliases_are_proved_exactly() {
     assert_eq!(stream["item_type"], "bytes::Bytes");
     assert_eq!(stream["error_type"], "reqwest::Error");
     assert_eq!(stream["lifetime"], "'static");
+}
+
+#[test]
+fn emitted_stream_representation_must_exist_in_the_selected_source_response() {
+    let root = stream_alias_fixture(NATIVE_STREAM, Some(WASM_STREAM));
+    root.file(
+        "openapi.json",
+        &STREAM_ALIAS_OPENAPI.replace("text/event-stream", "application/json"),
+    );
+    assert_extract_error(&root, "extract.representation_unproven", "events");
 }
 
 #[test]
