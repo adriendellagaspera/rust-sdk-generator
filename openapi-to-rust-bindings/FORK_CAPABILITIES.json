@@ -62,7 +62,7 @@
       "regression_evidence": [
         "openapi-to-rust/tests/client_multipart_capabilities_test.rs",
         "cargo test --test client_multipart_capabilities_test",
-        "rust-sdk-generator/.github/workflows/fork-manifest-removal-evidence.yml: pinned upstream/fork generated-Rust differential, openapi-to-rust-bindings/tests/fixtures/fork-producer-delta/openapi.json"
+        "rust-sdk-generator/.github/workflows/fork-manifest-removal-evidence.yml: pinned upstream/fork generated-Rust differential, openapi-to-rust-bindings/tests/producer-delta/openapi.json"
       ]
     },
     {
@@ -89,7 +89,7 @@
       "regression_evidence": [
         "openapi-to-rust/tests/client_multipart_capabilities_test.rs",
         "rust-sdk-generator/openapi-to-rust-bindings/tests/semantic.rs",
-        "rust-sdk-generator/.github/workflows/fork-manifest-removal-evidence.yml: pinned upstream/fork generated-Rust differential, openapi-to-rust-bindings/tests/fixtures/fork-producer-delta/openapi.json"
+        "rust-sdk-generator/.github/workflows/fork-manifest-removal-evidence.yml: pinned upstream/fork generated-Rust differential, openapi-to-rust-bindings/tests/producer-delta/openapi.json"
       ]
     },
     {
@@ -254,7 +254,7 @@
       "disposition": "upstream",
       "regression_evidence": [
         "openapi-to-rust/tests/client_param_enum_collision_test.rs",
-        "rust-sdk-generator/.github/workflows/fork-manifest-removal-evidence.yml: pinned upstream/fork generated-Rust differential, openapi-to-rust-bindings/tests/fixtures/fork-producer-delta/openapi.json"
+        "rust-sdk-generator/.github/workflows/fork-manifest-removal-evidence.yml: pinned upstream/fork generated-Rust differential, openapi-to-rust-bindings/tests/producer-delta/openapi.json"
       ]
     },
     {
