@@ -34,7 +34,7 @@ jobs:
         run: |
           set -euo pipefail
           before=9fee7af67c05d896da86e41d326b067312120c53
-          after=058c88120f7a7ce287a7c8c839878802999b384d
+          after=31ffd632db425666eef7bb559e4d042790a86e82
           for pair in "before:$before" "after:$after"; do
             name="${pair%%:*}"
             sha="${pair#*:}"
@@ -75,6 +75,63 @@ jobs:
             diff -u "$RUNNER_TEMP/before-fixture/raw/$file" "$RUNNER_TEMP/after-fixture/raw/$file"
           done
           echo "Manifest removal leaves representative ordinary Rust byte-for-byte unchanged."
+
+      - name: Reproduce fork-only multipart and enum output against unmodified upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          upstream=5a3487edbe27cfd4efb32dda893774e23d7fa195
+          git init "$RUNNER_TEMP/openapi-upstream"
+          git -C "$RUNNER_TEMP/openapi-upstream" remote add origin https://github.com/gpu-cli/openapi-to-rust.git
+          git -C "$RUNNER_TEMP/openapi-upstream" fetch --depth=1 origin "$upstream"
+          git -C "$RUNNER_TEMP/openapi-upstream" checkout --detach FETCH_HEAD
+          test "$(git -C "$RUNNER_TEMP/openapi-upstream" rev-parse HEAD)" = "$upstream"
+          CARGO_TARGET_DIR="$RUNNER_TEMP/upstream-target" cargo build --locked \
+            --manifest-path "$RUNNER_TEMP/openapi-upstream/Cargo.toml" --bin openapi-to-rust
+
+          spec="$PWD/openapi-to-rust-bindings/tests/fixtures/fork-producer-delta/openapi.json"
+          for variant in upstream before after; do
+            case "$variant" in
+              upstream) executable="$RUNNER_TEMP/upstream-target/debug/openapi-to-rust" ;;
+              before) executable="$RUNNER_TEMP/before-target/debug/openapi-to-rust" ;;
+              after) executable="$RUNNER_TEMP/after-target/debug/openapi-to-rust" ;;
+            esac
+            "$executable" generate "$spec" \
+              --output-dir "$RUNNER_TEMP/delta-$variant" --module-name raw_delta --quiet
+            test -f "$RUNNER_TEMP/delta-$variant/client.rs"
+            test -f "$RUNNER_TEMP/delta-$variant/types.rs"
+          done
+
+          # Actual emitted methods/encoders are the evidence, not the OpenAPI declarations.
+          grep -F 'form = form.text("labels", item.to_string());' "$RUNNER_TEMP/delta-after/client.rs"
+          ! grep -F 'form = form.text("labels", item.to_string());' "$RUNNER_TEMP/delta-upstream/client.rs"
+          grep -F 'pub async fn create_upload_with_multipart_filenames(' "$RUNNER_TEMP/delta-after/client.rs"
+          ! grep -F 'pub async fn create_upload_with_multipart_filenames(' "$RUNNER_TEMP/delta-upstream/client.rs"
+          grep -F 'Created2' "$RUNNER_TEMP/delta-after/client.rs"
+          grep -F 'Created_2' "$RUNNER_TEMP/delta-upstream/client.rs"
+
+          for file in client.rs types.rs mod.rs REQUIRED_DEPS.toml; do
+            diff -u "$RUNNER_TEMP/delta-before/$file" "$RUNNER_TEMP/delta-after/$file"
+          done
+
+          # The fork's emitted Rust, including the multipart edge cases, must compile.
+          consumer="$RUNNER_TEMP/delta-consumer"
+          mkdir -p "$consumer/src/generated"
+          cp "$RUNNER_TEMP/delta-after/"*.rs "$consumer/src/generated/"
+          printf 'pub mod generated;\n' > "$consumer/src/lib.rs"
+          {
+            echo '[package]'
+            echo 'name = "fork-producer-delta-proof"'
+            echo 'version = "0.0.0"'
+            echo 'edition = "2024"'
+            echo 'publish = false'
+            echo ''
+            echo '[workspace]'
+            echo ''
+            cat "$RUNNER_TEMP/delta-after/REQUIRED_DEPS.toml"
+          } > "$consumer/Cargo.toml"
+          cargo check --manifest-path "$consumer/Cargo.toml" --all-targets
+          echo "Pinned upstream omits proven fork raw features; pre/post-removal fork raw output is identical and compiles."
 
       - name: Compare old manifest oracle with post-removal manifest-free extraction
         shell: bash
