@@ -182,33 +182,11 @@ fn stream_abi(
     }))
 }
 
-#[derive(Default)]
-struct IdentUse {
-    target: String,
-    count: usize,
-}
-
-impl<'ast> Visit<'ast> for IdentUse {
-    fn visit_expr_path(&mut self, node: &'ast syn::ExprPath) {
-        if node.path.is_ident(&self.target) {
-            self.count += 1;
-        }
-        visit::visit_expr_path(self, node);
-    }
-}
-
-fn ident_used(block: &syn::Block, target: &str) -> bool {
-    let mut visitor = IdentUse {
-        target: target.to_owned(),
-        count: 0,
-    };
-    visitor.visit_block(block);
-    visitor.count > 0
-}
-
 fn multipart_kind(
-    method: &syn::ImplItemFn,
     structural_method: &crate::structural::MethodEvidence,
+    openapi: &Value,
+    source_method: &str,
+    source_path: &str,
 ) -> Result<OperationKindEvidence, Error> {
     let matches: Vec<_> = structural_method
         .parameters
@@ -218,17 +196,19 @@ fn multipart_kind(
     if matches.is_empty() {
         return Ok(OperationKindEvidence::CallShape);
     }
-    if matches.len() != 1 || compact(&matches[0].rust_type) != "&[(&str,&str)]" {
-        return Err(failure(
-            "extract.multipart_helper_unproven",
-            &structural_method.name,
-        ));
-    }
-    if !ident_used(&method.block, "multipart_filenames") {
+    let source_is_multipart = operation_value(openapi, source_method, source_path)?
+        .get("requestBody")
+        .and_then(|body| body.get("content"))
+        .and_then(Value::as_object)
+        .is_some_and(|content| content.contains_key("multipart/form-data"));
+    if !source_is_multipart
+        || matches.len() != 1
+        || compact(&matches[0].rust_type) != "&[(&str,&str)]"
+    {
         return Err(failure(
             "extract.multipart_helper_unproven",
             format!(
-                "{} does not use multipart_filenames",
+                "{}: multipart filename parameter is not corroborated by the source multipart operation",
                 structural_method.name
             ),
         ));
@@ -676,7 +656,12 @@ pub(crate) fn inspect_details(
         output.insert(
             name.clone(),
             OperationDetails {
-                kind: multipart_kind(method, signature)?,
+                kind: multipart_kind(
+                    signature,
+                    &openapi,
+                    &operation.source_operation.method,
+                    &operation.source_operation.path,
+                )?,
                 stream,
                 request_discriminators: request_discriminators(
                     method,
