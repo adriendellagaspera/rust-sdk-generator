@@ -242,6 +242,7 @@ fn tail_expression(block: &syn::Block) -> Option<&Expr> {
 }
 
 fn constructor_fields(
+    client_type: &str,
     method_name: &str,
     method: &syn::ImplItemFn,
     functions: &BTreeMap<String, &syn::ImplItemFn>,
@@ -250,7 +251,7 @@ fn constructor_fields(
     if !visiting.insert(method_name.to_owned()) {
         return Err(failure(
             "extract.client_layout_unproven",
-            format!("{method_name}: recursive constructor delegation"),
+            format!("{client_type}::{method_name}: recursive constructor delegation"),
         ));
     }
     let result = (|| {
@@ -258,7 +259,7 @@ fn constructor_fields(
             failure(
                 "extract.client_layout_unproven",
                 format!(
-                    "{method_name}: constructor does not return a directly provable client state"
+                    "{client_type}::{method_name}: constructor does not return a directly provable client state"
                 ),
             )
         })?;
@@ -275,21 +276,25 @@ fn constructor_fields(
                 let Expr::Path(path) = &*call.func else {
                     return Err(failure(
                         "extract.client_layout_unproven",
-                        format!("{method_name}: unsupported constructor delegation"),
+                        format!("{client_type}::{method_name}: unsupported constructor delegation"),
                     ));
                 };
                 let segments: Vec<_> = path.path.segments.iter().collect();
                 if segments.len() != 2 || segments[0].ident != "Self" {
                     return Err(failure(
                         "extract.client_layout_unproven",
-                        format!("{method_name}: constructor delegation must target Self::<method>"),
+                        format!(
+                            "{client_type}::{method_name}: constructor delegation must target Self::<method>"
+                        ),
                     ));
                 }
                 let delegated = segments[1].ident.to_string();
                 let target = functions.get(&delegated).ok_or_else(|| {
                     failure(
                         "extract.client_layout_unproven",
-                        format!("{method_name}: delegated constructor {delegated} is not a public client method"),
+                        format!(
+                            "{client_type}::{method_name}: delegated constructor {delegated} is not a public client method"
+                        ),
                     )
                 })?;
                 if target.sig.receiver().is_some()
@@ -300,15 +305,15 @@ fn constructor_fields(
                     return Err(failure(
                         "extract.client_layout_unproven",
                         format!(
-                            "{method_name}: delegated constructor {delegated} has an incompatible signature"
+                            "{client_type}::{method_name}: delegated constructor {delegated} has an incompatible signature"
                         ),
                     ));
                 }
-                constructor_fields(&delegated, target, functions, visiting)
+                constructor_fields(client_type, &delegated, target, functions, visiting)
             }
             _ => Err(failure(
                 "extract.client_layout_unproven",
-                format!("{method_name}: unsupported constructor return expression"),
+                format!("{client_type}::{method_name}: unsupported constructor return expression"),
             )),
         }
     })();
@@ -526,7 +531,13 @@ pub(crate) fn prove_client_layout(
             ),
         ));
     }
-    let fields = constructor_fields("new", constructor, &functions, &mut BTreeSet::new())?;
+    let fields = constructor_fields(
+        &structural.client.path,
+        "new",
+        constructor,
+        &functions,
+        &mut BTreeSet::new(),
+    )?;
     for required in ["base_url", "api_key"] {
         if !fields.contains(required) {
             return Err(failure(
