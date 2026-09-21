@@ -166,12 +166,15 @@ fn conservative_snake_case(value: &str) -> Option<String> {
     for (index, ch) in chars.iter().copied().enumerate() {
         if ch.is_ascii_alphanumeric() {
             if ch.is_ascii_uppercase() {
-                let previous = index.checked_sub(1).and_then(|position| chars.get(position)).copied();
+                let previous = index
+                    .checked_sub(1)
+                    .and_then(|position| chars.get(position))
+                    .copied();
                 let next = chars.get(index + 1).copied();
-                let boundary = previous.is_some_and(|value| {
-                    value.is_ascii_lowercase() || value.is_ascii_digit()
-                }) || (previous.is_some_and(|value| value.is_ascii_uppercase())
-                    && next.is_some_and(|value| value.is_ascii_lowercase()));
+                let boundary = previous
+                    .is_some_and(|value| value.is_ascii_lowercase() || value.is_ascii_digit())
+                    || (previous.is_some_and(|value| value.is_ascii_uppercase())
+                        && next.is_some_and(|value| value.is_ascii_lowercase()));
                 if boundary && !output.ends_with('_') {
                     output.push('_');
                 }
@@ -454,12 +457,9 @@ fn success_media(operation: &OpenApiOperation) -> Result<Vec<(String, Value)>, E
             continue;
         };
         for (media_type, value) in content {
-            if !media
-                .iter()
-                .any(|(existing_type, existing_value)| {
-                    existing_type == media_type && existing_value == value
-                })
-            {
+            if !media.iter().any(|(existing_type, existing_value)| {
+                existing_type == media_type && existing_value == value
+            }) {
                 media.push((media_type.clone(), value.clone()));
             }
         }
