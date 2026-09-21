@@ -204,7 +204,7 @@ jobs:
           # Normalize *only* these Rust type spellings; all other Bindings
           # fields, including the stream item/error/lifetime, stay exact.
           def canonical_type(value):
-              return re.sub(r",(?=>)", "", re.sub(r"\\s+", "", value))
+              return re.sub(r",(?=>)", "", re.sub(r"\s+", "", value))
 
           for bindings in (manifest, extracted):
               for operation in bindings["operations"].values():
