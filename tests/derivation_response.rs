@@ -70,3 +70,61 @@ fn derives_owned_scalar_response_view_and_generates_it() {
     );
     assert_eq!(generated.inventory.resources[1].operations, vec!["get"]);
 }
+
+
+#[test]
+fn derives_closed_empty_response_view_but_not_an_open_map() {
+    let mut openapi: OpenApi =
+        serde_json::from_str(include_str!("fixtures/derivation-response/openapi.json"))
+            .expect("fixture OpenAPI");
+    let mut bindings: Bindings = serde_json::from_str(include_str!(
+        "fixtures/derivation-response/rust-bindings.json"
+    ))
+    .expect("fixture bindings");
+    let surface: PublicSdkSurface =
+        serde_json::from_str(include_str!("fixtures/derivation-response/surface.json"))
+            .expect("fixture surface");
+
+    openapi.0["components"]["schemas"]["SensorResponse"] = serde_json::json!({
+        "type": "object",
+        "additionalProperties": false
+    });
+    bindings.structs.insert("SensorResponse".into(), vec![]);
+
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface: surface.clone(),
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive closed empty response");
+    assert_eq!(
+        derivation.report.operations["read_sensor"].status,
+        DerivationStatus::Derived
+    );
+    let response = &derivation.definition.models["GetFleetSensorsResponse"];
+    assert_eq!(response.raw.as_deref(), Some("SensorResponse"));
+    assert_eq!(response.borrowed, Some(false));
+    assert!(response.accessors.as_ref().is_some_and(|items| items.is_empty()));
+    generate(GenerateInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        definition: derivation.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("closed empty response view generates");
+
+    openapi.0["components"]["schemas"]["SensorResponse"]["additionalProperties"] =
+        serde_json::json!(true);
+    let open_map = derive(DeriveInput {
+        openapi,
+        bindings,
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("open map is classified without guessing a closed view");
+    assert_eq!(
+        open_map.report.operations["read_sensor"].status,
+        DerivationStatus::Rejected
+    );
+}
