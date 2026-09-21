@@ -112,11 +112,11 @@ fn normalize_structural(structural: &StructuralEvidence) -> Result<CanonicalStru
         }
         let name = short_symbol(path)?;
         if item.has_private_fields {
-            let is_builder = name
-                .strip_suffix("Builder")
-                .is_some_and(|model| structural.structs.contains_key(&format!(
-                    "crate::generated::types::{model}"
-                )));
+            let is_builder = name.strip_suffix("Builder").is_some_and(|model| {
+                structural
+                    .structs
+                    .contains_key(&format!("crate::generated::types::{model}"))
+            });
             if is_builder {
                 continue;
             }
@@ -262,12 +262,7 @@ pub fn extract_bindings(
                 .join(", "),
         ));
     }
-    let details = inspect_details(
-        &generated,
-        &effective_openapi,
-        &structural,
-        &semantic,
-    )?;
+    let details = inspect_details(&generated, &effective_openapi, &structural, &semantic)?;
 
     let canonical = normalize_structural(&structural)?;
     let signatures: BTreeMap<_, _> = structural
@@ -308,9 +303,10 @@ pub fn extract_bindings(
             RepresentationEvidence::EventStream { .. }
                 | RepresentationEvidence::BinaryStream { .. }
         ) {
-            let abi = detail.stream.as_ref().ok_or_else(|| {
-                extraction_error("extract.stream_abi_unproven", name)
-            })?;
+            let abi = detail
+                .stream
+                .as_ref()
+                .ok_or_else(|| extraction_error("extract.stream_abi_unproven", name))?;
             (
                 json!({
                     "item_type": abi.item_type,
