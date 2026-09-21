@@ -104,3 +104,77 @@ jobs:
           assert bindings["symbol_paths"]["Inventory"] == "crate::generated::types::Inventory"
           print("Manifest-free upstream semantics -> canonical Bindings v3: verified.")
           PY
+
+      - name: Checkout immutable fork oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          fork_sha=9fee7af67c05d896da86e41d326b067312120c53
+          git init "$RUNNER_TEMP/openapi-fork"
+          git -C "$RUNNER_TEMP/openapi-fork" remote add origin https://github.com/adriendellagaspera/openapi-to-rust.git
+          git -C "$RUNNER_TEMP/openapi-fork" fetch --depth=1 origin "$fork_sha"
+          git -C "$RUNNER_TEMP/openapi-fork" checkout --detach FETCH_HEAD
+          test "$(git -C "$RUNNER_TEMP/openapi-fork" rev-parse HEAD)" = "$fork_sha"
+
+      - name: Build exact fork oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          CARGO_TARGET_DIR="$RUNNER_TEMP/fork-target" \
+            cargo build --locked \
+            --manifest-path "$RUNNER_TEMP/openapi-fork/Cargo.toml" \
+            --bin openapi-to-rust
+
+      - name: Compare manifest-free extraction with fresh fork manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture="$RUNNER_TEMP/fork-semantic"
+          cp -R "$PWD/openapi-to-rust-bindings/tests/fixtures/fork-semantic" "$fixture"
+          (
+            cd "$fixture"
+            "$RUNNER_TEMP/fork-target/debug/openapi-to-rust" generate --config compat.toml
+          )
+          test -f "$fixture/raw/client.rs"
+          test -f "$fixture/raw/types.rs"
+          test -f "$fixture/raw/binding-manifest.json"
+
+          target/debug/openapi-to-rust-bindings "$fixture/raw" > "$RUNNER_TEMP/manifest-bindings.json"
+          target/debug/openapi-to-rust-bindings \
+            --extract "$fixture/raw" "$fixture/openapi.json" > "$RUNNER_TEMP/extracted-bindings.json"
+
+          python3 - "$RUNNER_TEMP/manifest-bindings.json" "$RUNNER_TEMP/extracted-bindings.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          manifest = json.loads(Path(sys.argv[1]).read_text())
+          extracted = json.loads(Path(sys.argv[2]).read_text())
+
+          if manifest != extracted:
+              keys = sorted(set(manifest) | set(extracted))
+              changed = [key for key in keys if manifest.get(key) != extracted.get(key)]
+              raise AssertionError(f"manifest-free canonical mismatch in sections: {changed}")
+
+          operations = extracted["operations"]
+          assert any(
+              operation["metadata"]["kind"] == "multipart_filenames"
+              for operation in operations.values()
+          )
+          assert any(
+              operation["metadata"]["representation"]["kind"] == "event_stream"
+              and operation["metadata"]["stream_abi"] is not None
+              for operation in operations.values()
+          )
+          assert any(
+              operation["metadata"]["representation"]["kind"] == "binary_stream"
+              and operation["metadata"]["stream_abi"] is not None
+              for operation in operations.values()
+          )
+          render = [
+              operation for operation in operations.values()
+              if operation["metadata"]["source_operation"]["operation_id"] == "render"
+          ]
+          assert any(operation["metadata"]["request_discriminators"] for operation in render)
+          print("Fresh fork manifest == manifest-free canonical Bindings v3: verified.")
+          PY
