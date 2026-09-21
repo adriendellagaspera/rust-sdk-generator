@@ -344,16 +344,22 @@ fn source_observation(declaration: &Value, backend: &BackendState) -> Value {
             .into_iter()
             .flat_map(|operations| operations.iter())
             .filter(|(_, operation)| {
-                operation["metadata"]["source_operation"]["operation_id"].as_str() == operation_id.as_str()
-                    && operation["metadata"]["source_operation"]["method"].as_str() == method.as_str()
+                operation["metadata"]["source_operation"]["operation_id"].as_str()
+                    == operation_id.as_str()
+                    && operation["metadata"]["source_operation"]["method"].as_str()
+                        == method.as_str()
                     && operation["metadata"]["source_operation"]["path"].as_str() == path.as_str()
             })
             .map(|(name, operation)| (name.clone(), operation.clone()))
             .collect::<BTreeMap<_, _>>()
     });
     let supported = backend.diagnostic.is_none()
-        && raw_methods.as_ref().is_some_and(|methods| !methods.is_empty())
-        && bindings.as_ref().is_some_and(|bindings| !bindings.is_empty());
+        && raw_methods
+            .as_ref()
+            .is_some_and(|methods| !methods.is_empty())
+        && bindings
+            .as_ref()
+            .is_some_and(|bindings| !bindings.is_empty());
     let diagnostic = if let Some(diagnostic) = &backend.diagnostic {
         Some(diagnostic.clone())
     } else if raw_methods.as_ref().is_some_and(Vec::is_empty) {
