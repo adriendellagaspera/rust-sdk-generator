@@ -1,6 +1,7 @@
 //! Semantic evidence recovered from ordinary generated Rust plus the exact
 //! effective OpenAPI input. This is backend-specific and fail-closed.
-use crate::{Error, EvidenceLocation, inspect_generated};
+use crate::{Error, inspect_generated};
+use crate::structural::EvidenceLocation;
 use proc_macro2::{TokenStream, TokenTree};
 use quote::ToTokens;
 use serde::Serialize;
@@ -8,7 +9,6 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
-use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
 use syn::{Attribute, Expr, ImplItem, Item, Lit, Meta};
 
@@ -387,7 +387,7 @@ fn choose_representation(
                 format!("{method_name}: JSON media is ambiguous"),
             ));
         }
-        let schema_name = schema_ref_name(json[0].1).ok_or_else(|| {
+        let schema_name = schema_ref_name(&json[0].1).ok_or_else(|| {
             semantic_error(
                 "extract.response_schema_unproven",
                 format!("{method_name}: JSON success schema is not a named ref"),
