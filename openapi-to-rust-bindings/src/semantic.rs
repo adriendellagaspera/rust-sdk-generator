@@ -542,7 +542,11 @@ fn validate_success_statuses(
             || (status.len() == 3
                 && status.as_bytes()[0] == b'2'
                 && status.as_bytes()[1..].iter().all(u8::is_ascii_digit));
-        if !supported || !declared.iter().any(|source| status_selected(source, std::slice::from_ref(status))) {
+        if !supported
+            || !declared
+                .iter()
+                .any(|source| status_selected(source, std::slice::from_ref(status)))
+        {
             return Err(semantic_error(
                 "extract.success_statuses_unproven",
                 format!(
