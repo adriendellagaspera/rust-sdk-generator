@@ -1,0 +1,432 @@
+{
+  "schema_version": 1,
+  "purpose": "Producer-delta audit for rust-sdk-generator#158. This is intentionally not the adapter-supported call-shape matrix owned by #155.",
+  "audited": {
+    "upstream": {
+      "repository": "gpu-cli/openapi-to-rust",
+      "commit": "5a3487edbe27cfd4efb32dda893774e23d7fa195"
+    },
+    "fork": {
+      "repository": "adriendellagaspera/openapi-to-rust",
+      "commit": "9fee7af67c05d896da86e41d326b067312120c53"
+    },
+    "rust_sdk_generator": {
+      "repository": "adriendellagaspera/rust-sdk-generator",
+      "commit": "3c0f91cc1302c6f8216cce60d520d209a9b2b457"
+    },
+    "manifest_removal_pr": "https://github.com/adriendellagaspera/openapi-to-rust/pull/18"
+  },
+  "classification": {
+    "A": "actual generated-Rust/runtime capability",
+    "B": "shared generator refactor/naming/signature logic required by A",
+    "C": "manifest-only schema/serialization/CLI/instrumentation",
+    "D": "unrelated producer improvement"
+  },
+  "upstream_work": {
+    "multipart_filenames": "https://github.com/gpu-cli/openapi-to-rust/issues/77",
+    "response_representations_and_binary_streams": "https://github.com/gpu-cli/openapi-to-rust/issues/78",
+    "overlay_1_1": "https://github.com/gpu-cli/openapi-to-rust/issues/79",
+    "structured_binding_metadata": "https://github.com/gpu-cli/openapi-to-rust/issues/80",
+    "repeated_nullable_multipart": {
+      "status": "prepared",
+      "title": "[bug]: Handle repeated scalar and nullable binary multipart fields",
+      "note": "No matching upstream issue was found in the #158 re-audit; the proposed upstream issue is generic and does not mention rust-sdk-generator."
+    }
+  },
+  "capabilities": [
+    {
+      "id": "repeated_nullable_multipart",
+      "classification": "A",
+      "fork_commits": [
+        "216ab550b6e84db3601386acf123c246896eab50"
+      ],
+      "emitted_rust_difference": "Typed multipart generation unwraps a single non-null anyOf branch, recognizes nullable referenced binary schemas as binary parts, recognizes arrays of scalar/string-enum values, and emits one form.text(wire_name, item.to_string()) call per array item.",
+      "observable_user_behavior": "Repeated scalar multipart values are transmitted as repeated fields and optional nullable binary uploads remain binary multipart Parts instead of falling into an unsupported shape.",
+      "unmodified_upstream_equivalent": {
+        "status": "no",
+        "evidence": "Fork regression was introduced specifically against the pinned upstream-derived baseline; no matching upstream issue or implementation was found during the re-audit."
+      },
+      "generic_openapi_shapes": [
+        "multipart/form-data object property with type=array and scalar/string-enum items",
+        "binary property wrapped by anyOf[$ref(binary), null]"
+      ],
+      "manifest_free_adapter": {
+        "status": "yes",
+        "evidence": "This changes request-body construction only; canonical extraction consumes the ordinary generated method/signature and exact effective OpenAPI and requires no producer manifest field for this encoding."
+      },
+      "upstream_work": "prepared: [bug]: Handle repeated scalar and nullable binary multipart fields",
+      "disposition": "upstream",
+      "regression_evidence": [
+        "openapi-to-rust/tests/client_multipart_capabilities_test.rs",
+        "cargo test --test client_multipart_capabilities_test"
+      ]
+    },
+    {
+      "id": "per_call_multipart_filenames",
+      "classification": "A",
+      "fork_commits": [
+        "37cc2f3580038b0c45b94fc69fa6528b68259699"
+      ],
+      "emitted_rust_difference": "Multipart operations keep the historical method and add a collision-safe helper accepting multipart_filenames: &[(&str, &str)]; binary parts lookup overrides by OpenAPI wire name and call Part::file_name only when supplied.",
+      "observable_user_behavior": "Each request can attach independent filenames to multiple binary fields without mutable HttpClient state and without changing the base method wire behavior.",
+      "unmodified_upstream_equivalent": {
+        "status": "no",
+        "evidence": "Pinned upstream generated clients do not expose a request-local filename helper; upstream issue #77 documents the gap."
+      },
+      "generic_openapi_shapes": [
+        "multipart/form-data request with one or more format=binary fields"
+      ],
+      "manifest_free_adapter": {
+        "status": "yes",
+        "evidence": "PR #159 requires direct AST/body proof that the helper consumes multipart_filenames, matches field names and calls .file_name; no manifest is needed."
+      },
+      "upstream_work": "https://github.com/gpu-cli/openapi-to-rust/issues/77",
+      "disposition": "upstream",
+      "regression_evidence": [
+        "openapi-to-rust/tests/client_multipart_capabilities_test.rs",
+        "rust-sdk-generator/openapi-to-rust-bindings/tests/semantic.rs"
+      ]
+    },
+    {
+      "id": "owned_sse_streaming",
+      "classification": "A",
+      "fork_commits": [
+        "2ff70d10aa25d51e6b9de44aeb118729e8a052c1"
+      ],
+      "emitted_rust_difference": "Generated client exposes HttpResponseByteStream as BoxStream<'static, Result<Bytes, reqwest::Error>> on native and LocalBoxStream<'static, ...> on wasm, and returns Box::pin(response.bytes_stream()).",
+      "observable_user_behavior": "Streaming methods expose a named owned 'static ABI that can outlive the response-local borrow and is portable across native and wasm Send requirements.",
+      "unmodified_upstream_equivalent": {
+        "status": "partial",
+        "evidence": "#148 generated an SSE-only fixture from pinned upstream and observed an anonymous impl Stream return. Upstream has SSE transport work, but the pinned ordinary client does not expose the fork's named native/wasm owned ABI."
+      },
+      "generic_openapi_shapes": [
+        "successful text/event-stream response"
+      ],
+      "manifest_free_adapter": {
+        "status": "yes",
+        "evidence": "PR #159 accepts streams only when ordinary Rust proves both native and wasm aliases, item/error types and 'static lifetime."
+      },
+      "upstream_work": "https://github.com/gpu-cli/openapi-to-rust/issues/78",
+      "disposition": "keep temporary fork capability",
+      "regression_evidence": [
+        "openapi-to-rust/tests/client_sse_capabilities_test.rs",
+        "rust-sdk-generator/openapi-to-rust-bindings/tests/semantic.rs"
+      ]
+    },
+    {
+      "id": "binary_streaming",
+      "classification": "A",
+      "fork_commits": [
+        "041cc445775d34ebe7d9078c88d876fa8379b637"
+      ],
+      "emitted_rust_difference": "For binary successful representations the client emits an additive live-stream method backed by response.bytes_stream() while retaining the buffered call shape.",
+      "observable_user_behavior": "Large application/octet-stream or other binary responses can be consumed incrementally instead of fully buffering the successful body.",
+      "unmodified_upstream_equivalent": {
+        "status": "no",
+        "evidence": "Pinned upstream does not emit the live binary stream call shape; upstream issue #78 explicitly requests it."
+      },
+      "generic_openapi_shapes": [
+        "successful binary response such as application/octet-stream with string/binary schema"
+      ],
+      "manifest_free_adapter": {
+        "status": "yes",
+        "evidence": "PRs #154/#159 recover binary_stream from emitted behavior plus the owned stream ABI and fail closed on anonymous/ambiguous streams."
+      },
+      "upstream_work": "https://github.com/gpu-cli/openapi-to-rust/issues/78",
+      "disposition": "upstream",
+      "regression_evidence": [
+        "openapi-to-rust/tests/client_binary_stream_capabilities_test.rs",
+        "rust-sdk-generator/openapi-to-rust-bindings/tests/semantic.rs"
+      ]
+    },
+    {
+      "id": "response_transport_inventory",
+      "classification": "B",
+      "fork_commits": [
+        "2e083e5e0c391cd5fd205e119b5aa29fdf5b639a"
+      ],
+      "emitted_rust_difference": "No standalone public method is added by this commit; analysis retains all declared success response transport/media representations instead of collapsing immediately to one preferred representation.",
+      "observable_user_behavior": "Enables later raw generation to expose otherwise-lost JSON/SSE/binary alternatives from one operation.",
+      "unmodified_upstream_equivalent": {
+        "status": "no",
+        "evidence": "#148 generated a JSON+SSE operation from pinned upstream and observed only the JSON call shape."
+      },
+      "generic_openapi_shapes": [
+        "one operation/status with multiple response media types",
+        "representations distributed across multiple successful statuses"
+      ],
+      "manifest_free_adapter": {
+        "status": "not_applicable_directly",
+        "evidence": "The adapter consumes emitted call shapes, not this internal producer inventory."
+      },
+      "upstream_work": "https://github.com/gpu-cli/openapi-to-rust/issues/78",
+      "disposition": "upstream",
+      "regression_evidence": [
+        "openapi-to-rust/tests/response_representations_test.rs"
+      ]
+    },
+    {
+      "id": "response_call_shape_planning",
+      "classification": "B",
+      "fork_commits": [
+        "7aa4411b7101f34a05380ffc8caf2ee31b988d23"
+      ],
+      "emitted_rust_difference": "A shared pre-render planner allocates collision-safe method names, representation identity, success statuses/types and additional representation-specific call shapes; source rendering consumes that plan.",
+      "observable_user_behavior": "Operations can expose distinct generated methods for alternate buffered/SSE/binary representations with consistent status handling and method-name allocation.",
+      "unmodified_upstream_equivalent": {
+        "status": "no",
+        "evidence": "#148's pinned-upstream JSON+SSE fixture emitted only the preferred JSON method; issue #78 tracks multiple representations."
+      },
+      "generic_openapi_shapes": [
+        "multiple successful response media types",
+        "multiple successful status codes with differing representations"
+      ],
+      "manifest_free_adapter": {
+        "status": "yes_for_emitted_shapes",
+        "evidence": "The adapter does not consume the planner API; it independently recovers the resulting ordinary Rust methods and validates their status/media semantics."
+      },
+      "upstream_work": "https://github.com/gpu-cli/openapi-to-rust/issues/78",
+      "disposition": "upstream",
+      "regression_evidence": [
+        "openapi-to-rust/tests/client_response_call_shapes_test.rs",
+        "rust-sdk-generator/openapi-to-rust-bindings/tests/semantic.rs"
+      ]
+    },
+    {
+      "id": "generated_request_discriminators",
+      "classification": "A",
+      "fork_commits": [
+        "25831bd6f96d48be8d8613fde3e92bc3323c3aa6"
+      ],
+      "emitted_rust_difference": "Configured representation-specific request discriminator rules are validated against one typed request model and emitted as direct field assignments before request serialization; planning retains the exact field/value projection.",
+      "observable_user_behavior": "A generated call shape can force the request field value required to select the corresponding server-side response mode while failing closed on ambiguous, optional-body or incompatible field rules.",
+      "unmodified_upstream_equivalent": {
+        "status": "no",
+        "evidence": "Pinned upstream has no equivalent client.request_discriminators configuration or emitted assignment behavior."
+      },
+      "generic_openapi_shapes": [
+        "required typed request body with a scalar/enum discriminator field",
+        "one source operation exposing multiple configured response representations"
+      ],
+      "manifest_free_adapter": {
+        "status": "yes",
+        "evidence": "PR #159 proves the direct assignment in the emitted method body and correlates it to the exact OpenAPI request field; it rejects defaults/comments/OpenAPI-only declarations."
+      },
+      "upstream_work": {
+        "status": "none",
+        "note": "Keep fork-only for now: this is generic producer policy but is not implied by OpenAPI itself, so no upstream issue was opened as part of #158."
+      },
+      "disposition": "keep temporary fork capability",
+      "regression_evidence": [
+        "openapi-to-rust/tests/client_request_discriminator_test.rs",
+        "openapi-to-rust/tests/operation_builder_test.rs",
+        "rust-sdk-generator/openapi-to-rust-bindings/tests/semantic.rs"
+      ]
+    },
+    {
+      "id": "inline_parameter_enum_collision_naming",
+      "classification": "A",
+      "fork_commits": [
+        "d19e5a4cba2589475dc157e50fe624576f129368"
+      ],
+      "emitted_rust_difference": "Collision suffixes for inline client parameter enum variants are emitted as PascalCase identifiers such as Created2 instead of Created_2 while preserving serde wire names.",
+      "observable_user_behavior": "Generated parameter enum names stay idiomatic and stable when values such as created and -created normalize to the same Rust variant base.",
+      "unmodified_upstream_equivalent": {
+        "status": "partial",
+        "evidence": "Pinned upstream already disambiguates parameter enum variants, but its naming path uses the underscore suffix that this fork commit changes."
+      },
+      "generic_openapi_shapes": [
+        "path/query/header/cookie string enum whose wire values normalize to colliding Rust variant names"
+      ],
+      "manifest_free_adapter": {
+        "status": "yes",
+        "evidence": "Structural AST extraction reads the emitted enum and exact serde rename; no producer metadata is required."
+      },
+      "upstream_work": {
+        "status": "candidate_patch",
+        "note": "Generic one-line naming change with regression fixture; no dedicated upstream issue was found during #158."
+      },
+      "disposition": "upstream",
+      "regression_evidence": [
+        "openapi-to-rust/tests/client_param_enum_collision_test.rs"
+      ]
+    },
+    {
+      "id": "shared_signature_enum_and_union_planning",
+      "classification": "B",
+      "fork_commits": [
+        "addb1a6c69d63cc83178dca1c9f749b03711bc54",
+        "60441a884bc431b53da9a2d916e72a8766d1a9cb"
+      ],
+      "emitted_rust_difference": "Manifest work refactored existing source rendering to share return-signature and enum/union/parameter-enum naming plans; those helpers still drive ordinary Rust and are intentionally retained when manifest serialization is deleted.",
+      "observable_user_behavior": "No new standalone capability; retaining these helpers prevents output drift between the pre-removal and post-removal fork.",
+      "unmodified_upstream_equivalent": {
+        "status": "not_a_single_upstream_feature",
+        "evidence": "This is fork-internal factoring around fork-only raw generation."
+      },
+      "generic_openapi_shapes": [
+        "all generated client signatures",
+        "string/extensible enums",
+        "discriminated/untagged unions",
+        "inline parameter enums"
+      ],
+      "manifest_free_adapter": {
+        "status": "yes",
+        "evidence": "Ordinary Rust is the adapter input; the shared helpers are producer internals."
+      },
+      "upstream_work": {
+        "status": "none",
+        "note": "Do not upstream manifest-driven factoring as a rust-sdk-generator requirement. Individual generic behavior belongs with the raw capabilities it supports."
+      },
+      "disposition": "keep temporary fork capability",
+      "regression_evidence": [
+        "openapi-to-rust PR #18 keeps these planners while deleting binding-manifest serialization",
+        "full fork test suite"
+      ]
+    },
+    {
+      "id": "overlay_1_1_processing",
+      "classification": "D",
+      "fork_commits": [
+        "e13969c7300f89e2d6ce7f591295db1dd1bb0748"
+      ],
+      "emitted_rust_difference": "The CLI can apply ordered OpenAPI Overlay 1.1 actions before analysis/generation and deterministically materialize the exact effective OpenAPI; generated Rust therefore reflects the overlaid document.",
+      "observable_user_behavior": "Users can keep removals/updates/copies separate from the source spec and still generate from a reproducible effective document.",
+      "unmodified_upstream_equivalent": {
+        "status": "no",
+        "evidence": "Upstream issue #79 describes schema_extensions as insufficient and requests Overlay 1.1 support."
+      },
+      "generic_openapi_shapes": [
+        "any OpenAPI document transformed by Overlay 1.1 update/remove/copy actions"
+      ],
+      "manifest_free_adapter": {
+        "status": "yes_with_exact_effective_openapi",
+        "evidence": "The adapter requires the exact effective OpenAPI used for generation; overlay provenance is not inferred from Rust and no manifest is required."
+      },
+      "upstream_work": "https://github.com/gpu-cli/openapi-to-rust/issues/79",
+      "disposition": "upstream",
+      "regression_evidence": [
+        "openapi-to-rust/tests/cli_workflow_test.rs",
+        "openapi-to-rust/tests/config_test.rs"
+      ]
+    },
+    {
+      "id": "multiline_property_docs",
+      "classification": "D",
+      "fork_commits": [
+        "f7060dc7fef6c2dfd73b65713e8fa2d9a1c4a0eb"
+      ],
+      "emitted_rust_difference": "A multiline property description is rendered as one #[doc = ...] attribute per logical line instead of one multiline attribute.",
+      "observable_user_behavior": "Generated rustdoc preserves readable line boundaries for multiline OpenAPI property descriptions.",
+      "unmodified_upstream_equivalent": {
+        "status": "no_exact_output",
+        "evidence": "This fork commit changes the generator renderer and includes a minimal source-output regression fixture; no matching upstream issue was found."
+      },
+      "generic_openapi_shapes": [
+        "schema property with a description containing newline characters"
+      ],
+      "manifest_free_adapter": {
+        "status": "yes",
+        "evidence": "Documentation is not required semantic evidence; source-operation route docs are optional corroboration only."
+      },
+      "upstream_work": {
+        "status": "candidate_patch",
+        "note": "Generic renderer fix; suitable for a small upstream PR independently of rust-sdk-generator."
+      },
+      "disposition": "upstream",
+      "regression_evidence": [
+        "openapi-to-rust/tests/property_multiline_doc_test.rs"
+      ]
+    },
+    {
+      "id": "binding_manifest_schema_cli_serialization",
+      "classification": "C",
+      "fork_commits": [
+        "addb1a6c69d63cc83178dca1c9f749b03711bc54"
+      ],
+      "emitted_rust_difference": "No ordinary client/types capability. Adds binding-manifest.json schema/API, CLI/TOML opt-in, serialization and stale-artifact handling.",
+      "observable_user_behavior": "Optional producer-specific metadata sidecar can be emitted; rust-sdk-generator no longer needs it for canonical extraction.",
+      "unmodified_upstream_equivalent": {
+        "status": "no",
+        "evidence": "Upstream issue #80 discusses generic structured binding metadata, but unmodified upstream does not emit this fork schema."
+      },
+      "generic_openapi_shapes": [
+        "not shape-specific"
+      ],
+      "manifest_free_adapter": {
+        "status": "not_required",
+        "evidence": "PRs #154/#159 recover canonical Bindings v3 from ordinary Rust plus exact effective OpenAPI."
+      },
+      "upstream_work": "https://github.com/gpu-cli/openapi-to-rust/issues/80",
+      "disposition": "retire",
+      "regression_evidence": [
+        "https://github.com/adriendellagaspera/openapi-to-rust/pull/18",
+        "rust-sdk-generator/.github/workflows/upstream-semantic-evidence.yml"
+      ]
+    },
+    {
+      "id": "manifest_inline_parameter_enum_metadata",
+      "classification": "C",
+      "fork_commits": [
+        "60441a884bc431b53da9a2d916e72a8766d1a9cb"
+      ],
+      "emitted_rust_difference": "The manifest gains client parameter enum definitions and symbol paths; ordinary Rust rendering is unchanged except for extracting and retaining the shared parameter_enum_variant_names helper.",
+      "observable_user_behavior": "Only manifest consumers gain metadata; ordinary generated clients already contain the enum.",
+      "unmodified_upstream_equivalent": {
+        "status": "not_applicable",
+        "evidence": "Producer-manifest metadata is not the target integration contract."
+      },
+      "generic_openapi_shapes": [
+        "inline string enum parameter"
+      ],
+      "manifest_free_adapter": {
+        "status": "not_required",
+        "evidence": "AST structural extraction reads the generated enum directly."
+      },
+      "upstream_work": {
+        "status": "none",
+        "note": "Retire manifest-specific metadata; keep the shared naming helper as class B."
+      },
+      "disposition": "retire",
+      "regression_evidence": [
+        "https://github.com/adriendellagaspera/openapi-to-rust/pull/18",
+        "openapi-to-rust/tests/client_param_enum_collision_test.rs"
+      ]
+    },
+    {
+      "id": "manifest_source_path_bookkeeping",
+      "classification": "C",
+      "fork_commits": [
+        "9fee7af67c05d896da86e41d326b067312120c53"
+      ],
+      "emitted_rust_difference": "No ordinary Rust difference. Analysis stores exact source path keys so the manifest can report pre-normalization source identity.",
+      "observable_user_behavior": "Only manifest/call-plan metadata sees the original fragment-like source path; HTTP route generation remains normalized.",
+      "unmodified_upstream_equivalent": {
+        "status": "not_applicable",
+        "evidence": "This bookkeeping was introduced solely to repair fork manifest source identity."
+      },
+      "generic_openapi_shapes": [
+        "source path keys that the producer normalizes before HTTP route emission"
+      ],
+      "manifest_free_adapter": {
+        "status": "not_required",
+        "evidence": "The adapter correlates ordinary emitted method/route evidence against the exact effective OpenAPI independently and fails closed on ambiguity."
+      },
+      "upstream_work": {
+        "status": "none",
+        "note": "Retire with the manifest-only producer instrumentation."
+      },
+      "disposition": "retire",
+      "regression_evidence": [
+        "https://github.com/adriendellagaspera/openapi-to-rust/pull/18",
+        "rust-sdk-generator/openapi-to-rust-bindings/tests/semantic.rs"
+      ]
+    }
+  ],
+  "proof_commands": {
+    "fork_full": "cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test --all-features",
+    "rust_sdk_adapter": "cargo test --locked -p openapi-to-rust-bindings --test semantic",
+    "rust_sdk_full_relevant": "cargo test -p openapi-to-rust-bindings --all-targets --all-features",
+    "immutable_upstream_workflow": ".github/workflows/upstream-semantic-evidence.yml"
+  }
+}
