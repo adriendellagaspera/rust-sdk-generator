@@ -244,7 +244,7 @@ pub fn extract_bindings(
     effective_openapi: impl AsRef<Path>,
 ) -> Result<Bindings, Error> {
     let structural = inspect_generated(&generated)?;
-    let semantic = inspect_semantics(&generated, effective_openapi)?;
+    let semantic = inspect_semantics(&generated, &effective_openapi)?;
 
     if !semantic.unmatched_source_operations.is_empty() {
         return Err(extraction_error(
