@@ -89,7 +89,7 @@ jobs:
           CARGO_TARGET_DIR="$RUNNER_TEMP/upstream-target" cargo build --locked \
             --manifest-path "$RUNNER_TEMP/openapi-upstream/Cargo.toml" --bin openapi-to-rust
 
-          spec="$PWD/openapi-to-rust-bindings/tests/fixtures/fork-producer-delta/openapi.json"
+          spec="$PWD/openapi-to-rust-bindings/tests/producer-delta/openapi.json"
           for variant in upstream before after; do
             case "$variant" in
               upstream) executable="$RUNNER_TEMP/upstream-target/debug/openapi-to-rust" ;;
