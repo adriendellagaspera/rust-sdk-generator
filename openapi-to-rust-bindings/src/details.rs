@@ -382,7 +382,7 @@ fn prove_builder(
             format!("{client_type}::{method_name}: expected a by-value self receiver"),
         ));
     };
-    if receiver.reference.is_some() || receiver.mutability.is_none() {
+    if compact(&tokens(receiver)) != "mutself" {
         return Err(failure(
             "extract.client_layout_unproven",
             format!("{client_type}::{method_name}: expected mut self so returned state can be updated"),
