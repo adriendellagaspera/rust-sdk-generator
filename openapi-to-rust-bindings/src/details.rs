@@ -10,7 +10,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 use syn::visit::{self, Visit};
-use syn::{Expr, FnArg, GenericArgument, ImplItem, Item, Lit, Pat, PathArguments, ReturnType, Stmt, Type};
+use syn::{
+    Expr, FnArg, GenericArgument, ImplItem, Item, Lit, Pat, PathArguments, ReturnType, Stmt, Type,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct StreamAbiEvidence {
@@ -174,9 +176,7 @@ fn stream_abi(
     }
     let item_type = canonical_rust_type(&native_parts.0)?;
     let error_type = canonical_rust_type(&native_parts.1)?;
-    if item_type != "bytes::Bytes"
-        || error_type != "reqwest::Error"
-        || native_parts.2 != "'static"
+    if item_type != "bytes::Bytes" || error_type != "reqwest::Error" || native_parts.2 != "'static"
     {
         return Err(failure(
             "extract.stream_abi_unproven",
@@ -195,7 +195,6 @@ fn stream_abi(
         wasm_type: canonical_rust_type(&wasm.rust_type)?,
     }))
 }
-
 
 fn output_is_self(method: &syn::ImplItemFn) -> bool {
     matches!(
@@ -258,7 +257,9 @@ fn constructor_fields(
         let expr = tail_expression(&method.block).ok_or_else(|| {
             failure(
                 "extract.client_layout_unproven",
-                format!("{method_name}: constructor does not return a directly provable client state"),
+                format!(
+                    "{method_name}: constructor does not return a directly provable client state"
+                ),
             )
         })?;
         match expr {
@@ -298,7 +299,9 @@ fn constructor_fields(
                 {
                     return Err(failure(
                         "extract.client_layout_unproven",
-                        format!("{method_name}: delegated constructor {delegated} has an incompatible signature"),
+                        format!(
+                            "{method_name}: delegated constructor {delegated} has an incompatible signature"
+                        ),
                     ));
                 }
                 constructor_fields(&delegated, target, functions, visiting)
@@ -385,7 +388,9 @@ fn prove_builder(
     if compact(&tokens(receiver)) != "mutself" {
         return Err(failure(
             "extract.client_layout_unproven",
-            format!("{client_type}::{method_name}: expected mut self so returned state can be updated"),
+            format!(
+                "{client_type}::{method_name}: expected mut self so returned state can be updated"
+            ),
         ));
     }
     if method.sig.asyncness.is_some() || !output_is_self(method) {
@@ -497,13 +502,15 @@ pub(crate) fn prove_client_layout(
             format!("{}: {error}", client_path.display()),
         )
     })?;
-    let client =
-        syn::parse_file(&source).map_err(|error| failure("extract.rust_parse", error))?;
+    let client = syn::parse_file(&source).map_err(|error| failure("extract.rust_parse", error))?;
     let functions = client_impl_functions(&client, &structural.client.path)?;
     let constructor = functions.get("new").ok_or_else(|| {
         failure(
             "extract.client_layout_unproven",
-            format!("{}: public new constructor is missing", structural.client.path),
+            format!(
+                "{}: public new constructor is missing",
+                structural.client.path
+            ),
         )
     })?;
     if constructor.sig.receiver().is_some()
@@ -513,7 +520,10 @@ pub(crate) fn prove_client_layout(
     {
         return Err(failure(
             "extract.client_layout_unproven",
-            format!("{}::new: expected public fn new() -> Self", structural.client.path),
+            format!(
+                "{}::new: expected public fn new() -> Self",
+                structural.client.path
+            ),
         ));
     }
     let fields = constructor_fields("new", constructor, &functions, &mut BTreeSet::new())?;
@@ -545,7 +555,6 @@ pub(crate) fn prove_client_layout(
     })?;
     prove_builder(&structural.client.path, api_key, "api_key", true)
 }
-
 
 fn pattern_bindings(pat: &Pat, names: &mut Vec<String>) {
     match pat {
@@ -704,8 +713,7 @@ impl<'ast> Visit<'ast> for MultipartFilenameSignals {
             && let Some(Expr::Path(part)) = call.args.iter().nth(1)
             && let Some(part) = part.path.get_ident()
         {
-            self.form_parts
-                .insert((wire.value(), part.to_string()));
+            self.form_parts.insert((wire.value(), part.to_string()));
         }
         visit::visit_expr_assign(self, node);
     }
@@ -977,10 +985,9 @@ fn request_rebind(statement: &Stmt) -> bool {
     };
     pattern.ident == "request"
         && pattern.mutability.is_some()
-        && local
-            .init
-            .as_ref()
-            .is_some_and(|init| matches!(&*init.expr, Expr::Path(path) if path.path.is_ident("request")))
+        && local.init.as_ref().is_some_and(
+            |init| matches!(&*init.expr, Expr::Path(path) if path.path.is_ident("request")),
+        )
 }
 
 #[derive(Default)]
@@ -1429,10 +1436,7 @@ pub(crate) fn inspect_details(
                 )
             })?;
             stream_abi(structural, success_type).map_err(|error| {
-                failure(
-                    "extract.stream_abi_unproven",
-                    format!("{name}: {error}"),
-                )
+                failure("extract.stream_abi_unproven", format!("{name}: {error}"))
             })?
         } else {
             None
