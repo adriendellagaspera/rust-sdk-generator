@@ -530,7 +530,11 @@ fn main_inner() -> Result<()> {
         let fork_extracted = fork
             .bindings
             .as_ref()
-            .ok_or_else(|| format!("capability.oracle_mismatch: {id}: fork extraction failed"))?;
+            .ok_or_else(|| format!(
+                "capability.oracle_mismatch: {id}: fork extraction failed: {} (semantic: {})",
+                fork.diagnostic.as_deref().unwrap_or("no extraction diagnostic"),
+                fork.report["semantic"]["diagnostic"].as_str().unwrap_or("none"),
+            ))?;
         compare_oracle(fork_manifest.as_value(), fork_extracted)?;
 
         let upstream_status = scenario_status(&upstream);
