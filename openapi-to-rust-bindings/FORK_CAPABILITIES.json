@@ -14,7 +14,9 @@
       "repository": "adriendellagaspera/rust-sdk-generator",
       "commit": "3c0f91cc1302c6f8216cce60d520d209a9b2b457"
     },
-    "manifest_removal_pr": "https://github.com/adriendellagaspera/openapi-to-rust/pull/18"
+    "manifest_removal_pr": "https://github.com/adriendellagaspera/openapi-to-rust/pull/18",
+    "manifest_removal_candidate_commit": "31ffd632db425666eef7bb559e4d042790a86e82",
+    "reproduction": "The workflow .github/workflows/fork-manifest-removal-evidence.yml checks out all immutable revisions, generates and compares ordinary Rust and compiles the manifest-free facade."
   },
   "classification": {
     "A": "actual generated-Rust/runtime capability",
@@ -30,7 +32,8 @@
     "repeated_nullable_multipart": {
       "status": "prepared",
       "title": "[bug]: Handle repeated scalar and nullable binary multipart fields",
-      "note": "No matching upstream issue was found in the #158 re-audit; the proposed upstream issue is generic and does not mention rust-sdk-generator."
+      "note": "Upstream issue creation was attempted on 2026-09-21 but the GitHub integration returned HTTP 403; the generic issue draft is in UPSTREAM_HANDOFF.md.",
+      "issue_draft": "openapi-to-rust-bindings/UPSTREAM_HANDOFF.md#issue-draft-repeated-scalar-and-nullable-binary-multipart-fields"
     }
   },
   "capabilities": [
@@ -44,7 +47,7 @@
       "observable_user_behavior": "Repeated scalar multipart values are transmitted as repeated fields and optional nullable binary uploads remain binary multipart Parts instead of falling into an unsupported shape.",
       "unmodified_upstream_equivalent": {
         "status": "no",
-        "evidence": "Fork regression was introduced specifically against the pinned upstream-derived baseline; no matching upstream issue or implementation was found during the re-audit."
+        "evidence": "Pinned upstream and fork generated outputs are contrasted on the generic multipart fixture in fork-manifest-removal-evidence.yml; upstream lacks the emitted repeated-form loop, while fork emits it. The fork fixture also exercises a nullable referenced binary field."
       },
       "generic_openapi_shapes": [
         "multipart/form-data object property with type=array and scalar/string-enum items",
@@ -54,11 +57,12 @@
         "status": "yes",
         "evidence": "This changes request-body construction only; canonical extraction consumes the ordinary generated method/signature and exact effective OpenAPI and requires no producer manifest field for this encoding."
       },
-      "upstream_work": "prepared: [bug]: Handle repeated scalar and nullable binary multipart fields",
+      "upstream_work": "prepared: openapi-to-rust-bindings/UPSTREAM_HANDOFF.md#issue-draft-repeated-scalar-and-nullable-binary-multipart-fields",
       "disposition": "upstream",
       "regression_evidence": [
         "openapi-to-rust/tests/client_multipart_capabilities_test.rs",
-        "cargo test --test client_multipart_capabilities_test"
+        "cargo test --test client_multipart_capabilities_test",
+        "rust-sdk-generator/.github/workflows/fork-manifest-removal-evidence.yml: pinned upstream/fork generated-Rust differential, openapi-to-rust-bindings/tests/fixtures/fork-producer-delta/openapi.json"
       ]
     },
     {
@@ -71,7 +75,7 @@
       "observable_user_behavior": "Each request can attach independent filenames to multiple binary fields without mutable HttpClient state and without changing the base method wire behavior.",
       "unmodified_upstream_equivalent": {
         "status": "no",
-        "evidence": "Pinned upstream generated clients do not expose a request-local filename helper; upstream issue #77 documents the gap."
+        "evidence": "The pinned upstream ordinary client omits the request-local filename helper on the identical generic multipart fixture while the fork emits it; issue #77 requests the feature."
       },
       "generic_openapi_shapes": [
         "multipart/form-data request with one or more format=binary fields"
@@ -84,7 +88,8 @@
       "disposition": "upstream",
       "regression_evidence": [
         "openapi-to-rust/tests/client_multipart_capabilities_test.rs",
-        "rust-sdk-generator/openapi-to-rust-bindings/tests/semantic.rs"
+        "rust-sdk-generator/openapi-to-rust-bindings/tests/semantic.rs",
+        "rust-sdk-generator/.github/workflows/fork-manifest-removal-evidence.yml: pinned upstream/fork generated-Rust differential, openapi-to-rust-bindings/tests/fixtures/fork-producer-delta/openapi.json"
       ]
     },
     {
@@ -233,7 +238,7 @@
       "observable_user_behavior": "Generated parameter enum names stay idiomatic and stable when values such as created and -created normalize to the same Rust variant base.",
       "unmodified_upstream_equivalent": {
         "status": "partial",
-        "evidence": "Pinned upstream already disambiguates parameter enum variants, but its naming path uses the underscore suffix that this fork commit changes."
+        "evidence": "The same generic parameter-enum fixture emits the upstream collision suffix Created_2 and fork suffix Created2; upstream PR #19 addressed broader collision handling, not this specific spelling."
       },
       "generic_openapi_shapes": [
         "path/query/header/cookie string enum whose wire values normalize to colliding Rust variant names"
@@ -243,12 +248,13 @@
         "evidence": "Structural AST extraction reads the emitted enum and exact serde rename; no producer metadata is required."
       },
       "upstream_work": {
-        "status": "candidate_patch",
-        "note": "Generic one-line naming change with regression fixture; no dedicated upstream issue was found during #158."
+        "status": "prepared_patch",
+        "note": "Small generic renderer fix and fixture, based on fork commit d19e5a4; see UPSTREAM_HANDOFF.md. Upstream PR #19 handled broader collision dedup."
       },
       "disposition": "upstream",
       "regression_evidence": [
-        "openapi-to-rust/tests/client_param_enum_collision_test.rs"
+        "openapi-to-rust/tests/client_param_enum_collision_test.rs",
+        "rust-sdk-generator/.github/workflows/fork-manifest-removal-evidence.yml: pinned upstream/fork generated-Rust differential, openapi-to-rust-bindings/tests/fixtures/fork-producer-delta/openapi.json"
       ]
     },
     {
@@ -281,7 +287,8 @@
       "disposition": "keep temporary fork capability",
       "regression_evidence": [
         "openapi-to-rust PR #18 keeps these planners while deleting binding-manifest serialization",
-        "full fork test suite"
+        "full fork test suite",
+        "Fork CI gen-diff.sh: 56 specs/224 generated files identical before and after producer removal"
       ]
     },
     {
@@ -330,8 +337,8 @@
         "evidence": "Documentation is not required semantic evidence; source-operation route docs are optional corroboration only."
       },
       "upstream_work": {
-        "status": "candidate_patch",
-        "note": "Generic renderer fix; suitable for a small upstream PR independently of rust-sdk-generator."
+        "status": "prepared_patch",
+        "note": "One-renderer-hunk generic fix and fixture based on fork commit f7060dc; see UPSTREAM_HANDOFF.md."
       },
       "disposition": "upstream",
       "regression_evidence": [
@@ -361,7 +368,8 @@
       "disposition": "retire",
       "regression_evidence": [
         "https://github.com/adriendellagaspera/openapi-to-rust/pull/18",
-        "rust-sdk-generator/.github/workflows/upstream-semantic-evidence.yml"
+        "rust-sdk-generator/.github/workflows/upstream-semantic-evidence.yml",
+        "Fork CI gen-diff.sh: 56 specs/224 generated files identical before and after producer removal"
       ]
     },
     {
@@ -427,6 +435,8 @@
     "fork_full": "cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test --all-features",
     "rust_sdk_adapter": "cargo test --locked -p openapi-to-rust-bindings --test semantic",
     "rust_sdk_full_relevant": "cargo test -p openapi-to-rust-bindings --all-targets --all-features",
-    "immutable_upstream_workflow": ".github/workflows/upstream-semantic-evidence.yml"
+    "immutable_upstream_workflow": ".github/workflows/upstream-semantic-evidence.yml",
+    "fork_raw_corpus_diff": "scripts/gen-diff.sh 9fee7af67c05d896da86e41d326b067312120c53 && scripts/corpus-manifest.sh --check --from tmp/gen-diff/head",
+    "post_removal_direct_fixture": "See .github/workflows/fork-manifest-removal-evidence.yml for literal checkout/build/generate/grep/diff/compile commands pinned to exact commits."
   }
 }
