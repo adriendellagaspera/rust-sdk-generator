@@ -87,10 +87,14 @@ fn enum_json(item: &EnumEvidence, name: &str) -> Result<Value, Error> {
     Ok(Value::Array(variants))
 }
 
-fn normalize_structural(
-    structural: &StructuralEvidence,
-) -> Result<(Map<String, Value>, Map<String, Value>, Map<String, Value>, Map<String, Value>), Error>
-{
+struct CanonicalStructural {
+    structs: Map<String, Value>,
+    enums: Map<String, Value>,
+    aliases: Map<String, Value>,
+    symbols: Map<String, Value>,
+}
+
+fn normalize_structural(structural: &StructuralEvidence) -> Result<CanonicalStructural, Error> {
     let mut structs = Map::new();
     let mut enums = Map::new();
     let mut aliases = Map::new();
@@ -159,7 +163,12 @@ fn normalize_structural(
         insert_symbol(&mut symbols, name, path)?;
     }
 
-    Ok((structs, enums, aliases, symbols))
+    Ok(CanonicalStructural {
+        structs,
+        enums,
+        aliases,
+        symbols,
+    })
 }
 
 fn representation_json(value: &RepresentationEvidence) -> Result<Value, Error> {
@@ -237,7 +246,7 @@ pub fn extract_bindings(
         ));
     }
 
-    let (structs, enums, aliases, symbols) = normalize_structural(&structural)?;
+    let canonical = normalize_structural(&structural)?;
     let signatures: BTreeMap<_, _> = structural
         .client
         .methods
@@ -296,11 +305,11 @@ pub fn extract_bindings(
 
     Bindings::from_value(json!({
         "schema_version": 3,
-        "structs": structs,
-        "enums": enums,
-        "aliases": aliases,
+        "structs": canonical.structs,
+        "enums": canonical.enums,
+        "aliases": canonical.aliases,
         "operations": operations,
-        "symbol_paths": symbols,
+        "symbol_paths": canonical.symbols,
         "binding": client_layout(&structural)?,
     }))
     .map_err(|error| extraction_error("extract.canonical_bindings_invalid", error))
