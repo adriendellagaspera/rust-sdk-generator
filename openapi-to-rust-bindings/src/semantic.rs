@@ -58,7 +58,6 @@ struct OpenApiOperation {
 struct MethodSignals {
     http_calls: BTreeSet<String>,
     string_literals: BTreeSet<String>,
-    status_is_success: bool,
     bytes_stream: bool,
     bytes: bool,
     text: bool,
@@ -108,7 +107,6 @@ impl<'ast> Visit<'ast> for MethodSignals {
             self.http_calls.insert(method.to_ascii_uppercase());
         }
         match method.as_str() {
-            "is_success" => self.status_is_success = true,
             "bytes_stream" => self.bytes_stream = true,
             "bytes" => self.bytes = true,
             "text" => self.text = true,
@@ -239,6 +237,117 @@ fn index_openapi(value: &Value) -> Result<BTreeMap<(String, String), OpenApiOper
     Ok(operations)
 }
 
+#[derive(Default)]
+struct StatusCondition {
+    broad: bool,
+    exact: BTreeSet<String>,
+    classes: BTreeSet<String>,
+}
+
+fn path_ident(expr: &Expr, ident: &str) -> bool {
+    matches!(expr, Expr::Path(path) if path.path.is_ident(ident))
+}
+
+impl<'ast> Visit<'ast> for StatusCondition {
+    fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
+        if node.method == "is_success" && path_ident(&node.receiver, "status") {
+            self.broad = true;
+        }
+        visit::visit_expr_method_call(self, node);
+    }
+
+    fn visit_expr_binary(&mut self, node: &'ast syn::ExprBinary) {
+        if matches!(node.op, syn::BinOp::Eq(_)) {
+            let exact = if path_ident(&node.left, "status_code") {
+                match &*node.right {
+                    Expr::Lit(value) => match &value.lit {
+                        Lit::Int(value) => Some(value.base10_digits().to_owned()),
+                        _ => None,
+                    },
+                    _ => None,
+                }
+            } else if path_ident(&node.right, "status_code") {
+                match &*node.left {
+                    Expr::Lit(value) => match &value.lit {
+                        Lit::Int(value) => Some(value.base10_digits().to_owned()),
+                        _ => None,
+                    },
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            if let Some(status) = exact {
+                self.exact.insert(status);
+            }
+
+            let class = |candidate: &Expr, value: &Expr| -> Option<String> {
+                let Expr::Binary(div) = candidate else { return None };
+                if !matches!(div.op, syn::BinOp::Div(_))
+                    || !path_ident(&div.left, "status_code")
+                {
+                    return None;
+                }
+                let Expr::Lit(divisor) = &*div.right else { return None };
+                let Lit::Int(divisor) = &divisor.lit else { return None };
+                if divisor.base10_digits() != "100" {
+                    return None;
+                }
+                let Expr::Lit(class) = value else { return None };
+                let Lit::Int(class) = &class.lit else { return None };
+                let digit = class.base10_digits();
+                (digit.len() == 1).then(|| format!("{digit}XX"))
+            };
+            if let Some(status) = class(&node.left, &node.right)
+                .or_else(|| class(&node.right, &node.left))
+            {
+                self.classes.insert(status);
+            }
+        }
+        visit::visit_expr_binary(self, node);
+    }
+}
+
+fn top_level_status_guard(block: &syn::Block) -> Result<Vec<String>, Error> {
+    let mut candidates = Vec::new();
+    for statement in &block.stmts {
+        let expression = match statement {
+            syn::Stmt::Expr(expression, _) => expression,
+            _ => continue,
+        };
+        let Expr::If(branch) = expression else { continue };
+        let mut condition = StatusCondition::default();
+        condition.visit_expr(&branch.cond);
+        if condition.broad || !condition.exact.is_empty() || !condition.classes.is_empty() {
+            candidates.push(condition);
+        }
+    }
+    if candidates.len() != 1 {
+        return Err(semantic_error(
+            "extract.success_statuses_unproven",
+            format!(
+                "expected one top-level generated success guard, found {}",
+                candidates.len()
+            ),
+        ));
+    }
+    let condition = candidates.remove(0);
+    if condition.broad {
+        if !condition.exact.is_empty() || !condition.classes.is_empty() {
+            return Err(semantic_error(
+                "extract.success_statuses_unproven",
+                "success guard mixes broad and finite status predicates",
+            ));
+        }
+        return Ok(Vec::new());
+    }
+    Ok(condition
+        .exact
+        .into_iter()
+        .chain(condition.classes)
+        .collect())
+}
+
 fn success_media(operation: &OpenApiOperation) -> Result<Vec<(String, Value)>, Error> {
     let responses = operation
         .value
@@ -252,9 +361,13 @@ fn success_media(operation: &OpenApiOperation) -> Result<Vec<(String, Value)>, E
         })?;
     let mut media = Vec::new();
     for (status, response) in responses {
-        let success = status.len() == 3
-            && status.starts_with('2')
-            && status.as_bytes()[1..].iter().all(u8::is_ascii_digit);
+        let bytes = status.as_bytes();
+        let success = bytes.len() == 3
+            && bytes[0] == b'2'
+            && (bytes[1..].iter().all(u8::is_ascii_digit)
+                || bytes[1..]
+                    .iter()
+                    .all(|byte| matches!(byte, b'X' | b'x')));
         if !success {
             continue;
         }
@@ -484,12 +597,12 @@ pub fn inspect_semantics(
                 format!("{rust_method_name}: body lacks route skeleton {skeleton:?}"),
             ));
         }
-        if !signals.status_is_success {
-            return Err(semantic_error(
+        let success_statuses = top_level_status_guard(&method.block).map_err(|error| {
+            semantic_error(
                 "extract.success_statuses_unproven",
-                format!("{rust_method_name}: broad 2xx predicate not observed"),
-            ));
-        }
+                format!("{rust_method_name}: {error}"),
+            )
+        })?;
         let success_type = signature.success_type.as_deref().ok_or_else(|| {
             semantic_error(
                 "extract.success_type_unproven",
@@ -509,7 +622,7 @@ pub fn inspect_semantics(
             source_operation: source_operation.identity.clone(),
             emitted_operation_id: source_operation.identity.operation_id.clone(),
             representation,
-            success_statuses: Vec::new(),
+            success_statuses,
             location: EvidenceLocation {
                 file: "client.rs".into(),
                 line: method.sig.ident.span().start().line,
