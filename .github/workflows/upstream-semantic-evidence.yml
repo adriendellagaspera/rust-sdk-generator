@@ -192,11 +192,27 @@ jobs:
 
           python3 - "$RUNNER_TEMP/manifest-bindings.json" "$RUNNER_TEMP/extracted-bindings.json" <<'PY'
           import json
+          import re
           import sys
           from pathlib import Path
 
           manifest = json.loads(Path(sys.argv[1]).read_text())
           extracted = json.loads(Path(sys.argv[2]).read_text())
+
+          # The producer retains pretty-printed Rust signatures; syn renders
+          # equivalent token spellings and may retain a trailing generic comma.
+          # Normalize *only* these Rust type spellings; all other Bindings
+          # fields, including the stream item/error/lifetime, stay exact.
+          def canonical_type(value):
+              return re.sub(r",(?=>)", "", re.sub(r"\\s+", "", value))
+
+          for bindings in (manifest, extracted):
+              for operation in bindings["operations"].values():
+                  operation["return_type"] = canonical_type(operation["return_type"])
+                  abi = operation["metadata"]["stream_abi"]
+                  if abi is not None:
+                      for target in ("native_type", "wasm_type"):
+                          abi[target] = canonical_type(abi[target])
 
           if manifest != extracted:
               def differences(left, right, path="$"):
