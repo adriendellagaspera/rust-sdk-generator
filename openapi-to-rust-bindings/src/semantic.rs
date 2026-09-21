@@ -744,7 +744,14 @@ pub fn inspect_semantics(
             RepresentationEvidence::EventStream { .. }
                 | RepresentationEvidence::BinaryStream { .. }
         ) {
-            unsupported_stream_methods.push(rust_method_name.clone());
+            let alias = success_type
+                .chars()
+                .filter(|character| !character.is_whitespace())
+                .collect::<String>();
+            let alias_path = format!("crate::generated::client::{alias}");
+            if !structural.aliases.contains_key(&alias_path) {
+                unsupported_stream_methods.push(rust_method_name.clone());
+            }
         }
         let evidence = OperationSemanticEvidence {
             rust_method_name: rust_method_name.clone(),
