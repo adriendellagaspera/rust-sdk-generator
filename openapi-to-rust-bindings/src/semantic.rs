@@ -245,7 +245,10 @@ fn emitted_operation_id(
             ),
         ));
     }
-    Ok(matches.into_iter().next().expect("one emitted operation id"))
+    Ok(matches
+        .into_iter()
+        .next()
+        .expect("one emitted operation id"))
 }
 
 fn operation_doc(attrs: &[Attribute]) -> Result<Option<(String, String)>, Error> {
