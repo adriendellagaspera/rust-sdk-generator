@@ -104,13 +104,21 @@ fn normalize_structural(structural: &StructuralEvidence) -> Result<CanonicalStru
         if !model_symbol(path) {
             continue;
         }
+        let name = short_symbol(path)?;
         if item.has_private_fields {
+            let is_builder = name
+                .strip_suffix("Builder")
+                .is_some_and(|model| structural.structs.contains_key(&format!(
+                    "crate::generated::types::{model}"
+                )));
+            if is_builder {
+                continue;
+            }
             return Err(extraction_error(
                 "extract.unhandled_model_shape",
                 format!("{path} contains private fields"),
             ));
         }
-        let name = short_symbol(path)?;
         if structs.contains_key(name) || enums.contains_key(name) || aliases.contains_key(name) {
             return Err(extraction_error("extract.symbol_collision", name));
         }
