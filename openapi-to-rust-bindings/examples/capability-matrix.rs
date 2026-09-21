@@ -331,9 +331,9 @@ fn source_observation(declaration: &Value, backend: &BackendState) -> Value {
         operations
             .iter()
             .filter(|(_, evidence)| {
-                evidence["source_operation"]["operation_id"] == *operation_id
-                    && evidence["source_operation"]["method"] == *method
-                    && evidence["source_operation"]["path"] == *path
+                evidence["source_operation"]["operation_id"].as_str() == operation_id.as_str()
+                    && evidence["source_operation"]["method"].as_str() == method.as_str()
+                    && evidence["source_operation"]["path"].as_str() == path.as_str()
             })
             .map(|(name, evidence)| json!({"rust_method": name, "evidence": evidence}))
             .collect::<Vec<_>>()
@@ -344,9 +344,9 @@ fn source_observation(declaration: &Value, backend: &BackendState) -> Value {
             .into_iter()
             .flat_map(|operations| operations.iter())
             .filter(|(_, operation)| {
-                operation["metadata"]["source_operation"]["operation_id"] == *operation_id
-                    && operation["metadata"]["source_operation"]["method"] == *method
-                    && operation["metadata"]["source_operation"]["path"] == *path
+                operation["metadata"]["source_operation"]["operation_id"].as_str() == operation_id.as_str()
+                    && operation["metadata"]["source_operation"]["method"].as_str() == method.as_str()
+                    && operation["metadata"]["source_operation"]["path"].as_str() == path.as_str()
             })
             .map(|(name, operation)| (name.clone(), operation.clone()))
             .collect::<BTreeMap<_, _>>()
