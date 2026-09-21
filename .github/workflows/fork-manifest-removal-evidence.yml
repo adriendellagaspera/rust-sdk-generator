@@ -104,9 +104,15 @@ jobs:
 
           # Actual emitted methods/encoders are the evidence, not the OpenAPI declarations.
           grep -F 'form = form.text("labels", item.to_string());' "$RUNNER_TEMP/delta-after/client.rs"
-          ! grep -F 'form = form.text("labels", item.to_string());' "$RUNNER_TEMP/delta-upstream/client.rs"
+          if grep -F 'form = form.text("labels", item.to_string());' "$RUNNER_TEMP/delta-upstream/client.rs"; then
+            echo "upstream unexpectedly emitted repeated scalar multipart encoding" >&2
+            exit 1
+          fi
           grep -F 'pub async fn create_upload_with_multipart_filenames(' "$RUNNER_TEMP/delta-after/client.rs"
-          ! grep -F 'pub async fn create_upload_with_multipart_filenames(' "$RUNNER_TEMP/delta-upstream/client.rs"
+          if grep -F 'pub async fn create_upload_with_multipart_filenames(' "$RUNNER_TEMP/delta-upstream/client.rs"; then
+            echo "upstream unexpectedly emitted request-local multipart filenames" >&2
+            exit 1
+          fi
           grep -F 'Created2' "$RUNNER_TEMP/delta-after/client.rs"
           grep -F 'Created_2' "$RUNNER_TEMP/delta-upstream/client.rs"
 
