@@ -313,6 +313,53 @@ jobs:
             --output "$report"
           cat "$report"
 
+      - name: Compile and HTTP-test independent unmodified-upstream capability consumer
+        shell: bash
+        run: |
+          set -euo pipefail
+          raw="$RUNNER_TEMP/capability-upstream/core/raw"
+          spec="$PWD/openapi-to-rust-bindings/tests/fixtures/capability-v1/core/openapi.json"
+          bindings="$RUNNER_TEMP/capability-core-bindings.json"
+          definition="$RUNNER_TEMP/capability-core-definition.json"
+          sdk="$RUNNER_TEMP/capability-core-sdk"
+          consumer="$RUNNER_TEMP/capability-core-consumer"
+
+          test -f "$raw/client.rs"
+          test -f "$raw/types.rs"
+          test ! -e "$raw/binding-manifest.json"
+          target/debug/openapi-to-rust-bindings --extract "$raw" "$spec" > "$bindings"
+          target/debug/rust-sdk-generator derive \
+            --openapi "$spec" --bindings "$bindings" \
+            --definition-output "$definition" > "$RUNNER_TEMP/capability-core-derivation.json"
+          target/debug/rust-sdk-generator generate \
+            --openapi "$spec" --bindings "$bindings" \
+            --definition "$definition" --output "$sdk" \
+            > "$RUNNER_TEMP/capability-core-inventory.json"
+
+          mkdir -p "$consumer/src/generated" "$consumer/src/sdk" "$consumer/tests"
+          cp "$raw"/*.rs "$consumer/src/generated/"
+          cp "$sdk"/*.rs "$consumer/src/sdk/"
+          cp examples/independent-sdk/consumer/src/sdk/error.rs "$consumer/src/sdk/error.rs"
+          cp openapi-to-rust-bindings/tests/fixtures/capability-v1/core/http.rs "$consumer/tests/http.rs"
+          printf 'pub mod generated;\npub mod sdk;\n' > "$consumer/src/lib.rs"
+          {
+            echo '[package]'
+            echo 'name = "capability-matrix-consumer"'
+            echo 'version = "0.0.0"'
+            echo 'edition = "2024"'
+            echo 'publish = false'
+            echo ''
+            echo '[workspace]'
+            echo ''
+            cat "$raw/REQUIRED_DEPS.toml"
+            echo ''
+            echo '[dev-dependencies]'
+            echo 'tokio = { version = "1", features = ["macros", "rt-multi-thread"] }'
+          } > "$consumer/Cargo.toml"
+
+          cargo test --manifest-path "$consumer/Cargo.toml" --all-targets
+          echo "Pinned unmodified upstream -> ordinary Rust -> Bindings v3 -> facade -> standalone compile + mock HTTP: verified."
+
   manifest-free-sdk:
     name: manifest-free-sdk
     runs-on: ubuntu-24.04
