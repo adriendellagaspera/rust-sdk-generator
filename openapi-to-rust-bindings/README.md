@@ -29,7 +29,7 @@ cargo run --locked -p openapi-to-rust-bindings -- \
   --inspect-semantics path/to/raw-output effective-openapi.json > semantic-evidence.json
 ```
 
-The current supported path requires exact source identity corroborated by both the generated HTTP route and the method body. Response representation and accepted success statuses are taken from emitted behavior and cross-checked against OpenAPI; a response media declaration alone never creates a call shape.
+The current supported path requires exact source identity from the emitted HTTP method and route evidence in the Rust method body, matched uniquely to the effective OpenAPI. Generated route documentation is used only as optional corroboration. Response representation and accepted success statuses are taken from emitted behavior and cross-checked against OpenAPI; a response media declaration alone never creates a call shape.
 
 For call shapes whose required metadata is fully proven, `extract_bindings(directory, effective_openapi)` emits validated canonical Bindings v3:
 
