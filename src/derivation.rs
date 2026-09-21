@@ -713,6 +713,17 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
         };
         if let Some(operation_override) = overrides.operations.get(&operation_id) {
             if outcome.status == DerivationStatus::Rejected {
+                if !operation_override.response_representations.is_empty()
+                    && outcome.reason.code == "bindings.response_representation_identity_required"
+                {
+                    return Err(DerivationError::at(
+                        "overrides.unapplied",
+                        format!("overrides.operations.{operation_id}"),
+                        format!(
+                            "operation {operation_id} could not accept the requested response representation"
+                        ),
+                    ));
+                }
                 let unapplied = format!(
                     "configured override was not applied because generic derivation rejected the operation ({})",
                     outcome.reason.code
