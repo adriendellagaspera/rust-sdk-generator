@@ -253,7 +253,6 @@ fn analyzer_or_base_method_rename_fails_when_emitted_id_is_not_provable() {
     assert!(error.to_string().contains("extract.emitted_id_unproven"));
 }
 
-
 #[test]
 fn duplicate_source_operation_ids_recover_the_backend_emitted_id() {
     let client = CLIENT.replacen(
