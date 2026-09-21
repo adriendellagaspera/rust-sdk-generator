@@ -479,7 +479,89 @@ fn top_level_status_guard(block: &syn::Block) -> Result<Vec<String>, Error> {
         .collect())
 }
 
-fn success_media(operation: &OpenApiOperation) -> Result<Vec<(String, Value)>, Error> {
+fn success_status(status: &str) -> bool {
+    let bytes = status.as_bytes();
+    bytes.len() == 3
+        && bytes[0] == b'2'
+        && (bytes[1..].iter().all(u8::is_ascii_digit)
+            || bytes[1..].iter().all(|byte| matches!(byte, b'X' | b'x')))
+}
+
+fn status_selected(source: &str, emitted: &[String]) -> bool {
+    if !success_status(source) {
+        return false;
+    }
+    if emitted.is_empty() {
+        return true;
+    }
+    emitted.iter().any(|candidate| {
+        if candidate.eq_ignore_ascii_case("2XX") {
+            true
+        } else if candidate.len() == 3
+            && candidate.as_bytes()[0] == b'2'
+            && candidate.as_bytes()[1..].iter().all(u8::is_ascii_digit)
+        {
+            source == candidate || source.eq_ignore_ascii_case("2XX")
+        } else {
+            false
+        }
+    })
+}
+
+fn validate_success_statuses(
+    operation: &OpenApiOperation,
+    method_name: &str,
+    emitted: &[String],
+) -> Result<(), Error> {
+    let responses = operation
+        .value
+        .get("responses")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            semantic_error(
+                "extract.openapi_responses_required",
+                format!("{method_name}: {}", operation.identity.operation_id),
+            )
+        })?;
+    let declared: Vec<_> = responses
+        .keys()
+        .filter(|status| success_status(status))
+        .cloned()
+        .collect();
+    if declared.is_empty() {
+        return Err(semantic_error(
+            "extract.success_statuses_unproven",
+            format!("{method_name}: source operation declares no 2xx response"),
+        ));
+    }
+    if emitted.is_empty() {
+        return Ok(());
+    }
+    for status in emitted {
+        let supported = status.eq_ignore_ascii_case("2XX")
+            || (status.len() == 3
+                && status.as_bytes()[0] == b'2'
+                && status.as_bytes()[1..].iter().all(u8::is_ascii_digit));
+        if !supported
+            || !declared
+                .iter()
+                .any(|source| status_selected(source, std::slice::from_ref(status)))
+        {
+            return Err(semantic_error(
+                "extract.success_statuses_unproven",
+                format!(
+                    "{method_name}: emitted success status {status:?} is not covered by source responses {declared:?}"
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn success_media(
+    operation: &OpenApiOperation,
+    emitted_statuses: &[String],
+) -> Result<Vec<(String, Value)>, Error> {
     let responses = operation
         .value
         .get("responses")
@@ -492,12 +574,7 @@ fn success_media(operation: &OpenApiOperation) -> Result<Vec<(String, Value)>, E
         })?;
     let mut media = Vec::new();
     for (status, response) in responses {
-        let bytes = status.as_bytes();
-        let success = bytes.len() == 3
-            && bytes[0] == b'2'
-            && (bytes[1..].iter().all(u8::is_ascii_digit)
-                || bytes[1..].iter().all(|byte| matches!(byte, b'X' | b'x')));
-        if !success {
+        if !status_selected(status, emitted_statuses) {
             continue;
         }
         let Some(content) = response.get("content").and_then(Value::as_object) else {
@@ -539,12 +616,21 @@ fn choose_representation(
     operation: &OpenApiOperation,
     method_name: &str,
     success_type: &str,
+    success_statuses: &[String],
     signals: &MethodSignals,
 ) -> Result<RepresentationEvidence, Error> {
-    let media = success_media(operation)?;
+    let media = success_media(operation, success_statuses)?;
     let compact = success_type.replace(' ', "");
     if compact == "()" {
-        return Ok(RepresentationEvidence::Empty);
+        if media.is_empty() {
+            return Ok(RepresentationEvidence::Empty);
+        }
+        return Err(semantic_error(
+            "extract.representation_unproven",
+            format!(
+                "{method_name}: emitted empty success type conflicts with selected source response content"
+            ),
+        ));
     }
     let streaming = signals.bytes_stream
         || compact.contains("Stream<")
@@ -784,8 +870,14 @@ pub fn inspect_semantics(
                 format!("{rust_method_name}: return type is not explicit Result<T, E>"),
             )
         })?;
-        let representation =
-            choose_representation(source_operation, &rust_method_name, success_type, &signals)?;
+        validate_success_statuses(source_operation, &rust_method_name, &success_statuses)?;
+        let representation = choose_representation(
+            source_operation,
+            &rust_method_name,
+            success_type,
+            &success_statuses,
+            &signals,
+        )?;
         if matches!(
             representation,
             RepresentationEvidence::EventStream { .. }
