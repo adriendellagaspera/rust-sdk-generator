@@ -34,7 +34,7 @@ jobs:
         run: |
           set -euo pipefail
           before=9fee7af67c05d896da86e41d326b067312120c53
-          after=31ffd632db425666eef7bb559e4d042790a86e82
+          after=a2371955a668c0a99d6cea5616a3be3804757116
           for pair in "before:$before" "after:$after"; do
             name="${pair%%:*}"
             sha="${pair#*:}"
