@@ -1,6 +1,7 @@
 //! Canonical Bindings v3 normalization from proved structural + semantic
 //! evidence. This remains separate from read_bindings until #151 cuts over the
 //! default manifest-free path.
+use crate::details::{OperationKindEvidence, inspect_details};
 use crate::semantic::{RepresentationEvidence, inspect_semantics};
 use crate::structural::{EnumEvidence, StructuralEvidence, inspect_generated};
 use crate::{Bindings, Error};
@@ -256,12 +257,12 @@ pub fn extract_bindings(
                 .join(", "),
         ));
     }
-    if !semantic.unsupported_stream_methods.is_empty() {
-        return Err(extraction_error(
-            "extract.stream_abi_unproven",
-            semantic.unsupported_stream_methods.join(", "),
-        ));
-    }
+    let details = inspect_details(
+        &generated,
+        &effective_openapi,
+        &structural,
+        &semantic,
+    )?;
 
     let canonical = normalize_structural(&structural)?;
     let signatures: BTreeMap<_, _> = structural
@@ -290,6 +291,54 @@ pub fn extract_bindings(
                 })
             })
             .collect::<Vec<_>>();
+        let detail = details
+            .get(name)
+            .ok_or_else(|| extraction_error("extract.operation_details_missing", name))?;
+        let kind = match detail.kind {
+            OperationKindEvidence::CallShape => "call_shape",
+            OperationKindEvidence::MultipartFilenames => "multipart_filenames",
+        };
+        let (stream, stream_abi) = if matches!(
+            semantics.representation,
+            RepresentationEvidence::EventStream { .. }
+                | RepresentationEvidence::BinaryStream { .. }
+        ) {
+            let abi = detail.stream.as_ref().ok_or_else(|| {
+                extraction_error("extract.stream_abi_unproven", name)
+            })?;
+            (
+                json!({
+                    "item_type": abi.item_type,
+                    "error_type": abi.error_type,
+                    "lifetime": abi.lifetime,
+                }),
+                json!({
+                    "alias": abi.alias,
+                    "item_type": abi.item_type,
+                    "error_type": abi.error_type,
+                    "lifetime": abi.lifetime,
+                    "native_type": abi.native_type,
+                    "wasm_type": abi.wasm_type,
+                }),
+            )
+        } else {
+            (Value::Null, Value::Null)
+        };
+        let request_discriminators = detail
+            .request_discriminators
+            .iter()
+            .map(|discriminator| {
+                json!({
+                    "wire_name": discriminator.wire_name,
+                    "rust_access_path": discriminator.rust_access_path,
+                    "rust_value_type": discriminator.rust_value_type,
+                    "value": discriminator.value,
+                    "field_required": discriminator.field_required,
+                    "field_nullable": discriminator.field_nullable,
+                    "field_tri_state": discriminator.field_tri_state,
+                })
+            })
+            .collect::<Vec<_>>();
         operations.insert(
             name.clone(),
             json!({
@@ -297,9 +346,9 @@ pub fn extract_bindings(
                 "parameters": parameters,
                 "return_type": signature.return_type,
                 "success_type": success_type,
-                "stream": null,
+                "stream": stream,
                 "metadata": {
-                    "kind": "call_shape",
+                    "kind": kind,
                     "source_operation": {
                         "operation_id": semantics.source_operation.operation_id,
                         "method": semantics.source_operation.method,
@@ -308,8 +357,8 @@ pub fn extract_bindings(
                     "emitted_operation_id": semantics.emitted_operation_id,
                     "representation": representation_json(&semantics.representation)?,
                     "success_statuses": semantics.success_statuses,
-                    "request_discriminators": [],
-                    "stream_abi": null,
+                    "request_discriminators": request_discriminators,
+                    "stream_abi": stream_abi,
                 }
             }),
         );
