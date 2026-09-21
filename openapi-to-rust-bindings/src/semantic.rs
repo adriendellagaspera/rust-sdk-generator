@@ -157,6 +157,38 @@ impl<'ast> Visit<'ast> for MethodSignals {
     }
 }
 
+fn conservative_snake_case(value: &str) -> Option<String> {
+    if value.is_empty() || !value.is_ascii() {
+        return None;
+    }
+    let chars: Vec<_> = value.chars().collect();
+    let mut output = String::new();
+    for (index, ch) in chars.iter().copied().enumerate() {
+        if ch.is_ascii_alphanumeric() {
+            if ch.is_ascii_uppercase() {
+                let previous = index.checked_sub(1).and_then(|position| chars.get(position)).copied();
+                let next = chars.get(index + 1).copied();
+                let boundary = previous.is_some_and(|value| {
+                    value.is_ascii_lowercase() || value.is_ascii_digit()
+                }) || (previous.is_some_and(|value| value.is_ascii_uppercase())
+                    && next.is_some_and(|value| value.is_ascii_lowercase()));
+                if boundary && !output.ends_with('_') {
+                    output.push('_');
+                }
+                output.push(ch.to_ascii_lowercase());
+            } else {
+                output.push(ch);
+            }
+        } else if !output.is_empty() && !output.ends_with('_') {
+            output.push('_');
+        }
+    }
+    while output.ends_with('_') {
+        output.pop();
+    }
+    (!output.is_empty()).then_some(output)
+}
+
 fn operation_doc(attrs: &[Attribute]) -> Result<Option<(String, String)>, Error> {
     let mut matches = Vec::new();
     for attr in attrs.iter().filter(|attr| attr.path().is_ident("doc")) {
@@ -729,6 +761,41 @@ pub fn inspect_semantics(
             ));
         }
     }
+    let mut source_groups: BTreeMap<SourceOperationEvidence, Vec<&OperationSemanticEvidence>> =
+        BTreeMap::new();
+    for operation in operations.values() {
+        source_groups
+            .entry(operation.source_operation.clone())
+            .or_default()
+            .push(operation);
+    }
+    for (source_operation, emitted) in source_groups {
+        let expected_base = conservative_snake_case(&source_operation.operation_id).ok_or_else(|| {
+            semantic_error(
+                "extract.emitted_id_unproven",
+                format!(
+                    "source operationId {:?} cannot be conservatively mapped to the backend's ordinary Rust method name",
+                    source_operation.operation_id
+                ),
+            )
+        })?;
+        if !emitted
+            .iter()
+            .any(|operation| operation.rust_method_name == expected_base)
+        {
+            return Err(semantic_error(
+                "extract.emitted_id_unproven",
+                format!(
+                    "{} {} ({:?}) has no observed base method {:?}; analyzer renaming cannot be ruled out",
+                    source_operation.method,
+                    source_operation.path,
+                    source_operation.operation_id,
+                    expected_base,
+                ),
+            ));
+        }
+    }
+
     let unmatched_source_operations = source
         .iter()
         .filter(|(key, _)| !matched_sources.contains(*key))
