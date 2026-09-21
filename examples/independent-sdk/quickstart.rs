@@ -271,10 +271,7 @@ fn pass(
     let adapted = if manifest_free {
         run(
             "bindings adapter manifest-free extraction",
-            Command::new(adapter)
-                .arg("--extract")
-                .arg(&raw)
-                .arg(&spec),
+            Command::new(adapter).arg("--extract").arg(&raw).arg(&spec),
         )?
     } else {
         run("bindings adapter", Command::new(adapter).arg(&raw))?
