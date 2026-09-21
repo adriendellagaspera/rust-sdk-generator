@@ -833,8 +833,7 @@ pub fn inspect_semantics(
     }
     for (source_operation, emitted_methods) in source_groups {
         let base_method = base_rust_method(&source_operation, &emitted_methods)?;
-        let emitted_id =
-            emitted_operation_id(&source_operation, &base_method, source.len())?;
+        let emitted_id = emitted_operation_id(&source_operation, &base_method, source.len())?;
         for method_name in emitted_methods {
             let operation = operations
                 .get_mut(&method_name)
