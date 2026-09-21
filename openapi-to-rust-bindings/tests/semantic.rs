@@ -95,7 +95,7 @@ impl HttpClient {
 }
 "#;
 
-const OPENAPI: &str = r#"{
+const OPENAPI: &str = r##"{
   "openapi": "3.1.0",
   "info": {"title": "semantic", "version": "1"},
   "paths": {
@@ -142,7 +142,7 @@ const OPENAPI: &str = r#"{
       }
     }
   }
-}"#;
+}"##;
 
 fn fixture(client: &str) -> Scratch {
     let root = Scratch::new();
