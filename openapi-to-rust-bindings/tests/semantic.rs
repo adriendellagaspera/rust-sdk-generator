@@ -981,3 +981,139 @@ fn discriminator_evidence_rejects_conditional_or_post_serialization_mutation() {
         "before serialization",
     );
 }
+
+
+const STREAM_ALIAS_CLIENT: &str = r#"
+use super::types::*;
+#[cfg(not(target_arch = "wasm32"))]
+pub type HttpResponseByteStream = __NATIVE__;
+#[cfg(target_arch = "wasm32")]
+pub type HttpResponseByteStream = __WASM__;
+
+pub struct HttpClient {
+    base_url: String,
+    api_key: Option<String>,
+    http_client: reqwest::Client,
+}
+impl HttpClient {
+    pub fn new() -> Self {
+        Self {
+            base_url: String::new(),
+            api_key: None,
+            http_client: todo!(),
+        }
+    }
+    pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
+        self.base_url = base_url.into();
+        self
+    }
+    pub fn with_api_key(mut self, api_key: impl Into<String>) -> Self {
+        self.api_key = Some(api_key.into());
+        self
+    }
+
+    /// GET /events
+    pub async fn events(&self) -> Result<HttpResponseByteStream, Error> {
+        let request_url = format!("{}{}", self.base_url, "/events");
+        let mut req = self.http_client.get(request_url);
+        req = req.header(reqwest::header::ACCEPT, "text/event-stream");
+        let response = req.send().await?;
+        let status_code = response.status().as_u16();
+        if status_code == 200 {
+            Ok(response.bytes_stream())
+        } else {
+            todo!()
+        }
+    }
+}
+"#;
+
+const STREAM_ALIAS_OPENAPI: &str = r#"{
+  "openapi": "3.1.0",
+  "info": {"title": "stream aliases", "version": "1"},
+  "paths": {
+    "/events": {
+      "get": {
+        "operationId": "events",
+        "responses": {
+          "200": {
+            "description": "events",
+            "content": {
+              "text/event-stream": {"schema": {"type": "string"}}
+            }
+          }
+        }
+      }
+    }
+  }
+}"#;
+
+const NATIVE_STREAM: &str =
+    "futures_util::stream::BoxStream<'static, Result<bytes::Bytes, reqwest::Error>>";
+const WASM_STREAM: &str =
+    "futures_util::stream::LocalBoxStream<'static, Result<bytes::Bytes, reqwest::Error>>";
+
+fn stream_alias_fixture(native: &str, wasm: Option<&str>) -> Scratch {
+    let mut client = STREAM_ALIAS_CLIENT
+        .replace("__NATIVE__", native)
+        .replace("__WASM__", wasm.unwrap_or(WASM_STREAM));
+    if wasm.is_none() {
+        let wasm_definition = format!(
+            "#[cfg(target_arch = \"wasm32\")]\npub type HttpResponseByteStream = {WASM_STREAM};\n"
+        );
+        client = client.replace(&wasm_definition, "");
+    }
+    let root = Scratch::new();
+    root.file("types.rs", "");
+    root.file("client.rs", &client);
+    root.file("openapi.json", STREAM_ALIAS_OPENAPI);
+    root
+}
+
+#[test]
+fn owned_native_and_wasm_stream_aliases_are_proved_exactly() {
+    let root = stream_alias_fixture(NATIVE_STREAM, Some(WASM_STREAM));
+    let bindings = extract_bindings(root.path(), root.path().join("openapi.json"))
+        .expect("owned cross-target byte stream ABI");
+    let stream = &bindings.as_value()["operations"]["events"]["stream"];
+    assert_eq!(stream["item_type"], "bytes::Bytes");
+    assert_eq!(stream["error_type"], "reqwest::Error");
+    assert_eq!(stream["lifetime"], "'static");
+}
+
+#[test]
+fn stream_aliases_fail_closed_for_invalid_target_item_error_and_lifetime_abi() {
+    let cases = [
+        (
+            NATIVE_STREAM,
+            "futures_util::stream::BoxStream<'static, Result<bytes::Bytes, reqwest::Error>>",
+        ),
+        (
+            NATIVE_STREAM,
+            "futures_util::stream::LocalBoxStream<'static, Result<String, reqwest::Error>>",
+        ),
+        (
+            "futures_util::stream::BoxStream<'static, Result<String, reqwest::Error>>",
+            "futures_util::stream::LocalBoxStream<'static, Result<String, reqwest::Error>>",
+        ),
+        (
+            "futures_util::stream::BoxStream<'static, Result<bytes::Bytes, std::io::Error>>",
+            "futures_util::stream::LocalBoxStream<'static, Result<bytes::Bytes, std::io::Error>>",
+        ),
+        (
+            "futures_util::stream::BoxStream<'a, Result<bytes::Bytes, reqwest::Error>>",
+            "futures_util::stream::LocalBoxStream<'a, Result<bytes::Bytes, reqwest::Error>>",
+        ),
+        (
+            NATIVE_STREAM,
+            "futures_util::stream::LocalBoxStream<'a, Result<bytes::Bytes, reqwest::Error>>",
+        ),
+    ];
+    for (native, wasm) in cases {
+        let root = stream_alias_fixture(native, Some(wasm));
+        assert_extract_error(&root, "extract.stream_abi_unproven", "events");
+    }
+
+    let root = stream_alias_fixture(NATIVE_STREAM, None);
+    assert_extract_error(&root, "extract.stream_abi_unproven", "events");
+}
