@@ -241,9 +241,9 @@ fn client_layout(structural: &StructuralEvidence) -> Result<Value, Error> {
     }))
 }
 
-/// Produce canonical Bindings v3 for call shapes whose complete required
-/// semantics are observable. Stream call shapes remain fail-closed until their
-/// native/WASM ABI is established from emitted aliases (#150 follow-up).
+/// Produce canonical Bindings v3 only for call shapes whose complete required
+/// semantics are directly observable. Streaming shapes require a proven
+/// target-specific owned alias; anonymous or incomplete stream ABIs fail closed.
 pub fn extract_bindings(
     generated: impl AsRef<Path>,
     effective_openapi: impl AsRef<Path>,
