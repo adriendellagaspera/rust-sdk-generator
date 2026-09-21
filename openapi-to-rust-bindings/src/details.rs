@@ -1,9 +1,9 @@
 //! Backend-specific semantic details that are only trustworthy when directly
 //! observable in emitted Rust.
+use crate::Error;
 use crate::rust_type::canonical_rust_type;
 use crate::semantic::{RepresentationEvidence, SemanticEvidence};
 use crate::structural::{AliasEvidence, FieldEvidence, StructuralEvidence};
-use crate::Error;
 use quote::ToTokens;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -59,7 +59,11 @@ fn compact(value: &str) -> String {
 }
 
 fn cfg_kind(definition: &AliasEvidence) -> Option<&'static str> {
-    let cfg = definition.cfg.iter().map(|item| compact(item)).collect::<String>();
+    let cfg = definition
+        .cfg
+        .iter()
+        .map(|item| compact(item))
+        .collect::<String>();
     if cfg.contains("not(target_arch=\"wasm32\")") {
         Some("native")
     } else if cfg.contains("target_arch=\"wasm32\"") {
@@ -70,13 +74,16 @@ fn cfg_kind(definition: &AliasEvidence) -> Option<&'static str> {
 }
 
 fn stream_parts(rust_type: &str, outer: &str) -> Result<(String, String, String), Error> {
-    let parsed: Type = syn::parse_str(rust_type)
-        .map_err(|error| failure("extract.stream_abi_unproven", error))?;
+    let parsed: Type =
+        syn::parse_str(rust_type).map_err(|error| failure("extract.stream_abi_unproven", error))?;
     let Type::Path(path) = parsed else {
         return Err(failure("extract.stream_abi_unproven", rust_type));
     };
     let segment = path.path.segments.last().ok_or_else(|| {
-        failure("extract.stream_abi_unproven", "stream alias type has no path segment")
+        failure(
+            "extract.stream_abi_unproven",
+            "stream alias type has no path segment",
+        )
     })?;
     if segment.ident != outer {
         return Err(failure(
@@ -98,7 +105,10 @@ fn stream_parts(rust_type: &str, outer: &str) -> Result<(String, String, String)
         return Err(failure("extract.stream_abi_unproven", rust_type));
     }
     let result_segment = result.path.segments.last().ok_or_else(|| {
-        failure("extract.stream_abi_unproven", "stream item Result has no segment")
+        failure(
+            "extract.stream_abi_unproven",
+            "stream item Result has no segment",
+        )
     })?;
     if result_segment.ident != "Result" {
         return Err(failure(
@@ -151,7 +161,8 @@ fn stream_abi(
             }
         }
     }
-    let native = native.ok_or_else(|| failure("extract.stream_abi_unproven", "native alias missing"))?;
+    let native =
+        native.ok_or_else(|| failure("extract.stream_abi_unproven", "native alias missing"))?;
     let wasm = wasm.ok_or_else(|| failure("extract.stream_abi_unproven", "wasm alias missing"))?;
     let native_parts = stream_parts(&native.rust_type, "BoxStream")?;
     let wasm_parts = stream_parts(&wasm.rust_type, "LocalBoxStream")?;
@@ -216,7 +227,10 @@ fn multipart_kind(
     if !ident_used(&method.block, "multipart_filenames") {
         return Err(failure(
             "extract.multipart_helper_unproven",
-            format!("{} does not use multipart_filenames", structural_method.name),
+            format!(
+                "{} does not use multipart_filenames",
+                structural_method.name
+            ),
         ));
     }
     Ok(OperationKindEvidence::MultipartFilenames)
@@ -296,9 +310,15 @@ impl<'ast> Visit<'ast> for LiteralCollector {
 
 fn typed_discriminator_local(block: &syn::Block) -> Option<(String, Value)> {
     for statement in &block.stmts {
-        let syn::Stmt::Local(local) = statement else { continue };
-        let syn::Pat::Type(typed) = &local.pat else { continue };
-        let syn::Pat::Ident(ident) = &*typed.pat else { continue };
+        let syn::Stmt::Local(local) = statement else {
+            continue;
+        };
+        let syn::Pat::Type(typed) = &local.pat else {
+            continue;
+        };
+        let syn::Pat::Ident(ident) = &*typed.pat else {
+            continue;
+        };
         if ident.ident != "__request_discriminator_value" {
             continue;
         }
@@ -360,7 +380,10 @@ fn field_for_access<'a>(
     access: &[String],
 ) -> Result<&'a FieldEvidence, Error> {
     if access.is_empty() {
-        return Err(failure("extract.request_discriminator_unproven", "empty access path"));
+        return Err(failure(
+            "extract.request_discriminator_unproven",
+            "empty access path",
+        ));
     }
     let mut current = simple_type_name(request_type).ok_or_else(|| {
         failure(
@@ -376,12 +399,16 @@ fn field_for_access<'a>(
                 format!("missing request model {path}"),
             )
         })?;
-        let field = model.fields.iter().find(|field| field.name == *segment).ok_or_else(|| {
-            failure(
-                "extract.request_discriminator_unproven",
-                format!("{path} has no field {segment}"),
-            )
-        })?;
+        let field = model
+            .fields
+            .iter()
+            .find(|field| field.name == *segment)
+            .ok_or_else(|| {
+                failure(
+                    "extract.request_discriminator_unproven",
+                    format!("{path} has no field {segment}"),
+                )
+            })?;
         if index + 1 == access.len() {
             return Ok(field);
         }
@@ -418,11 +445,7 @@ fn schema_nullable(schema: &Value) -> bool {
     false
 }
 
-fn operation_value<'a>(
-    openapi: &'a Value,
-    method: &str,
-    path: &str,
-) -> Result<&'a Value, Error> {
+fn operation_value<'a>(openapi: &'a Value, method: &str, path: &str) -> Result<&'a Value, Error> {
     openapi
         .get("paths")
         .and_then(|paths| paths.get(path))
@@ -440,9 +463,12 @@ fn request_schema<'a>(
     operation: &'a Value,
 ) -> Option<(&'a Value, BTreeSet<String>)> {
     let content = operation.get("requestBody")?.get("content")?.as_object()?;
-    let media = content
-        .get("application/json")
-        .or_else(|| content.iter().find(|(kind, _)| kind.ends_with("+json")).map(|(_, value)| value))?;
+    let media = content.get("application/json").or_else(|| {
+        content
+            .iter()
+            .find(|(kind, _)| kind.ends_with("+json"))
+            .map(|(_, value)| value)
+    })?;
     let schema = media.get("schema")?;
     let reference = schema.get("$ref")?.as_str()?;
     let name = reference.rsplit('/').next()?;
@@ -478,22 +504,31 @@ fn request_discriminators(
         .ok_or_else(|| {
             failure(
                 "extract.request_discriminator_unproven",
-                format!("{} mutates request but has no request parameter", structural_method.name),
+                format!(
+                    "{} mutates request but has no request parameter",
+                    structural_method.name
+                ),
             )
         })?;
     let operation = operation_value(openapi, source_method, source_path)?;
     let (schema, required) = request_schema(openapi, operation).ok_or_else(|| {
         failure(
             "extract.request_discriminator_unproven",
-            format!("{} has no named JSON request schema", structural_method.name),
+            format!(
+                "{} has no named JSON request schema",
+                structural_method.name
+            ),
         )
     })?;
-    let properties = schema.get("properties").and_then(Value::as_object).ok_or_else(|| {
-        failure(
-            "extract.request_discriminator_unproven",
-            "request schema has no properties",
-        )
-    })?;
+    let properties = schema
+        .get("properties")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            failure(
+                "extract.request_discriminator_unproven",
+                "request schema has no properties",
+            )
+        })?;
 
     let mut output = Vec::new();
     for (local_type, value, access_path, assignment_depth) in visitor.blocks {
@@ -506,11 +541,7 @@ fn request_discriminators(
                 ),
             ));
         }
-        let field = field_for_access(
-            structural,
-            &request_parameter.rust_type,
-            &access_path,
-        )?;
+        let field = field_for_access(structural, &request_parameter.rust_type, &access_path)?;
         if compact(&local_type) != compact(&field.rust_type) {
             return Err(failure(
                 "extract.request_discriminator_unproven",
@@ -605,8 +636,7 @@ pub(crate) fn inspect_details(
             format!("{}: {error}", client_path.display()),
         )
     })?;
-    let client = syn::parse_file(&source)
-        .map_err(|error| failure("extract.rust_parse", error))?;
+    let client = syn::parse_file(&source).map_err(|error| failure("extract.rust_parse", error))?;
     let methods = client_methods(&client, &structural.client.path)?;
     let openapi: Value = serde_json::from_str(
         &fs::read_to_string(effective_openapi.as_ref())
@@ -634,7 +664,10 @@ pub(crate) fn inspect_details(
                 | RepresentationEvidence::BinaryStream { .. }
         ) {
             let success_type = signature.success_type.as_deref().ok_or_else(|| {
-                failure("extract.stream_abi_unproven", format!("{name} has no success type"))
+                failure(
+                    "extract.stream_abi_unproven",
+                    format!("{name} has no success type"),
+                )
             })?;
             stream_abi(structural, success_type)?
         } else {
