@@ -132,13 +132,13 @@ fn normalize_structural(structural: &StructuralEvidence) -> Result<CanonicalStru
             .fields
             .iter()
             .map(|field| {
-                json!({
+                Ok(json!({
                     "name": field.name,
                     "wire_name": field.wire_name,
                     "type": canonical_rust_type(&field.rust_type)?,
-                })
+                }))
             })
-            .collect();
+            .collect::<Result<Vec<_>, Error>>()?;
         structs.insert(name.to_owned(), Value::Array(fields));
         insert_symbol(&mut symbols, name, path)?;
     }
@@ -290,12 +290,12 @@ pub fn extract_bindings(
             .parameters
             .iter()
             .map(|parameter| {
-                json!({
+                Ok(json!({
                     "name": parameter.name,
                     "type": canonical_rust_type(&parameter.rust_type)?,
-                })
+                }))
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, Error>>()?;
         let detail = details
             .get(name)
             .ok_or_else(|| extraction_error("extract.operation_details_missing", name))?;
