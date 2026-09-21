@@ -157,7 +157,7 @@ impl<'ast> Visit<'ast> for MethodSignals {
     }
 }
 
-fn operation_doc(attrs: &[Attribute]) -> Result<(String, String), Error> {
+fn operation_doc(attrs: &[Attribute]) -> Result<Option<(String, String)>, Error> {
     let mut matches = Vec::new();
     for attr in attrs.iter().filter(|attr| attr.path().is_ident("doc")) {
         let Meta::NameValue(meta) = &attr.meta else {
@@ -167,8 +167,12 @@ fn operation_doc(attrs: &[Attribute]) -> Result<(String, String), Error> {
             continue;
         };
         let Lit::Str(value) = &expr.lit else { continue };
-        let text = value.value();
-        let text = text.trim();
+        let owned = value.value();
+        let text = owned.trim();
+        let text = text
+            .strip_prefix('`')
+            .and_then(|value| value.strip_suffix('`'))
+            .unwrap_or(text);
         let Some(index) = text.find(char::is_whitespace) else {
             continue;
         };
@@ -182,16 +186,14 @@ fn operation_doc(attrs: &[Attribute]) -> Result<(String, String), Error> {
             matches.push((method, path.to_owned()));
         }
     }
-    if matches.len() != 1 {
-        return Err(semantic_error(
+    match matches.len() {
+        0 => Ok(None),
+        1 => Ok(matches.pop()),
+        count => Err(semantic_error(
             "extract.source_identity_ambiguous",
-            format!(
-                "expected one HTTP route doc attribute, found {}",
-                matches.len()
-            ),
-        ));
+            format!("multiple HTTP route doc attributes found: {count}"),
+        )),
     }
-    Ok(matches.remove(0))
 }
 
 fn route_skeleton(path: &str) -> Result<String, Error> {
@@ -627,34 +629,55 @@ pub fn inspect_semantics(
                 format!("{rust_method_name}: no structural signature"),
             ));
         };
-        let (verb, path) = operation_doc(&method.attrs)?;
-        let source_operation = source.get(&(verb.clone(), path.clone())).ok_or_else(|| {
-            semantic_error(
-                "extract.source_identity_ambiguous",
-                format!(
-                    "{rust_method_name}: documented {verb} {path} is not an exact OpenAPI operation"
-                ),
-            )
-        })?;
-        matched_sources.insert((verb.clone(), path.clone()));
+        let documented = operation_doc(&method.attrs)?;
         let mut signals = MethodSignals::default();
         signals.visit_block(&method.block);
-        if signals.http_calls != BTreeSet::from([verb.clone()]) {
+        if signals.http_calls.len() != 1 {
             return Err(semantic_error(
                 "extract.source_identity_ambiguous",
                 format!(
-                    "{rust_method_name}: documented verb {verb} disagrees with HTTP calls {:?}",
+                    "{rust_method_name}: expected one observable HTTP verb, found {:?}",
                     signals.http_calls
                 ),
             ));
         }
-        let skeleton = route_skeleton(&path)?;
-        if !signals.string_literals.contains(&skeleton) {
+        let verb = signals.http_calls.iter().next().cloned().expect("one HTTP verb");
+        let mut candidates = Vec::new();
+        for ((candidate_verb, candidate_path), operation) in &source {
+            if candidate_verb != &verb {
+                continue;
+            }
+            let skeleton = route_skeleton(candidate_path)?;
+            if signals.string_literals.contains(&skeleton) {
+                candidates.push(operation);
+            }
+        }
+        if candidates.len() != 1 {
             return Err(semantic_error(
                 "extract.source_identity_ambiguous",
-                format!("{rust_method_name}: body lacks route skeleton {skeleton:?}"),
+                format!(
+                    "{rust_method_name}: {verb} body route evidence matched {} OpenAPI operations",
+                    candidates.len()
+                ),
             ));
         }
+        let source_operation = candidates.remove(0);
+        if let Some((doc_verb, doc_path)) = documented
+            && (doc_verb != source_operation.identity.method
+                || route_skeleton(&doc_path)? != route_skeleton(&source_operation.identity.path)?)
+        {
+            return Err(semantic_error(
+                "extract.source_identity_ambiguous",
+                format!(
+                    "{rust_method_name}: rustdoc {doc_verb} {doc_path} disagrees with body/OpenAPI identity {} {}",
+                    source_operation.identity.method, source_operation.identity.path
+                ),
+            ));
+        }
+        matched_sources.insert((
+            source_operation.identity.method.clone(),
+            source_operation.identity.path.clone(),
+        ));
         let success_statuses = top_level_status_guard(&method.block).map_err(|error| {
             semantic_error(
                 "extract.success_statuses_unproven",
