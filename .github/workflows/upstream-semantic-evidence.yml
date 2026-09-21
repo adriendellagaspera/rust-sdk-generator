@@ -34,6 +34,7 @@ jobs:
       - name: Build semantic extractor and run focused regressions
         run: |
           cargo build --locked -p openapi-to-rust-bindings --bin openapi-to-rust-bindings
+          cargo build --locked -p rust-sdk-generator --bin rust-sdk-generator
           cargo test --locked -p openapi-to-rust-bindings --test semantic
 
       - name: Checkout immutable unmodified upstream
@@ -104,6 +105,52 @@ jobs:
           assert bindings["symbol_paths"]["Inventory"] == "crate::generated::types::Inventory"
           print("Manifest-free upstream semantics -> canonical Bindings v3: verified.")
           PY
+
+      - name: Compile standalone facade from unmodified upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          spec="$PWD/openapi-to-rust-bindings/tests/fixtures/upstream-semantic/openapi.json"
+          raw="$RUNNER_TEMP/upstream-semantic-output"
+          bindings="$RUNNER_TEMP/bindings.json"
+          definition="$RUNNER_TEMP/upstream-definition.json"
+          sdk="$RUNNER_TEMP/upstream-sdk"
+          consumer="$RUNNER_TEMP/upstream-consumer"
+
+          target/debug/rust-sdk-generator derive \
+            --openapi "$spec" \
+            --bindings "$bindings" \
+            --definition-output "$definition" \
+            > "$RUNNER_TEMP/upstream-derivation.json"
+          target/debug/rust-sdk-generator generate \
+            --openapi "$spec" \
+            --bindings "$bindings" \
+            --definition "$definition" \
+            --output "$sdk" \
+            > "$RUNNER_TEMP/upstream-inventory.json"
+
+          mkdir -p "$consumer/src/generated" "$consumer/src/sdk"
+          cp "$raw"/*.rs "$consumer/src/generated/"
+          cp "$sdk"/*.rs "$consumer/src/sdk/"
+          cp examples/independent-sdk/consumer/src/sdk/error.rs "$consumer/src/sdk/error.rs"
+          cat > "$consumer/src/lib.rs" <<'RS'
+          pub mod generated;
+          pub mod sdk;
+          RS
+          {
+            echo '[package]'
+            echo 'name = "unmodified-upstream-sdk-proof"'
+            echo 'version = "0.0.0"'
+            echo 'edition = "2024"'
+            echo 'publish = false'
+            echo ''
+            echo '[workspace]'
+            echo ''
+            cat "$raw/REQUIRED_DEPS.toml"
+          } > "$consumer/Cargo.toml"
+
+          cargo check --manifest-path "$consumer/Cargo.toml" --all-targets
+          echo "Unmodified upstream -> Bindings v3 -> generated standalone facade: compiled."
 
       - name: Checkout immutable fork oracle
         shell: bash
