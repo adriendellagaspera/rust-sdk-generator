@@ -994,3 +994,47 @@ pub fn inspect_semantics(
         unmatched_source_operations,
     })
 }
+
+#[cfg(test)]
+mod bounded_text_tests {
+    use super::*;
+
+    const EMITTED: &str = r#"{
+        let body_bytes = __read_bounded_response_body(
+            response,
+            self.max_response_body_bytes,
+        ).await?;
+        let raw_body = body_bytes;
+        let body_text = String::from_utf8_lossy(&raw_body).into_owned();
+        if status_code == 200 {
+            let _ = raw_body;
+            Ok(body_text)
+        } else {
+            Err(ApiOpError::Api(problem))
+        }
+    }"#;
+
+    fn proved(source: &str) -> bool {
+        let block: syn::Block = syn::parse_str(source).expect("parse actual generated method block");
+        proves_bounded_text(&block)
+    }
+
+    #[test]
+    fn proves_bounded_text_from_the_response_and_direct_success_return() {
+        assert!(proved(EMITTED));
+    }
+
+    #[test]
+    fn rejects_unrelated_or_unbounded_text_and_wrong_success_result() {
+        for changed in [
+            EMITTED.replace("__read_bounded_response_body", "read_other_body"),
+            EMITTED.replace("let raw_body = body_bytes;", "let raw_body = other_bytes;"),
+            EMITTED.replace("String::from_utf8_lossy(&raw_body)", "String::from_utf8_lossy(&other)"),
+            EMITTED.replace("Ok(body_text)", "Ok(other_text)"),
+            EMITTED.replace("Ok(body_text)", "if something { Ok(body_text) } else { Ok(other) }"),
+            EMITTED.replace("let raw_body = body_bytes;", "let body_text = body_bytes;"),
+        ] {
+            assert!(!proved(&changed), "unproved bounded text was accepted: {changed}");
+        }
+    }
+}
