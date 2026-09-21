@@ -359,8 +359,14 @@ pub(crate) fn redundant_any_of_alternative(schema: &Value) -> Option<&Value> {
     if object.keys().any(|key| {
         !matches!(
             key.as_str(),
-            "anyOf" | "title" | "description" | "example" | "examples" | "default"
-                | "deprecated" | "$comment"
+            "anyOf"
+                | "title"
+                | "description"
+                | "example"
+                | "examples"
+                | "default"
+                | "deprecated"
+                | "$comment"
         )
     }) {
         return None;
