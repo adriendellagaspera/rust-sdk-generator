@@ -796,52 +796,121 @@ fn discriminator_ref_depth(expr: &Expr) -> Option<usize> {
     }
 }
 
-#[derive(Default)]
-struct LiteralCollector {
-    values: Vec<Value>,
-}
-
-impl<'ast> Visit<'ast> for LiteralCollector {
-    fn visit_expr_lit(&mut self, node: &'ast syn::ExprLit) {
-        match &node.lit {
-            Lit::Bool(value) => self.values.push(Value::Bool(value.value)),
-            Lit::Int(value) => {
-                if let Ok(value) = value.base10_parse::<i64>() {
-                    self.values.push(Value::Number(value.into()));
-                }
-            }
-            Lit::Str(value) => self.values.push(Value::String(value.value())),
-            _ => {}
+fn signed_integer(expr: &Expr) -> Option<i64> {
+    match expr {
+        Expr::Lit(value) => {
+            let Lit::Int(value) = &value.lit else {
+                return None;
+            };
+            value.base10_parse().ok()
         }
-        visit::visit_expr_lit(self, node);
+        Expr::Unary(unary) if matches!(unary.op, syn::UnOp::Neg(_)) => {
+            signed_integer(&unary.expr)?.checked_neg()
+        }
+        _ => None,
     }
 }
 
+fn discriminator_json_value(expr: &Expr) -> Option<Value> {
+    let Expr::Call(call) = expr else {
+        return None;
+    };
+    let Expr::Path(function) = &*call.func else {
+        return None;
+    };
+    let function = compact(&tokens(&function.path));
+    if call.args.len() != 1 {
+        return None;
+    }
+    let argument = call.args.first()?;
+    match function.as_str() {
+        "serde_json::Value::Bool" => match argument {
+            Expr::Lit(value) => {
+                let Lit::Bool(value) = &value.lit else {
+                    return None;
+                };
+                Some(Value::Bool(value.value))
+            }
+            _ => None,
+        },
+        "serde_json::Value::String" => {
+            let Expr::MethodCall(to_string) = argument else {
+                return None;
+            };
+            if to_string.method != "to_string" || !to_string.args.is_empty() {
+                return None;
+            }
+            let Expr::Lit(value) = &*to_string.receiver else {
+                return None;
+            };
+            let Lit::Str(value) = &value.lit else {
+                return None;
+            };
+            Some(Value::String(value.value()))
+        }
+        "serde_json::Value::Number" => {
+            let Expr::Call(number) = argument else {
+                return None;
+            };
+            let Expr::Path(function) = &*number.func else {
+                return None;
+            };
+            if compact(&tokens(&function.path)) != "serde_json::Number::from"
+                || number.args.len() != 1
+            {
+                return None;
+            }
+            signed_integer(number.args.first()?).map(|value| Value::Number(value.into()))
+        }
+        _ => None,
+    }
+}
+
+fn discriminator_initializer(expr: &Expr) -> Option<Value> {
+    let Expr::Try(try_expr) = expr else {
+        return None;
+    };
+    let Expr::MethodCall(map_err) = &*try_expr.expr else {
+        return None;
+    };
+    if map_err.method != "map_err" || map_err.args.len() != 1 {
+        return None;
+    }
+    let Expr::Call(from_value) = &*map_err.receiver else {
+        return None;
+    };
+    let Expr::Path(function) = &*from_value.func else {
+        return None;
+    };
+    if compact(&tokens(&function.path)) != "serde_json::from_value" || from_value.args.len() != 1 {
+        return None;
+    }
+    discriminator_json_value(from_value.args.first()?)
+}
+
 fn typed_discriminator_local(block: &syn::Block) -> Option<(String, Value)> {
+    let mut evidence = None;
     for statement in &block.stmts {
-        let syn::Stmt::Local(local) = statement else {
+        let Stmt::Local(local) = statement else {
             continue;
         };
-        let syn::Pat::Type(typed) = &local.pat else {
+        let Pat::Type(typed) = &local.pat else {
             continue;
         };
-        let syn::Pat::Ident(ident) = &*typed.pat else {
+        let Pat::Ident(ident) = &*typed.pat else {
             continue;
         };
         if ident.ident != "__request_discriminator_value" {
             continue;
         }
-        let initializer = local.init.as_ref()?;
-        let mut literals = LiteralCollector::default();
-        literals.visit_expr(&initializer.expr);
-        let mut values = literals.values;
-        values.dedup();
-        if values.len() != 1 {
+        if evidence.is_some() {
             return None;
         }
-        return Some((tokens(&typed.ty), values.remove(0)));
+        let initializer = local.init.as_ref()?;
+        let value = discriminator_initializer(&initializer.expr)?;
+        evidence = Some((tokens(&typed.ty), value));
     }
-    None
+    evidence
 }
 
 type DiscriminatorAssignment = (String, Value, Vec<String>, usize);
@@ -870,7 +939,7 @@ fn discriminator_block(block: &syn::Block) -> Result<Option<DiscriminatorAssignm
     let (rust_type, value) = local.ok_or_else(|| {
         failure(
             "extract.request_discriminator_unproven",
-            "discriminator marker has no direct typed local",
+            "discriminator marker has no unique direct typed local with a supported serde_json::from_value literal initializer",
         )
     })?;
     let assignments: Vec<_> = block
@@ -1194,6 +1263,7 @@ fn request_discriminators(
         })?;
 
     let mut output = Vec::new();
+    let mut targets = BTreeSet::new();
     for (_, (local_type, value, access_path, assignment_depth)) in blocks {
         if access_path.len() != 1 {
             return Err(failure(
@@ -1204,7 +1274,23 @@ fn request_discriminators(
                 ),
             ));
         }
-        let field = field_for_access(structural, &request_parameter.rust_type, &access_path)?;
+        let target = access_path.join(".");
+        if !targets.insert(target.clone()) {
+            return Err(failure(
+                "extract.request_discriminator_unproven",
+                format!(
+                    "{} assigns discriminator target {target:?} more than once",
+                    structural_method.name
+                ),
+            ));
+        }
+        let field = field_for_access(structural, &request_parameter.rust_type, &access_path)
+            .map_err(|error| {
+                failure(
+                    "extract.request_discriminator_unproven",
+                    format!("{}: {error}", structural_method.name),
+                )
+            })?;
         let wire_name = field.wire_name.clone().ok_or_else(|| {
             failure(
                 "extract.request_discriminator_unproven",
