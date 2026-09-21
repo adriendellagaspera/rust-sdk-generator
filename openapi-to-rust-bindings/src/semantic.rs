@@ -438,6 +438,17 @@ fn schema_ref_name(media: &Value) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
+fn is_binary_media(media_type: &str, media: &Value) -> bool {
+    media_type.eq_ignore_ascii_case("application/octet-stream")
+        || media_type.eq_ignore_ascii_case("application/*")
+        || media_type.eq_ignore_ascii_case("*/*")
+        || media
+            .get("schema")
+            .and_then(|schema| schema.get("format"))
+            .and_then(Value::as_str)
+            .is_some_and(|format| format.eq_ignore_ascii_case("binary"))
+}
+
 fn choose_representation(
     operation: &OpenApiOperation,
     method_name: &str,
@@ -470,11 +481,7 @@ fn choose_representation(
         }
         let binary: Vec<_> = media
             .iter()
-            .filter(|(kind, _)| {
-                kind.eq_ignore_ascii_case("application/octet-stream")
-                    || kind.eq_ignore_ascii_case("application/*")
-                    || kind.eq_ignore_ascii_case("*/*")
-            })
+            .filter(|(kind, media)| is_binary_media(kind, media))
             .collect();
         if binary.len() != 1 {
             return Err(semantic_error(
@@ -490,11 +497,7 @@ fn choose_representation(
     if signals.bytes || compact == "bytes::Bytes" {
         let binary: Vec<_> = media
             .iter()
-            .filter(|(kind, _)| {
-                kind.eq_ignore_ascii_case("application/octet-stream")
-                    || kind.eq_ignore_ascii_case("application/*")
-                    || kind.eq_ignore_ascii_case("*/*")
-            })
+            .filter(|(kind, media)| is_binary_media(kind, media))
             .collect();
         if binary.len() != 1 {
             return Err(semantic_error(
