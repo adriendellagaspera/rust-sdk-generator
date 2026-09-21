@@ -43,7 +43,13 @@ pub struct HttpClient {
     http_client: reqwest::Client,
 }
 impl HttpClient {
-    pub fn new() -> Self { todo!() }
+    pub fn new() -> Self {
+        Self {
+            base_url: String::new(),
+            api_key: None,
+            http_client: todo!(),
+        }
+    }
     pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
         self.base_url = base_url.into();
         self
@@ -320,7 +326,13 @@ pub struct HttpClient {
     http_client: reqwest::Client,
 }
 impl HttpClient {
-    pub fn new() -> Self { todo!() }
+    pub fn new() -> Self {
+        Self {
+            base_url: String::new(),
+            api_key: None,
+            http_client: todo!(),
+        }
+    }
     pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
         self.base_url = base_url.into();
         self
