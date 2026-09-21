@@ -1,7 +1,7 @@
 //! Semantic evidence recovered from ordinary generated Rust plus the exact
 //! effective OpenAPI input. This is backend-specific and fail-closed.
-use crate::{Error, inspect_generated};
 use crate::structural::EvidenceLocation;
+use crate::{Error, inspect_generated};
 use proc_macro2::{TokenStream, TokenTree};
 use quote::ToTokens;
 use serde::Serialize;
@@ -22,11 +22,24 @@ pub struct SourceOperationEvidence {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RepresentationEvidence {
-    Json { schema_name: String, media_type: String },
-    Text { media_type: String },
-    BinaryBuffered { media_type: String, wildcard: bool },
-    EventStream { media_type: String },
-    BinaryStream { media_type: String, wildcard: bool },
+    Json {
+        schema_name: String,
+        media_type: String,
+    },
+    Text {
+        media_type: String,
+    },
+    BinaryBuffered {
+        media_type: String,
+        wildcard: bool,
+    },
+    EventStream {
+        media_type: String,
+    },
+    BinaryStream {
+        media_type: String,
+        wildcard: bool,
+    },
     Empty,
 }
 
@@ -73,12 +86,18 @@ fn normalized_tokens<T: ToTokens>(value: &T) -> String {
 }
 
 fn self_field(expr: &Expr) -> Option<&syn::Ident> {
-    let Expr::Field(field) = expr else { return None };
-    let Expr::Path(base) = &*field.base else { return None };
+    let Expr::Field(field) = expr else {
+        return None;
+    };
+    let Expr::Path(base) = &*field.base else {
+        return None;
+    };
     if !base.path.is_ident("self") {
         return None;
     }
-    let syn::Member::Named(name) = &field.member else { return None };
+    let syn::Member::Named(name) = &field.member else {
+        return None;
+    };
     Some(name)
 }
 
@@ -141,12 +160,18 @@ impl<'ast> Visit<'ast> for MethodSignals {
 fn operation_doc(attrs: &[Attribute]) -> Result<(String, String), Error> {
     let mut matches = Vec::new();
     for attr in attrs.iter().filter(|attr| attr.path().is_ident("doc")) {
-        let Meta::NameValue(meta) = &attr.meta else { continue };
-        let Expr::Lit(expr) = &meta.value else { continue };
+        let Meta::NameValue(meta) = &attr.meta else {
+            continue;
+        };
+        let Expr::Lit(expr) = &meta.value else {
+            continue;
+        };
         let Lit::Str(value) = &expr.lit else { continue };
         let text = value.value();
         let text = text.trim();
-        let Some(index) = text.find(char::is_whitespace) else { continue };
+        let Some(index) = text.find(char::is_whitespace) else {
+            continue;
+        };
         let method = text[..index].trim().to_ascii_uppercase();
         let path = text[index..].trim();
         if matches!(
@@ -160,7 +185,10 @@ fn operation_doc(attrs: &[Attribute]) -> Result<(String, String), Error> {
     if matches.len() != 1 {
         return Err(semantic_error(
             "extract.source_identity_ambiguous",
-            format!("expected one HTTP route doc attribute, found {}", matches.len()),
+            format!(
+                "expected one HTTP route doc attribute, found {}",
+                matches.len()
+            ),
         ));
     }
     Ok(matches.remove(0))
@@ -193,7 +221,9 @@ fn index_openapi(value: &Value) -> Result<BTreeMap<(String, String), OpenApiOper
     let paths = value
         .get("paths")
         .and_then(Value::as_object)
-        .ok_or_else(|| semantic_error("extract.openapi_paths_required", "paths must be an object"))?;
+        .ok_or_else(|| {
+            semantic_error("extract.openapi_paths_required", "paths must be an object")
+        })?;
     let mut operations = BTreeMap::new();
     let mut ids = BTreeSet::new();
     for (path, item) in paths {
@@ -209,17 +239,26 @@ fn index_openapi(value: &Value) -> Result<BTreeMap<(String, String), OpenApiOper
                 continue;
             }
             let operation = operation.as_object().ok_or_else(|| {
-                semantic_error("extract.openapi_operation_invalid", format!("{method} {path}"))
+                semantic_error(
+                    "extract.openapi_operation_invalid",
+                    format!("{method} {path}"),
+                )
             })?;
             let operation_id = operation
                 .get("operationId")
                 .and_then(Value::as_str)
                 .filter(|value| !value.trim().is_empty())
                 .ok_or_else(|| {
-                    semantic_error("extract.openapi_operation_id_required", format!("{method} {path}"))
+                    semantic_error(
+                        "extract.openapi_operation_id_required",
+                        format!("{method} {path}"),
+                    )
                 })?;
             if !ids.insert(operation_id.to_owned()) {
-                return Err(semantic_error("extract.openapi_operation_id_duplicate", operation_id));
+                return Err(semantic_error(
+                    "extract.openapi_operation_id_duplicate",
+                    operation_id,
+                ));
             }
             operations.insert(
                 (method.clone(), path.clone()),
@@ -282,24 +321,30 @@ impl<'ast> Visit<'ast> for StatusCondition {
             }
 
             let class = |candidate: &Expr, value: &Expr| -> Option<String> {
-                let Expr::Binary(div) = candidate else { return None };
-                if !matches!(div.op, syn::BinOp::Div(_))
-                    || !path_ident(&div.left, "status_code")
-                {
+                let Expr::Binary(div) = candidate else {
+                    return None;
+                };
+                if !matches!(div.op, syn::BinOp::Div(_)) || !path_ident(&div.left, "status_code") {
                     return None;
                 }
-                let Expr::Lit(divisor) = &*div.right else { return None };
-                let Lit::Int(divisor) = &divisor.lit else { return None };
+                let Expr::Lit(divisor) = &*div.right else {
+                    return None;
+                };
+                let Lit::Int(divisor) = &divisor.lit else {
+                    return None;
+                };
                 if divisor.base10_digits() != "100" {
                     return None;
                 }
                 let Expr::Lit(class) = value else { return None };
-                let Lit::Int(class) = &class.lit else { return None };
+                let Lit::Int(class) = &class.lit else {
+                    return None;
+                };
                 let digit = class.base10_digits();
                 (digit.len() == 1).then(|| format!("{digit}XX"))
             };
-            if let Some(status) = class(&node.left, &node.right)
-                .or_else(|| class(&node.right, &node.left))
+            if let Some(status) =
+                class(&node.left, &node.right).or_else(|| class(&node.right, &node.left))
             {
                 self.classes.insert(status);
             }
@@ -315,7 +360,9 @@ fn top_level_status_guard(block: &syn::Block) -> Result<Vec<String>, Error> {
             syn::Stmt::Expr(expression, _) => expression,
             _ => continue,
         };
-        let Expr::If(branch) = expression else { continue };
+        let Expr::If(branch) = expression else {
+            continue;
+        };
         let mut condition = StatusCondition::default();
         condition.visit_expr(&branch.cond);
         if condition.broad || !condition.exact.is_empty() || !condition.classes.is_empty() {
@@ -365,9 +412,7 @@ fn success_media(operation: &OpenApiOperation) -> Result<Vec<(String, Value)>, E
         let success = bytes.len() == 3
             && bytes[0] == b'2'
             && (bytes[1..].iter().all(u8::is_ascii_digit)
-                || bytes[1..]
-                    .iter()
-                    .all(|byte| matches!(byte, b'X' | b'x')));
+                || bytes[1..].iter().all(|byte| matches!(byte, b'X' | b'x')));
         if !success {
             continue;
         }
@@ -382,7 +427,8 @@ fn success_media(operation: &OpenApiOperation) -> Result<Vec<(String, Value)>, E
 }
 
 fn schema_ref_name(media: &Value) -> Option<String> {
-    media.get("schema")
+    media
+        .get("schema")
         .and_then(|schema| schema.get("$ref"))
         .and_then(Value::as_str)
         .and_then(|reference| reference.rsplit('/').next())
@@ -407,7 +453,10 @@ fn choose_representation(
         || compact.contains("LocalBoxStream<");
     if streaming {
         if signals.accept_event_stream {
-            if !media.iter().any(|(kind, _)| kind.eq_ignore_ascii_case("text/event-stream")) {
+            if !media
+                .iter()
+                .any(|(kind, _)| kind.eq_ignore_ascii_case("text/event-stream"))
+            {
                 return Err(semantic_error(
                     "extract.representation_unproven",
                     format!("{method_name}: emitted SSE Accept has no matching OpenAPI media type"),
@@ -548,10 +597,17 @@ pub fn inspect_semantics(
     let source = index_openapi(&openapi)?;
     let client_path = generated.join("client.rs");
     let client_source = fs::read_to_string(&client_path).map_err(|e| {
-        semantic_error("extract.source_unreadable", format!("{}: {e}", client_path.display()))
+        semantic_error(
+            "extract.source_unreadable",
+            format!("{}: {e}", client_path.display()),
+        )
     })?;
-    let client = syn::parse_file(&client_source)
-        .map_err(|e| semantic_error("extract.rust_parse", format!("{}: {e}", client_path.display())))?;
+    let client = syn::parse_file(&client_source).map_err(|e| {
+        semantic_error(
+            "extract.rust_parse",
+            format!("{}: {e}", client_path.display()),
+        )
+    })?;
 
     let signatures: BTreeMap<_, _> = structural
         .client
@@ -575,7 +631,9 @@ pub fn inspect_semantics(
         let source_operation = source.get(&(verb.clone(), path.clone())).ok_or_else(|| {
             semantic_error(
                 "extract.source_identity_ambiguous",
-                format!("{rust_method_name}: documented {verb} {path} is not an exact OpenAPI operation"),
+                format!(
+                    "{rust_method_name}: documented {verb} {path} is not an exact OpenAPI operation"
+                ),
             )
         })?;
         matched_sources.insert((verb.clone(), path.clone()));
@@ -613,7 +671,8 @@ pub fn inspect_semantics(
             choose_representation(source_operation, &rust_method_name, success_type, &signals)?;
         if matches!(
             representation,
-            RepresentationEvidence::EventStream { .. } | RepresentationEvidence::BinaryStream { .. }
+            RepresentationEvidence::EventStream { .. }
+                | RepresentationEvidence::BinaryStream { .. }
         ) {
             unsupported_stream_methods.push(rust_method_name.clone());
         }
@@ -629,8 +688,14 @@ pub fn inspect_semantics(
                 module: "crate::generated::client".into(),
             },
         };
-        if operations.insert(rust_method_name.clone(), evidence).is_some() {
-            return Err(semantic_error("extract.duplicate_client_method", rust_method_name));
+        if operations
+            .insert(rust_method_name.clone(), evidence)
+            .is_some()
+        {
+            return Err(semantic_error(
+                "extract.duplicate_client_method",
+                rust_method_name,
+            ));
         }
     }
     let unmatched_source_operations = source
