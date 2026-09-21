@@ -790,6 +790,8 @@ fn typed_discriminator_local(block: &syn::Block) -> Option<(String, Value)> {
     None
 }
 
+type DiscriminatorAssignment = (String, Value, Vec<String>, usize);
+
 #[derive(Default)]
 struct DiscriminatorMarker {
     count: usize,
@@ -804,9 +806,7 @@ impl<'ast> Visit<'ast> for DiscriminatorMarker {
     }
 }
 
-fn discriminator_block(
-    block: &syn::Block,
-) -> Result<Option<(String, Value, Vec<String>, usize)>, Error> {
+fn discriminator_block(block: &syn::Block) -> Result<Option<DiscriminatorAssignment>, Error> {
     let mut marker = DiscriminatorMarker::default();
     marker.visit_block(block);
     let local = typed_discriminator_local(block);
@@ -1055,16 +1055,16 @@ fn request_discriminators(
                 serializations.push(index);
             }
         }
-        if let Stmt::Expr(Expr::Block(block), _) = statement {
-            if let Some(evidence) = discriminator_block(&block.block).map_err(|error| {
+        if let Stmt::Expr(Expr::Block(block), _) = statement
+            && let Some(evidence) = discriminator_block(&block.block).map_err(|error| {
                 failure(
                     "extract.request_discriminator_unproven",
                     format!("{}: {error}", structural_method.name),
                 )
-            })? {
-                blocks.push((index, evidence));
-                continue;
-            }
+            })?
+        {
+            blocks.push((index, evidence));
+            continue;
         }
         let mut marker = DiscriminatorMarker::default();
         marker.visit_stmt(statement);
