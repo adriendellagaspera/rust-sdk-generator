@@ -87,9 +87,6 @@ fn render_stream(stream: TokenStream) -> String {
                         output.push_str(", ");
                     }
                     ('&' | '*' | '\'' | '?' | '!', _) => {
-                        while output.ends_with(' ') {
-                            output.pop();
-                        }
                         output.push(ch);
                     }
                     ('+' | '=' | '|', _) => {
