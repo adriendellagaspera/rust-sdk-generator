@@ -34,17 +34,17 @@ fn referenced_client_enum_names(structural: &StructuralEvidence) -> BTreeSet<Str
     let mut names = BTreeSet::new();
     for method in &structural.client.methods {
         for parameter in &method.parameters {
-            names.extend(words(&parameter.rust_type).into_iter().map(ToOwned::to_owned));
+            names.extend(
+                words(&parameter.rust_type)
+                    .into_iter()
+                    .map(ToOwned::to_owned),
+            );
         }
     }
     names
 }
 
-fn insert_symbol(
-    symbols: &mut Map<String, Value>,
-    name: &str,
-    path: &str,
-) -> Result<(), Error> {
+fn insert_symbol(symbols: &mut Map<String, Value>, name: &str, path: &str) -> Result<(), Error> {
     if let Some(previous) = symbols.insert(name.to_owned(), Value::String(path.to_owned())) {
         return Err(extraction_error(
             "extract.symbol_collision",
@@ -159,7 +159,10 @@ fn normalize_structural(structural: &StructuralEvidence) -> Result<CanonicalStru
         if structs.contains_key(name) || enums.contains_key(name) || aliases.contains_key(name) {
             return Err(extraction_error("extract.symbol_collision", name));
         }
-        aliases.insert(name.to_owned(), Value::String(definitions[0].rust_type.clone()));
+        aliases.insert(
+            name.to_owned(),
+            Value::String(definitions[0].rust_type.clone()),
+        );
         insert_symbol(&mut symbols, name, path)?;
     }
 
@@ -172,23 +175,29 @@ fn normalize_structural(structural: &StructuralEvidence) -> Result<CanonicalStru
 }
 
 fn representation_json(value: &RepresentationEvidence) -> Result<Value, Error> {
-    serde_json::to_value(value).map_err(|error| {
-        extraction_error(
-            "extract.representation_serialization_failed",
-            error,
-        )
-    })
+    serde_json::to_value(value)
+        .map_err(|error| extraction_error("extract.representation_serialization_failed", error))
 }
 
 fn client_layout(structural: &StructuralEvidence) -> Result<Value, Error> {
-    if !structural.client.constructors.iter().any(|name| name == "new") {
+    if !structural
+        .client
+        .constructors
+        .iter()
+        .any(|name| name == "new")
+    {
         return Err(extraction_error(
             "extract.client_layout_unproven",
             "openapi-to-rust client has no public new constructor",
         ));
     }
     for required in ["with_api_key", "with_base_url"] {
-        if !structural.client.builders.iter().any(|name| name == required) {
+        if !structural
+            .client
+            .builders
+            .iter()
+            .any(|name| name == required)
+        {
             return Err(extraction_error(
                 "extract.client_layout_unproven",
                 format!("openapi-to-rust client has no {required} builder"),
@@ -256,18 +265,13 @@ pub fn extract_bindings(
 
     let mut operations = Map::new();
     for (name, semantics) in &semantic.operations {
-        let signature = signatures.get(name.as_str()).ok_or_else(|| {
-            extraction_error(
-                "extract.signature_missing",
-                name,
-            )
-        })?;
-        let success_type = signature.success_type.as_ref().ok_or_else(|| {
-            extraction_error(
-                "extract.success_type_unproven",
-                name,
-            )
-        })?;
+        let signature = signatures
+            .get(name.as_str())
+            .ok_or_else(|| extraction_error("extract.signature_missing", name))?;
+        let success_type = signature
+            .success_type
+            .as_ref()
+            .ok_or_else(|| extraction_error("extract.success_type_unproven", name))?;
         let parameters = signature
             .parameters
             .iter()
