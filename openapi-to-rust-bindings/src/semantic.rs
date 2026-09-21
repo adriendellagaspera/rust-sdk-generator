@@ -232,9 +232,7 @@ fn emitted_operation_id(
     }
     let matches: Vec<_> = candidates
         .into_iter()
-        .filter(|candidate| {
-            conservative_snake_case(candidate).as_deref() == Some(base_method)
-        })
+        .filter(|candidate| conservative_snake_case(candidate).as_deref() == Some(base_method))
         .collect();
     if matches.len() != 1 {
         return Err(semantic_error(
