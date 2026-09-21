@@ -1,5 +1,6 @@
 //! Normalize `openapi-to-rust` output into the versioned Rust Bindings contract.
 
+mod details;
 mod extract;
 mod manifest;
 mod model;
