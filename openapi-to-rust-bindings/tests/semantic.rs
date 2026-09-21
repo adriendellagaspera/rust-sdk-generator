@@ -391,3 +391,204 @@ impl HttpClient {
         .expect_err("anonymous streams have no proven native/WASM alias ABI");
     assert!(error.to_string().contains("extract.stream_abi_unproven"));
 }
+
+
+fn assert_extract_error(root: &Scratch, code: &str, context: &str) {
+    let error = extract_bindings(root.path(), root.path().join("openapi.json"))
+        .expect_err("fixture must fail closed");
+    let message = error.to_string();
+    assert!(message.contains(code), "{message}");
+    assert!(message.contains(context), "{message}");
+}
+
+#[test]
+fn client_constructor_signature_must_match_the_facade_contract() {
+    let client = CLIENT.replacen(
+        "pub fn new() -> Self",
+        "pub fn new(seed: String) -> Self",
+        1,
+    );
+    let root = fixture(&client);
+    assert_extract_error(&root, "extract.client_layout_unproven", "::new");
+}
+
+#[test]
+fn base_url_builder_must_mutate_the_returned_base_url_state() {
+    let client = CLIENT.replacen(
+        "self.base_url = base_url.into();",
+        "self.api_key = Some(base_url.into());",
+        1,
+    );
+    let root = fixture(&client);
+    assert_extract_error(
+        &root,
+        "extract.client_layout_unproven",
+        "with_base_url",
+    );
+}
+
+#[test]
+fn api_key_builder_must_mutate_the_returned_api_key_state() {
+    let client = CLIENT.replacen(
+        "self.api_key = Some(api_key.into());",
+        "self.base_url = api_key.into();",
+        1,
+    );
+    let root = fixture(&client);
+    assert_extract_error(&root, "extract.client_layout_unproven", "with_api_key");
+}
+
+#[test]
+fn route_skeleton_collisions_are_rejected_as_ambiguous_source_identity() {
+    let root = fixture(CLIENT);
+    let mut openapi: serde_json::Value = serde_json::from_str(OPENAPI).expect("fixture JSON");
+    openapi["paths"]["/inventory/{name}"] = serde_json::json!({
+        "get": {
+            "operationId": "fetchInventoryByName",
+            "responses": {
+                "200": {
+                    "content": {
+                        "application/json": {
+                            "schema": {"$ref": "#/components/schemas/Inventory"}
+                        }
+                    }
+                }
+            }
+        }
+    });
+    root.file(
+        "openapi.json",
+        &serde_json::to_string_pretty(&openapi).expect("serialize OpenAPI"),
+    );
+    let error = inspect_semantics(root.path(), root.path().join("openapi.json"))
+        .expect_err("same verb and route skeleton must be ambiguous");
+    let message = error.to_string();
+    assert!(message.contains("extract.source_identity_ambiguous"), "{message}");
+    assert!(
+        message.contains("fetch_inventory_without_naming_shortcut"),
+        "{message}"
+    );
+}
+
+#[test]
+fn duplicate_operation_id_allocation_must_be_observable_from_the_emitted_method() {
+    let client = CLIENT.replacen(
+        "render_inventory(&self)",
+        "fetch_inventory_without_naming_shortcut_2(&self)",
+        1,
+    );
+    let root = fixture(&client);
+    let mut openapi: serde_json::Value = serde_json::from_str(OPENAPI).expect("fixture JSON");
+    openapi["paths"]["/render"]["post"]["operationId"] =
+        serde_json::Value::String("fetchInventoryWithoutNamingShortcut".into());
+    root.file(
+        "openapi.json",
+        &serde_json::to_string_pretty(&openapi).expect("serialize OpenAPI"),
+    );
+    let error = inspect_semantics(root.path(), root.path().join("openapi.json"))
+        .expect_err("unsupported collision allocation must fail closed");
+    let message = error.to_string();
+    assert!(message.contains("extract.emitted_id_unproven"), "{message}");
+    assert!(
+        message.contains("fetchInventoryWithoutNamingShortcut"),
+        "{message}"
+    );
+}
+
+#[test]
+fn multiple_top_level_status_guards_are_rejected() {
+    let client = CLIENT.replacen(
+        "let status = response.status();",
+        "let status = response.status();\n        if status.is_success() {}",
+        1,
+    );
+    let root = fixture(&client);
+    let error = inspect_semantics(root.path(), root.path().join("openapi.json"))
+        .expect_err("ambiguous success guards must fail closed");
+    let message = error.to_string();
+    assert!(
+        message.contains("extract.success_statuses_unproven"),
+        "{message}"
+    );
+    assert!(
+        message.contains("fetch_inventory_without_naming_shortcut"),
+        "{message}"
+    );
+}
+
+#[test]
+fn emitted_success_status_must_be_declared_by_the_source_operation() {
+    let client = CLIENT
+        .replacen(
+            "let status = response.status();",
+            "let status = response.status();\n        let status_code = status.as_u16();",
+            1,
+        )
+        .replacen("if status.is_success()", "if status_code == 201", 1);
+    let root = fixture(&client);
+    let error = inspect_semantics(root.path(), root.path().join("openapi.json"))
+        .expect_err("generated 201 guard cannot be attributed to an OpenAPI 200 response");
+    let message = error.to_string();
+    assert!(
+        message.contains("extract.success_statuses_unproven"),
+        "{message}"
+    );
+    assert!(message.contains("201"), "{message}");
+    assert!(
+        message.contains("fetch_inventory_without_naming_shortcut"),
+        "{message}"
+    );
+}
+
+#[test]
+fn response_representation_is_selected_only_from_emitted_statuses() {
+    let client = CLIENT
+        .replacen(
+            "let status = response.status();",
+            "let status = response.status();\n        let status_code = status.as_u16();",
+            1,
+        )
+        .replacen("if status.is_success()", "if status_code == 200", 1);
+    let root = fixture(&client);
+    let mut openapi: serde_json::Value = serde_json::from_str(OPENAPI).expect("fixture JSON");
+    openapi["paths"]["/inventory/{id}"]["get"]["responses"]["206"] = serde_json::json!({
+        "content": {
+            "application/octet-stream": {
+                "schema": {"type": "string", "format": "binary"}
+            }
+        }
+    });
+    root.file(
+        "openapi.json",
+        &serde_json::to_string_pretty(&openapi).expect("serialize OpenAPI"),
+    );
+    let evidence = inspect_semantics(root.path(), root.path().join("openapi.json"))
+        .expect("the unselected 206 representation must not make 200 ambiguous");
+    let fetch = &evidence.operations["fetch_inventory_without_naming_shortcut"];
+    assert_eq!(fetch.success_statuses, vec!["200"]);
+    assert!(matches!(
+        fetch.representation,
+        RepresentationEvidence::Json { .. }
+    ));
+}
+
+#[test]
+fn empty_success_type_is_rejected_when_selected_source_response_has_content() {
+    let root = fixture(CLIENT);
+    let mut openapi: serde_json::Value = serde_json::from_str(OPENAPI).expect("fixture JSON");
+    openapi["paths"]["/inventory/{id}"]["delete"]["responses"]["204"]["content"] =
+        serde_json::json!({
+            "application/json": {
+                "schema": {"$ref": "#/components/schemas/Inventory"}
+            }
+        });
+    root.file(
+        "openapi.json",
+        &serde_json::to_string_pretty(&openapi).expect("serialize OpenAPI"),
+    );
+    let error = inspect_semantics(root.path(), root.path().join("openapi.json"))
+        .expect_err("bodyless generated success cannot represent declared response content");
+    let message = error.to_string();
+    assert!(message.contains("extract.representation_unproven"), "{message}");
+    assert!(message.contains("delete_inventory"), "{message}");
+}
