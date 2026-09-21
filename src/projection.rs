@@ -1230,7 +1230,9 @@ fn response_model(
     if bindings.structs.contains_key(raw) {
         let schema = openapi.schema(raw).map_err(|_| RESPONSE_VIEW_UNPROVEN)?;
         if schema.get("type").and_then(Value::as_str) == Some("object")
-            && schema.get("additionalProperties").is_some()
+            && schema
+                .get("additionalProperties")
+                .is_some_and(|additional| *additional != Value::Bool(false))
             && schema
                 .get("properties")
                 .and_then(Value::as_object)
