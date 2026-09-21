@@ -193,3 +193,18 @@ jobs:
           assert any(operation["metadata"]["request_discriminators"] for operation in render)
           print("Fresh fork manifest == manifest-free canonical Bindings v3: verified.")
           PY
+
+  manifest-free-sdk:
+    name: manifest-free-sdk
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build, derive, compile and HTTP-test without producer manifest
+        shell: bash
+        run: |
+          cargo run --locked --example independent-sdk-quickstart -- \
+            --manifest-free \
+            --work-dir "$RUNNER_TEMP/manifest-free-sdk"
