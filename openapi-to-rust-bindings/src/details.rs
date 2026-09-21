@@ -1,5 +1,6 @@
 //! Backend-specific semantic details that are only trustworthy when directly
 //! observable in emitted Rust.
+use crate::rust_type::canonical_rust_type;
 use crate::semantic::{RepresentationEvidence, SemanticEvidence};
 use crate::structural::{AliasEvidence, FieldEvidence, StructuralEvidence};
 use crate::Error;
@@ -162,11 +163,11 @@ fn stream_abi(
     }
     Ok(Some(StreamAbiEvidence {
         alias,
-        item_type: native_parts.0,
-        error_type: native_parts.1,
+        item_type: canonical_rust_type(&native_parts.0)?,
+        error_type: canonical_rust_type(&native_parts.1)?,
         lifetime: native_parts.2,
-        native_type: native.rust_type.clone(),
-        wasm_type: wasm.rust_type.clone(),
+        native_type: canonical_rust_type(&native.rust_type)?,
+        wasm_type: canonical_rust_type(&wasm.rust_type)?,
     }))
 }
 
@@ -553,7 +554,7 @@ fn request_discriminators(
         output.push(RequestDiscriminatorEvidence {
             wire_name,
             rust_access_path: access_path,
-            rust_value_type: field.rust_type.clone(),
+            rust_value_type: canonical_rust_type(&field.rust_type)?,
             value,
             field_required,
             field_nullable,
