@@ -644,7 +644,12 @@ pub fn inspect_semantics(
                 ),
             ));
         }
-        let verb = signals.http_calls.iter().next().cloned().expect("one HTTP verb");
+        let verb = signals
+            .http_calls
+            .iter()
+            .next()
+            .cloned()
+            .expect("one HTTP verb");
         let mut candidates = Vec::new();
         for ((candidate_verb, candidate_path), operation) in &source {
             if candidate_verb != &verb {
