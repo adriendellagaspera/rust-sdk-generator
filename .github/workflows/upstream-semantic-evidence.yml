@@ -263,6 +263,56 @@ jobs:
           print("Fresh fork manifest == manifest-free canonical Bindings v3: verified.")
           PY
 
+      - name: Generate pinned capability-matrix raw outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture_root="$PWD/openapi-to-rust-bindings/tests/fixtures/capability-v1"
+          upstream_root="$RUNNER_TEMP/capability-upstream"
+          fork_root="$RUNNER_TEMP/capability-fork"
+
+          for scenario in core sse discriminator; do
+            upstream_fixture="$upstream_root/$scenario"
+            mkdir -p "$upstream_fixture"
+            cp "$fixture_root/$scenario/openapi.json" "$upstream_fixture/openapi.json"
+            cp "$fixture_root/upstream.toml" "$upstream_fixture/config.toml"
+            (
+              cd "$upstream_fixture"
+              "$RUNNER_TEMP/upstream-target/debug/openapi-to-rust" generate --config config.toml
+            )
+            test -f "$upstream_fixture/raw/client.rs"
+            test -f "$upstream_fixture/raw/types.rs"
+            test ! -e "$upstream_fixture/raw/binding-manifest.json"
+
+            fork_fixture="$fork_root/$scenario"
+            mkdir -p "$fork_fixture"
+            cp "$fixture_root/$scenario/openapi.json" "$fork_fixture/openapi.json"
+            if test "$scenario" = discriminator; then
+              cp "$fixture_root/discriminator/fork.toml" "$fork_fixture/config.toml"
+            else
+              cp "$fixture_root/fork.toml" "$fork_fixture/config.toml"
+            fi
+            (
+              cd "$fork_fixture"
+              "$RUNNER_TEMP/fork-target/debug/openapi-to-rust" generate --config config.toml
+            )
+            test -f "$fork_fixture/raw/client.rs"
+            test -f "$fork_fixture/raw/types.rs"
+            test -f "$fork_fixture/raw/binding-manifest.json"
+          done
+
+      - name: Prove versioned capability observations
+        shell: bash
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/capability-report.json"
+          cargo run --locked -p openapi-to-rust-bindings --example capability-matrix -- \
+            --matrix openapi-to-rust-bindings/capabilities/v1/matrix.json \
+            --upstream-root "$RUNNER_TEMP/capability-upstream" \
+            --fork-root "$RUNNER_TEMP/capability-fork" \
+            --output "$report"
+          cat "$report"
+
   manifest-free-sdk:
     name: manifest-free-sdk
     runs-on: ubuntu-24.04
