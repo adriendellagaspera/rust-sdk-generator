@@ -172,10 +172,24 @@ fn stream_abi(
             format!("{path} native and wasm item ABI disagree"),
         ));
     }
+    let item_type = canonical_rust_type(&native_parts.0)?;
+    let error_type = canonical_rust_type(&native_parts.1)?;
+    if item_type != "bytes::Bytes"
+        || error_type != "reqwest::Error"
+        || native_parts.2 != "'static"
+    {
+        return Err(failure(
+            "extract.stream_abi_unproven",
+            format!(
+                "{path} must be an owned 'static Result<bytes::Bytes, reqwest::Error> stream, got lifetime {}, item {}, error {}",
+                native_parts.2, item_type, error_type
+            ),
+        ));
+    }
     Ok(Some(StreamAbiEvidence {
         alias,
-        item_type: canonical_rust_type(&native_parts.0)?,
-        error_type: canonical_rust_type(&native_parts.1)?,
+        item_type,
+        error_type,
         lifetime: native_parts.2,
         native_type: canonical_rust_type(&native.rust_type)?,
         wasm_type: canonical_rust_type(&wasm.rust_type)?,
@@ -532,7 +546,119 @@ pub(crate) fn prove_client_layout(
     prove_builder(&structural.client.path, api_key, "api_key", true)
 }
 
+
+fn filename_binding(pat: &Pat, names: &mut Vec<String>) {
+    match pat {
+        Pat::Ident(value) => names.push(value.ident.to_string()),
+        Pat::Tuple(value) => {
+            for element in &value.elems {
+                filename_binding(element, names);
+            }
+        }
+        Pat::TupleStruct(value) => {
+            for element in &value.elems {
+                filename_binding(element, names);
+            }
+        }
+        Pat::Reference(value) => filename_binding(&value.pat, names),
+        _ => {}
+    }
+}
+
+fn filename_lookup_wire(expr: &Expr) -> Option<String> {
+    let Expr::MethodCall(find) = expr else {
+        return None;
+    };
+    if find.method != "find" || find.args.len() != 1 {
+        return None;
+    }
+    let Expr::MethodCall(iter) = &*find.receiver else {
+        return None;
+    };
+    if iter.method != "iter"
+        || !iter.args.is_empty()
+        || !matches!(&*iter.receiver, Expr::Path(path) if path.path.is_ident("multipart_filenames"))
+    {
+        return None;
+    }
+    let Expr::Closure(closure) = find.args.first()? else {
+        return None;
+    };
+    let mut literals = LiteralCollector::default();
+    literals.visit_expr(&closure.body);
+    let mut wires: Vec<_> = literals
+        .values
+        .into_iter()
+        .filter_map(|value| value.as_str().map(ToOwned::to_owned))
+        .collect();
+    wires.sort();
+    wires.dedup();
+    (wires.len() == 1).then(|| wires.remove(0))
+}
+
+struct FileNameUse<'a> {
+    binding: &'a str,
+    count: usize,
+}
+
+impl<'ast> Visit<'ast> for FileNameUse<'_> {
+    fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
+        if node.method == "file_name"
+            && node.args.len() == 1
+            && compact(&tokens(node.args.first().expect("one file_name argument")))
+                .contains(self.binding)
+        {
+            self.count += 1;
+        }
+        visit::visit_expr_method_call(self, node);
+    }
+}
+
+#[derive(Default)]
+struct MultipartFilenameSignals {
+    lookup_fields: BTreeSet<String>,
+    form_fields: BTreeSet<String>,
+}
+
+impl<'ast> Visit<'ast> for MultipartFilenameSignals {
+    fn visit_expr_if(&mut self, node: &'ast syn::ExprIf) {
+        if let Expr::Let(condition) = &*node.cond {
+            let mut names = Vec::new();
+            filename_binding(&condition.pat, &mut names);
+            if names.len() == 1
+                && let Some(wire_name) = filename_lookup_wire(&condition.expr)
+            {
+                let mut file_name = FileNameUse {
+                    binding: &names[0],
+                    count: 0,
+                };
+                file_name.visit_block(&node.then_branch);
+                if file_name.count == 1 {
+                    self.lookup_fields.insert(wire_name);
+                }
+            }
+        }
+        visit::visit_expr_if(self, node);
+    }
+
+    fn visit_expr_assign(&mut self, node: &'ast syn::ExprAssign) {
+        if matches!(&*node.left, Expr::Path(path) if path.path.is_ident("form"))
+            && let Expr::MethodCall(call) = &*node.right
+            && call.method == "part"
+            && matches!(&*call.receiver, Expr::Path(path) if path.path.is_ident("form"))
+            && call.args.len() == 2
+            && matches!(call.args.iter().nth(1), Some(Expr::Path(path)) if path.path.is_ident("part"))
+            && let Some(Expr::Lit(value)) = call.args.first()
+            && let Lit::Str(wire) = &value.lit
+        {
+            self.form_fields.insert(wire.value());
+        }
+        visit::visit_expr_assign(self, node);
+    }
+}
+
 fn multipart_kind(
+    method: &syn::ImplItemFn,
     structural_method: &crate::structural::MethodEvidence,
     openapi: &Value,
     source_method: &str,
@@ -559,6 +685,22 @@ fn multipart_kind(
             "extract.multipart_helper_unproven",
             format!(
                 "{}: multipart filename parameter is not corroborated by the source multipart operation",
+                structural_method.name
+            ),
+        ));
+    }
+    let mut signals = MultipartFilenameSignals::default();
+    signals.visit_block(&method.block);
+    if signals.lookup_fields.is_empty()
+        || !signals
+            .lookup_fields
+            .iter()
+            .all(|field| signals.form_fields.contains(field))
+    {
+        return Err(failure(
+            "extract.multipart_helper_unproven",
+            format!(
+                "{}: multipart_filenames is not proven to select filenames that are applied to emitted multipart form parts",
                 structural_method.name
             ),
         ));
@@ -999,7 +1141,12 @@ pub(crate) fn inspect_details(
                     format!("{name} has no success type"),
                 )
             })?;
-            stream_abi(structural, success_type)?
+            stream_abi(structural, success_type).map_err(|error| {
+                failure(
+                    "extract.stream_abi_unproven",
+                    format!("{name}: {error}"),
+                )
+            })?
         } else {
             None
         };
@@ -1007,6 +1154,7 @@ pub(crate) fn inspect_details(
             name.clone(),
             OperationDetails {
                 kind: multipart_kind(
+                    method,
                     signature,
                     &openapi,
                     &operation.source_operation.method,
