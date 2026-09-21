@@ -198,7 +198,7 @@ async fn multipart_binary_field_and_scalar_field() {
         br#"{"id":"w-upload","title":"Uploaded"}"#,
     );
     let upload: UploadRequest = serde_json::from_value(json!({
-        "file": "Zml4dHVyZS1maWxl",
+        "file": "fixture-file",
         "caption": "metadata"
     }))
     .expect("generated typed upload request");
