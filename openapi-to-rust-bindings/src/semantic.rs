@@ -114,9 +114,10 @@ fn proves_bounded_text(block: &syn::Block) -> bool {
         }
         if next == expected.len()
             || pattern.ident != expected[next].0
-            || local.init.as_ref().is_none_or(|init| {
-                normalized_tokens(&init.expr) != expected[next].1
-            })
+            || local
+                .init
+                .as_ref()
+                .is_none_or(|init| normalized_tokens(&init.expr) != expected[next].1)
         {
             return false;
         }
@@ -1015,13 +1016,35 @@ mod bounded_text_tests {
     }"#;
 
     fn proved(source: &str) -> bool {
-        let block: syn::Block = syn::parse_str(source).expect("parse actual generated method block");
+        let block: syn::Block =
+            syn::parse_str(source).expect("parse actual generated method block");
         proves_bounded_text(&block)
     }
 
     #[test]
     fn proves_bounded_text_from_the_response_and_direct_success_return() {
-        assert!(proved(EMITTED));
+        let block: syn::Block = syn::parse_str(EMITTED).expect("valid generated body");
+        let locals = block
+            .stmts
+            .iter()
+            .filter_map(|statement| {
+                let syn::Stmt::Local(local) = statement else {
+                    return None;
+                };
+                let syn::Pat::Ident(pattern) = &local.pat else {
+                    return None;
+                };
+                Some((
+                    pattern.ident.to_string(),
+                    local.init.as_ref().map(|init| normalized_tokens(&init.expr)),
+                ))
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            proved(EMITTED),
+            "unproved bounded text; locals={locals:?}, final={:?}",
+            block.stmts.last().map(normalized_tokens),
+        );
     }
 
     #[test]
@@ -1029,12 +1052,21 @@ mod bounded_text_tests {
         for changed in [
             EMITTED.replace("__read_bounded_response_body", "read_other_body"),
             EMITTED.replace("let raw_body = body_bytes;", "let raw_body = other_bytes;"),
-            EMITTED.replace("String::from_utf8_lossy(&raw_body)", "String::from_utf8_lossy(&other)"),
+            EMITTED.replace(
+                "String::from_utf8_lossy(&raw_body)",
+                "String::from_utf8_lossy(&other)",
+            ),
             EMITTED.replace("Ok(body_text)", "Ok(other_text)"),
-            EMITTED.replace("Ok(body_text)", "if something { Ok(body_text) } else { Ok(other) }"),
+            EMITTED.replace(
+                "Ok(body_text)",
+                "if something { Ok(body_text) } else { Ok(other) }",
+            ),
             EMITTED.replace("let raw_body = body_bytes;", "let body_text = body_bytes;"),
         ] {
-            assert!(!proved(&changed), "unproved bounded text was accepted: {changed}");
+            assert!(
+                !proved(&changed),
+                "unproved bounded text was accepted: {changed}"
+            );
         }
     }
 }
