@@ -280,7 +280,10 @@ fn duplicate_source_operation_ids_recover_the_backend_emitted_id() {
         duplicate.emitted_operation_id,
         "fetchInventoryWithoutNamingShortcut_post"
     );
-    assert_eq!(duplicate.rust_method_name, "fetch_inventory_without_naming_shortcut_post");
+    assert_eq!(
+        duplicate.rust_method_name,
+        "fetch_inventory_without_naming_shortcut_post"
+    );
 }
 
 #[test]
