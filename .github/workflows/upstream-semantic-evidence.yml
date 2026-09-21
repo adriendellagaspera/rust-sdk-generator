@@ -31,6 +31,21 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Capture rustfmt snapshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all
+          for file in \
+            openapi-to-rust-bindings/src/details.rs \
+            openapi-to-rust-bindings/src/extract.rs
+          do
+            echo "__RUSTFMT_BEGIN__$file"
+            base64 -w0 "$file"
+            echo
+            echo "__RUSTFMT_END__$file"
+          done
+
       - name: Build semantic extractor and run focused regressions
         run: |
           cargo build --locked -p openapi-to-rust-bindings --bin openapi-to-rust-bindings
