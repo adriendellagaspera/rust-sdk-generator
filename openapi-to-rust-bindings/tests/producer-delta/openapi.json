@@ -1,0 +1,111 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Raw producer delta fixture",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/uploads": {
+      "post": {
+        "operationId": "createUpload",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Uploaded"
+          }
+        }
+      }
+    },
+    "/jobs": {
+      "get": {
+        "operationId": "listJobs",
+        "parameters": [
+          {
+            "name": "order_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "created",
+                "-created"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "File": {
+        "type": "string",
+        "format": "binary"
+      },
+      "Mode": {
+        "type": "string",
+        "enum": [
+          "fast",
+          "safe"
+        ]
+      },
+      "UploadRequest": {
+        "type": "object",
+        "required": [
+          "labels"
+        ],
+        "properties": {
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "modes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Mode"
+            }
+          },
+          "file": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/File"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "thumbnail": {
+            "type": "string",
+            "format": "binary"
+          }
+        }
+      },
+      "RetryPolicy": {
+        "type": "object",
+        "properties": {
+          "jitter": {
+            "type": "number",
+            "description": "Randomize retry delay.\nKeeps synchronized clients apart."
+          }
+        }
+      }
+    }
+  }
+}
