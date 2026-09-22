@@ -879,7 +879,7 @@ fn main_inner() -> Result<()> {
     }
     publish_raw(
         &stage.0.join(&recipe.raw_output),
-        &BTreeMap::new(),
+        &old.as_ref().map(|previous| previous.owned_raw.clone()).unwrap_or_default(),
         &generated.rust,
     )?;
     write_if_changed(
