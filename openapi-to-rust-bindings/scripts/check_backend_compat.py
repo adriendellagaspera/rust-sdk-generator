@@ -202,8 +202,8 @@ def display_identity(value: str) -> str:
     )
 
 
-def compatibility_config(package_root: Path) -> dict[str, Any]:
-    value = json.loads((package_root / "COMPATIBILITY.json").read_text())
+def compatibility_config(path: Path) -> dict[str, Any]:
+    value = json.loads(path.read_text())
     backend = value.get("backend")
     baseline = backend.get("baseline") if isinstance(backend, dict) else None
     if (
@@ -215,12 +215,12 @@ def compatibility_config(package_root: Path) -> dict[str, Any]:
         or not isinstance(baseline.get("version"), str)
         or not isinstance(baseline.get("commit"), str)
     ):
-        raise RuntimeError("COMPATIBILITY.json is not a manifest-era v2 tracker config")
+        raise RuntimeError(f"{path} is not a manifest-era v2 tracker config")
     return value
 
 
 def update_compatibility(
-    package_root: Path,
+    tracker: Path,
     compatibility: dict[str, Any],
     candidate_version: str,
     candidate_commit: str,
@@ -230,9 +230,7 @@ def update_compatibility(
         "version": candidate_version,
         "commit": candidate_commit,
     }
-    (package_root / "COMPATIBILITY.json").write_text(
-        json.dumps(updated, indent=2) + "\n"
-    )
+    tracker.write_text(json.dumps(updated, indent=2) + "\n")
 
 
 def update_data(
@@ -265,12 +263,22 @@ def main() -> None:
     parser.add_argument("--candidate-commit", required=True)
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--update-data", type=Path)
+    parser.add_argument(
+        "--tracker",
+        type=Path,
+        help="Manifest-era tracker (defaults to LEGACY_COMPATIBILITY.json under package root)",
+    )
     parser.add_argument("--report-json", type=Path, help="Stage-aware legacy oracle report")
     parser.add_argument("--update-compatibility", action="store_true")
     args = parser.parse_args()
 
     package_root = args.package_root.resolve()
-    compatibility = compatibility_config(package_root)
+    tracker = (
+        args.tracker.resolve()
+        if args.tracker is not None
+        else package_root / "LEGACY_COMPATIBILITY.json"
+    )
+    compatibility = compatibility_config(tracker)
     baseline = compatibility["backend"]["baseline"]
     baseline_commit = baseline["commit"]
     baseline_version = generator_version(args.baseline_generator)
@@ -598,9 +606,11 @@ def main() -> None:
             "compatible": not incompatible,
             "rerun": {
                 "workflow": ".github/workflows/openapi-to-rust-compat.yml",
-                "candidate_ref": args.candidate_commit,
+                "workflow_dispatch": {"run_historical_oracle": True},
+                "tracker": str(tracker),
                 "required_cli_flags": [
                     "--package-root", str(package_root),
+                    "--tracker", str(tracker),
                     "--bindings-adapter", str(args.bindings_adapter),
                     "--baseline-generator", str(args.baseline_generator),
                     "--candidate-generator", str(args.candidate_generator),
@@ -621,7 +631,7 @@ def main() -> None:
         args.update_data.write_text(json.dumps(data, indent=2) + "\n")
     if args.update_compatibility:
         update_compatibility(
-            package_root, compatibility, candidate_version, args.candidate_commit
+            tracker, compatibility, candidate_version, args.candidate_commit
         )
 
 

@@ -30,7 +30,7 @@ class CompatibilityStageTests(unittest.TestCase):
                     )
                     (fixture / "openapi.json").write_text('{"openapi":"3.1.0","paths":{}}')
                     (fixture / "binding-manifest.json").write_text("{}")
-                    (package / "COMPATIBILITY.json").write_text(json.dumps({
+                    (package / "LEGACY_COMPATIBILITY.json").write_text(json.dumps({
                         "schema_version": 2,
                         "bindings_schema_version": 3,
                         "backend": {
@@ -98,7 +98,7 @@ class CompatibilityStageTests(unittest.TestCase):
             )
             (fixture / "openapi.json").write_text("{}")
             (fixture / "binding-manifest.json").write_text("{}")
-            (package / "COMPATIBILITY.json").write_text(json.dumps({
+            (package / "LEGACY_COMPATIBILITY.json").write_text(json.dumps({
                 "schema_version": 2, "bindings_schema_version": 3,
                 "backend": {"name": "openapi-to-rust",
                             "repository": "adriendellagaspera/openapi-to-rust",
