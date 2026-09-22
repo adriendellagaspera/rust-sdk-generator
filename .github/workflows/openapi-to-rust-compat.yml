@@ -1,23 +1,34 @@
-name: openapi-to-rust compatibility (historical oracle + moving fork)
+name: openapi-to-rust production compatibility
 
 on:
   pull_request:
     paths:
       - ".github/workflows/openapi-to-rust-compat.yml"
+      - "Cargo.lock"
+      - "src/**"
+      - "examples/independent-sdk/**"
       - "openapi-to-rust-bindings/COMPATIBILITY.json"
+      - "openapi-to-rust-bindings/DEFAULT_BACKEND.json"
+      - "openapi-to-rust-bindings/LEGACY_COMPATIBILITY.json"
+      - "openapi-to-rust-bindings/capabilities/**"
       - "openapi-to-rust-bindings/scripts/**"
-      - "openapi-to-rust-bindings/tests/fixtures/**"
-      - "docs/compatibility-migration-157.md"
       - "openapi-to-rust-bindings/src/**"
+      - "openapi-to-rust-bindings/tests/fixtures/capability-v1/**"
+      - "docs/compatibility-migration-157.md"
   schedule:
     - cron: "23 3 * * *"
   workflow_dispatch:
     inputs:
       candidate_ref:
-        description: openapi-to-rust branch, tag, or commit to resolve immutably
+        description: gpu-cli/openapi-to-rust branch, tag, or commit to resolve immutably
         required: true
         default: main
         type: string
+      run_historical_oracle:
+        description: Also run the optional manifest-era fork oracle
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -27,22 +38,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  compatibility:
-    name: legacy-manifest-oracle-compatibility
+  production:
+    name: production-manifest-free-compatibility
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       PACKAGE_ROOT: openapi-to-rust-bindings
-      # The historical manifest oracle is immutable; every event also checks
-      # the current fork's ordinary Rust without requiring a producer manifest.
-      HISTORICAL_ORACLE_SHA: 9fee7af67c05d896da86e41d326b067312120c53
-      CANDIDATE_REF: ${{ github.event.inputs.candidate_ref || 'main' }}
+      REQUESTED_CANDIDATE_REF: ${{ github.event.inputs.candidate_ref || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Read immutable tracker baseline
+      - name: Read production tracker
         shell: bash
         run: |
           python3 - <<'PY'
@@ -50,125 +58,128 @@ jobs:
           import os
           from pathlib import Path
 
-          config = json.loads(
+          tracker = json.loads(
               (Path(os.environ["PACKAGE_ROOT"]) / "COMPATIBILITY.json").read_text()
           )
-          backend = config["backend"]
-          baseline = backend["baseline"]
+          backend = tracker["backend"]
+          requested = os.environ["REQUESTED_CANDIDATE_REF"].strip()
           with open(os.environ["GITHUB_ENV"], "a") as env:
               print(f"BACKEND_REPOSITORY={backend['repository']}", file=env)
-              print(f"BASELINE_COMMIT={baseline['commit']}", file=env)
+              print(f"BASELINE_COMMIT={backend['baseline']['commit']}", file=env)
+              print(f"CANDIDATE_REF={requested or backend['candidate_ref']}", file=env)
           PY
 
-      - name: Resolve historical manifest revisions and moving fork candidate
+      - name: Resolve baseline and candidate to immutable upstream revisions
         shell: bash
         run: |
           set -euo pipefail
-          acquire=openapi-to-rust-bindings/scripts/acquire_backend.py
-          python3 "$acquire" \
-            --repository "$BACKEND_REPOSITORY" --ref "$BASELINE_COMMIT" \
-            --expected-sha "$BASELINE_COMMIT" \
-            --destination "$RUNNER_TEMP/baseline-source"
-          python3 "$acquire" \
-            --repository "$BACKEND_REPOSITORY" --ref "$HISTORICAL_ORACLE_SHA" \
-            --expected-sha "$HISTORICAL_ORACLE_SHA" \
-            --destination "$RUNNER_TEMP/oracle-source"
-          candidate_commit="$(python3 "$acquire" \
-            --repository "$BACKEND_REPOSITORY" --ref "$CANDIDATE_REF" \
-            --destination "$RUNNER_TEMP/candidate-source")"
+          acquire="$PACKAGE_ROOT/scripts/acquire_backend.py"
+          python3 "$acquire"             --repository "$BACKEND_REPOSITORY"             --ref "$BASELINE_COMMIT"             --expected-sha "$BASELINE_COMMIT"             --destination "$RUNNER_TEMP/baseline-source"
+          candidate_commit="$(python3 "$acquire"             --repository "$BACKEND_REPOSITORY"             --ref "$CANDIDATE_REF"             --destination "$RUNNER_TEMP/candidate-source")"
           echo "CANDIDATE_COMMIT=$candidate_commit" >> "$GITHUB_ENV"
 
-      - name: Build standalone bindings adapter
-        run: cargo build --locked -p openapi-to-rust-bindings --bin openapi-to-rust-bindings
+      - name: Build repository adapter and root generator
+        run: |
+          cargo build --locked -p openapi-to-rust-bindings --bin openapi-to-rust-bindings
+          cargo build --locked -p rust-sdk-generator --bin rust-sdk-generator
 
-      - name: Build historical manifest generators and current ordinary Rust generator
+      - name: Build immutable upstream revisions
         shell: bash
         run: |
           set -euo pipefail
-          CARGO_TARGET_DIR="${RUNNER_TEMP}/baseline-target" \
-            cargo build --locked --release \
-            --manifest-path "${RUNNER_TEMP}/baseline-source/Cargo.toml" \
-            --bin openapi-to-rust
-          CARGO_TARGET_DIR="${RUNNER_TEMP}/oracle-target" \
-            cargo build --locked --release \
-            --manifest-path "${RUNNER_TEMP}/oracle-source/Cargo.toml" \
-            --bin openapi-to-rust
-          CARGO_TARGET_DIR="${RUNNER_TEMP}/candidate-target" \
-            cargo build --locked --release \
-            --manifest-path "${RUNNER_TEMP}/candidate-source/Cargo.toml" \
-            --bin openapi-to-rust
+          CARGO_TARGET_DIR="$RUNNER_TEMP/baseline-target"             cargo build --locked --release             --manifest-path "$RUNNER_TEMP/baseline-source/Cargo.toml"             --bin openapi-to-rust
+          CARGO_TARGET_DIR="$RUNNER_TEMP/candidate-target"             cargo build --locked --release             --manifest-path "$RUNNER_TEMP/candidate-source/Cargo.toml"             --bin openapi-to-rust
 
-      - name: Compare historical manifest-capable revisions (oracle only)
+      - name: Check production boundary, supported envelope and compiled HTTP
         shell: bash
         run: |
           set +e
-          python3 openapi-to-rust-bindings/scripts/check_backend_compat.py \
-            --package-root openapi-to-rust-bindings \
-            --bindings-adapter target/debug/openapi-to-rust-bindings \
-            --baseline-generator "${RUNNER_TEMP}/baseline-target/release/openapi-to-rust" \
-            --candidate-generator "${RUNNER_TEMP}/oracle-target/release/openapi-to-rust" \
-            --candidate-commit "${HISTORICAL_ORACLE_SHA}" \
-            --report "${RUNNER_TEMP}/compatibility-report.md" \
-            --report-json "${RUNNER_TEMP}/compatibility-report.json" \
-            --update-data "${RUNNER_TEMP}/pin-update.json"
+          python3 "$PACKAGE_ROOT/scripts/check_production_compat.py"             --repo-root "$PWD"             --baseline-generator "$RUNNER_TEMP/baseline-target/release/openapi-to-rust"             --candidate-generator "$RUNNER_TEMP/candidate-target/release/openapi-to-rust"             --baseline-commit "$BASELINE_COMMIT"             --candidate-commit "$CANDIDATE_COMMIT"             --adapter target/debug/openapi-to-rust-bindings             --root-generator target/debug/rust-sdk-generator             --report-json "$RUNNER_TEMP/production-compatibility.json"             --report-md "$RUNNER_TEMP/production-compatibility.md"             --update-data "$RUNNER_TEMP/pin-update.json"
           status=$?
           set -e
-
-          if test -f "${RUNNER_TEMP}/compatibility-report.md"; then
-            cat "${RUNNER_TEMP}/compatibility-report.md" >> "${GITHUB_STEP_SUMMARY}"
-          fi
-          if test -f "${RUNNER_TEMP}/compatibility-report.json"; then
-            {
-              echo
-              echo "## Machine-readable stage and provenance report"
-              echo
-              echo '~~~json'
-              cat "${RUNNER_TEMP}/compatibility-report.json"
-              echo '~~~'
-            } >> "${GITHUB_STEP_SUMMARY}"
-          fi
-          if test -f "${RUNNER_TEMP}/pin-update.json"; then
-            {
-              echo
-              echo "## Historical oracle pin comparison (not a production pin update)"
-              echo
-              echo '~~~json'
-              cat "${RUNNER_TEMP}/pin-update.json"
-              echo '~~~'
-            } >> "${GITHUB_STEP_SUMMARY}"
-          fi
+          cat "$RUNNER_TEMP/production-compatibility.md" >> "$GITHUB_STEP_SUMMARY"
           {
             echo
-            echo "## Reproduce this exact legacy oracle comparison"
+            echo "## Reproduce this exact candidate"
             echo
-            echo "The historical manifest comparison uses two immutable manifest-capable revisions."
-            echo "The separately checked moving fork is resolved to ${CANDIDATE_COMMIT}; it is never passed a manifest-producing config."
-            echo "Reproduce the moving fork watch: gh workflow run openapi-to-rust-compat.yml -f candidate_ref=${CANDIDATE_COMMIT}"
-          } >> "${GITHUB_STEP_SUMMARY}"
-          exit "${status}"
+            echo "gh workflow run openapi-to-rust-compat.yml -f candidate_ref=$CANDIDATE_COMMIT"
+            echo
+            echo "Resolved upstream candidate: $BACKEND_REPOSITORY@$CANDIDATE_COMMIT"
+            echo
+            echo "The report separates raw generation, adapter evidence, root derivation, compiled HTTP and compatibility drift."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
 
-      - name: Check moving fork ordinary Rust against pinned historical oracle
+      - name: Publish production compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: production-compatibility
+          path: |
+            ${{ runner.temp }}/production-compatibility.json
+            ${{ runner.temp }}/production-compatibility.md
+            ${{ runner.temp }}/pin-update.json
+          if-no-files-found: error
+          retention-days: 30
+
+  historical-oracle:
+    name: optional-historical-manifest-oracle
+    if: github.event_name == 'workflow_dispatch' && inputs.run_historical_oracle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      PACKAGE_ROOT: openapi-to-rust-bindings
+      HISTORICAL_ORACLE_SHA: 9fee7af67c05d896da86e41d326b067312120c53
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read isolated historical tracker
         shell: bash
         run: |
-          set +e
-          python3 openapi-to-rust-bindings/scripts/check_current_fork_raw.py \
-            --historical-generator "${RUNNER_TEMP}/oracle-target/release/openapi-to-rust" \
-            --candidate-generator "${RUNNER_TEMP}/candidate-target/release/openapi-to-rust" \
-            --historical-sha "${HISTORICAL_ORACLE_SHA}" \
-            --candidate-sha "${CANDIDATE_COMMIT}" \
-            --adapter target/debug/openapi-to-rust-bindings \
-            --fixture openapi-to-rust-bindings/tests/fixtures/fork-semantic \
-            --report-json "${RUNNER_TEMP}/moving-fork-compatibility.json" \
-            --report-md "${RUNNER_TEMP}/moving-fork-compatibility.md"
-          status=$?
-          set -e
-          cat "${RUNNER_TEMP}/moving-fork-compatibility.md" >> "${GITHUB_STEP_SUMMARY}"
-          {
-            echo
-            echo "## Machine-readable moving-fork compatibility"
-            echo
-            echo '~~~json'
-            cat "${RUNNER_TEMP}/moving-fork-compatibility.json"
-            echo '~~~'
-          } >> "${GITHUB_STEP_SUMMARY}"
-          exit "${status}"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          tracker = json.loads(
+              (Path(os.environ["PACKAGE_ROOT"]) / "LEGACY_COMPATIBILITY.json").read_text()
+          )
+          backend = tracker["backend"]
+          with open(os.environ["GITHUB_ENV"], "a") as env:
+              print(f"LEGACY_REPOSITORY={backend['repository']}", file=env)
+              print(f"LEGACY_BASELINE_COMMIT={backend['baseline']['commit']}", file=env)
+          PY
+
+      - name: Resolve immutable manifest-era revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          acquire="$PACKAGE_ROOT/scripts/acquire_backend.py"
+          python3 "$acquire"             --repository "$LEGACY_REPOSITORY"             --ref "$LEGACY_BASELINE_COMMIT"             --expected-sha "$LEGACY_BASELINE_COMMIT"             --destination "$RUNNER_TEMP/legacy-baseline-source"
+          python3 "$acquire"             --repository "$LEGACY_REPOSITORY"             --ref "$HISTORICAL_ORACLE_SHA"             --expected-sha "$HISTORICAL_ORACLE_SHA"             --destination "$RUNNER_TEMP/legacy-candidate-source"
+
+      - name: Build legacy adapter and manifest-era generators
+        shell: bash
+        run: |
+          cargo build --locked -p openapi-to-rust-bindings --bin openapi-to-rust-bindings
+          CARGO_TARGET_DIR="$RUNNER_TEMP/legacy-baseline-target"             cargo build --locked --release             --manifest-path "$RUNNER_TEMP/legacy-baseline-source/Cargo.toml"             --bin openapi-to-rust
+          CARGO_TARGET_DIR="$RUNNER_TEMP/legacy-candidate-target"             cargo build --locked --release             --manifest-path "$RUNNER_TEMP/legacy-candidate-source/Cargo.toml"             --bin openapi-to-rust
+
+      - name: Compare historical manifest oracle
+        shell: bash
+        run: |
+          python3 "$PACKAGE_ROOT/scripts/check_backend_compat.py"             --package-root "$PACKAGE_ROOT"             --tracker "$PACKAGE_ROOT/LEGACY_COMPATIBILITY.json"             --bindings-adapter target/debug/openapi-to-rust-bindings             --baseline-generator "$RUNNER_TEMP/legacy-baseline-target/release/openapi-to-rust"             --candidate-generator "$RUNNER_TEMP/legacy-candidate-target/release/openapi-to-rust"             --candidate-commit "$HISTORICAL_ORACLE_SHA"             --report "$RUNNER_TEMP/historical-oracle.md"             --report-json "$RUNNER_TEMP/historical-oracle.json"
+          cat "$RUNNER_TEMP/historical-oracle.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish historical oracle evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: historical-manifest-oracle
+          path: |
+            ${{ runner.temp }}/historical-oracle.json
+            ${{ runner.temp }}/historical-oracle.md
+          if-no-files-found: error
+          retention-days: 30
