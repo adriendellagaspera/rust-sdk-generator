@@ -31,7 +31,6 @@ pub struct BackendLock {
 }
 
 pub struct DriverOutput {
-    pub raw: PathBuf,
     pub dependencies: String,
     pub rust: BTreeMap<String, Vec<u8>>,
     pub bindings: Vec<u8>,
@@ -268,7 +267,6 @@ impl BackendDriver for UpstreamDriver {
                 .arg(work.join("effective-openapi.json")),
         )?;
         Ok(DriverOutput {
-            raw,
             dependencies,
             rust,
             bindings: result.stdout,
