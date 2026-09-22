@@ -9,7 +9,26 @@ This Cargo workspace contains two separate crates:
 
 The adapter is a producer of data, not a dependency of the root generator. Application-specific naming, source updates, integration runtime and publishing are owned by consumers.
 
-## Quickstart: independent Rust SDK
+## Start a new standalone SDK from your own OpenAPI JSON
+
+From the generator checkout with Rust 1.88+, Cargo, Git and first-run network access:
+
+```sh
+cargo run --locked --bin sdk-adopter -- init \
+  --openapi /path/to/your-api.json --output /path/to/your-sdk --name your-sdk
+cargo run --locked --bin sdk-adopter -- sync --crate /path/to/your-sdk --check
+```
+
+The Rust-native adopter pins the unmodified upstream backend and effective source,
+emits canonical Bindings v3, derives an exhaustive report, and assembles a
+standalone compilable SDK crate with an explicit versioned recipe. After changing
+the copied source at `/path/to/your-sdk/openapi.json`, inspect sync's full
+coverage report and file-level freshness diff; use `--accept-coverage` to
+reviewably accept a changed operation inventory. The minimal runtime is **not**
+a production auth/error policy, and the supported envelope is deliberately
+bounded. See [own-API onboarding and ownership](docs/adopter.md).
+
+## Quickstart: fixed independent notebook proof
 
 From a clean repository checkout, with Rust 1.88+, Cargo, Git and first-run network access:
 
@@ -23,9 +42,9 @@ generator, then derives, generates, compiles and HTTP-tests a standalone noteboo
 SDK. It prints the output directory. No Python or downstream consumer checkout
 is needed. [Follow the quickstart and adapt your own API](docs/getting-started.md).
 
-The example is turnkey for its **fixed API fixture**. Generating a new SDK from
-an arbitrary user-provided OpenAPI document with a single `init` command is a
-separate goal tracked in [#146](https://github.com/adriendellagaspera/rust-sdk-generator/issues/146).
+The example is turnkey for its **fixed notebook fixture**; the independent
+own-API adopter CLI above is the separately tested general onboarding path
+within the declared supported OpenAPI envelope.
 
 ## Start here
 
