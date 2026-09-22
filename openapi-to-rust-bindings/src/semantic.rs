@@ -93,7 +93,7 @@ fn proves_bounded_text(block: &syn::Block) -> bool {
     let expected = [
         (
             "body_bytes",
-            "__read_bounded_response_body(response,self.max_response_body_bytes).await?",
+            "__read_bounded_response_body(response,self.max_response_body_bytes,).await?",
         ),
         ("raw_body", "body_bytes"),
         (
