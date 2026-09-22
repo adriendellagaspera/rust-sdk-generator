@@ -642,3 +642,288 @@ def compile_capability_core(
         "--all-targets",
         cwd=destination,
     )
+
+
+def envelope_pass(
+    repo_root: Path,
+    tracker: dict[str, Any],
+    generator: Path,
+    adapter: Path,
+    root_generator: Path,
+    destination: Path,
+    *,
+    compile_http: bool,
+) -> dict[str, Any]:
+    matrix = file_json(repo_root / tracker["boundary"]["supported_envelope"])
+    scenarios = matrix.get("scenarios")
+    capabilities = matrix.get("capabilities")
+    if not isinstance(scenarios, list) or not isinstance(capabilities, list):
+        raise StageFailure("supported_envelope", "capability matrix is invalid")
+    fixture_root = repo_root / "openapi-to-rust-bindings/tests/fixtures/capability-v1"
+    results: dict[str, Any] = {}
+    for scenario in scenarios:
+        if not isinstance(scenario, dict) or not isinstance(scenario.get("id"), str):
+            raise StageFailure("supported_envelope", "scenario entry is invalid")
+        scenario_id = scenario["id"]
+        scenario_dir = destination / scenario_id
+        scenario_dir.mkdir(parents=True)
+        spec = scenario_dir / "openapi.json"
+        config = scenario_dir / "config.toml"
+        copy_file(repo_root / scenario["spec"], spec)
+        copy_file(fixture_root / "upstream.toml", config)
+        run(
+            "raw_generation",
+            generator,
+            "generate",
+            "--config",
+            config.name,
+            cwd=scenario_dir,
+        )
+        raw = scenario_dir / "raw"
+        ensure_raw(raw)
+        bindings, extraction_diagnostic = run_adapter(
+            adapter, raw, spec, allow_failure=True
+        )
+
+        actual_scenario = (
+            {"status": "supported", "diagnostic": None, "failure_owner": None}
+            if extraction_diagnostic is None
+            else {
+                "status": "adapter_evidence_gap",
+                "diagnostic": extraction_diagnostic,
+                "failure_owner": "adapter",
+            }
+        )
+        check_expected(
+            actual_scenario,
+            scenario["upstream"],
+            f"scenario.{scenario_id}.upstream",
+        )
+        expected_scenario_status, expected_scenario_diagnostic = expected_status(
+            scenario["upstream"], f"scenario.{scenario_id}.upstream"
+        )
+        if expected_scenario_status == "supported":
+            if bindings is None:
+                raise StageFailure(
+                    "adapter_evidence",
+                    f"{scenario_id}: expected Bindings but extraction failed",
+                )
+            try:
+                assert_source_coverage(file_json(spec), bindings)
+            except ValueError as error:
+                raise StageFailure(
+                    "adapter_evidence", f"{scenario_id}: {error}"
+                ) from error
+        elif extraction_diagnostic != expected_scenario_diagnostic:
+            raise StageFailure(
+                "adapter_evidence",
+                f"{scenario_id}: expected {expected_scenario_diagnostic}, "
+                f"got {extraction_diagnostic}",
+            )
+
+        capability_results: list[dict[str, Any]] = []
+        for capability in capabilities:
+            if not isinstance(capability, dict) or capability.get("scenario") != scenario_id:
+                continue
+            actual = capability_observation(
+                bindings, extraction_diagnostic, capability
+            )
+            check_expected(
+                actual,
+                capability["upstream"],
+                f"capability.{capability['id']}.upstream",
+            )
+            capability_results.append({"id": capability["id"], **actual})
+
+        derivation: dict[str, Any] | None = None
+        inventory: dict[str, Any] | None = None
+        sdk_snapshot: dict[str, bytes] | None = None
+        compiled = "not_run"
+        if bindings is not None:
+            bindings_path = scenario_dir / "rust-bindings.json"
+            bindings_path.write_bytes(canonical_json(bindings))
+            derivation, inventory, sdk_snapshot = derive_and_generate(
+                root_generator, spec, bindings_path, scenario_dir
+            )
+            if scenario_id == "core" and compile_http:
+                compile_capability_core(
+                    repo_root,
+                    raw,
+                    scenario_dir / "sdk",
+                    scenario_dir / "consumer",
+                )
+                compiled = "passed"
+
+        results[scenario_id] = {
+            "provenance": {
+                "effective_openapi_sha256": sha256_file(spec),
+                "generation_config_sha256": sha256_file(config),
+            },
+            "scenario_status": actual_scenario,
+            "capabilities": capability_results,
+            "raw": snapshot(raw),
+            "bindings": bindings,
+            "extraction_diagnostic": extraction_diagnostic,
+            "derivation": derivation,
+            "inventory": inventory,
+            "sdk": sdk_snapshot,
+            "compiled_http": compiled,
+        }
+    return results
+
+
+def compare_snapshots(
+    before: dict[str, bytes],
+    after: dict[str, bytes],
+) -> dict[str, Any]:
+    changed = changed_files(before, after)
+    return {"changed": changed, "diffs": text_diffs(before, after, changed)}
+
+
+def compare_default(
+    baseline: dict[str, Any],
+    candidate: dict[str, Any],
+) -> dict[str, Any]:
+    raw = compare_snapshots(baseline["raw"], candidate["raw"])
+    sdk = compare_snapshots(baseline["sdk"], candidate["sdk"])
+    bindings_changed = baseline["bindings"] != candidate["bindings"]
+    derivation_changed = baseline["derivation"] != candidate["derivation"]
+    inventory_changed = baseline["inventory"] != candidate["inventory"]
+    source_changed = baseline["source_operations"] != candidate["source_operations"]
+    return {
+        "source_api_changed": source_changed,
+        "source_api_diff": json_diff(
+            baseline["source_operations"], candidate["source_operations"]
+        )
+        if source_changed
+        else [],
+        "raw": raw,
+        "bindings_changed": bindings_changed,
+        "bindings_diff": json_diff(baseline["bindings"], candidate["bindings"])
+        if bindings_changed
+        else [],
+        "derivation_changed": derivation_changed,
+        "derivation_diff": json_diff(
+            baseline["derivation"], candidate["derivation"]
+        )
+        if derivation_changed
+        else [],
+        "inventory_changed": inventory_changed,
+        "inventory_diff": json_diff(
+            baseline["inventory"], candidate["inventory"]
+        )
+        if inventory_changed
+        else [],
+        "sdk": sdk,
+        "compatible": not (
+            source_changed
+            or raw["changed"]
+            or bindings_changed
+            or derivation_changed
+            or inventory_changed
+            or sdk["changed"]
+        ),
+    }
+
+
+def compare_envelope(
+    baseline: dict[str, Any],
+    candidate: dict[str, Any],
+) -> dict[str, Any]:
+    scenarios: dict[str, Any] = {}
+    compatible = True
+    for name in sorted(baseline.keys() | candidate.keys()):
+        if name not in baseline or name not in candidate:
+            scenarios[name] = {"missing": True, "compatible": False}
+            compatible = False
+            continue
+        before, after = baseline[name], candidate[name]
+        raw = compare_snapshots(before["raw"], after["raw"])
+        bindings_changed = before["bindings"] != after["bindings"]
+        diagnostic_changed = (
+            before["extraction_diagnostic"] != after["extraction_diagnostic"]
+        )
+        derivation_changed = before["derivation"] != after["derivation"]
+        inventory_changed = before["inventory"] != after["inventory"]
+        sdk = compare_snapshots(before["sdk"] or {}, after["sdk"] or {})
+        row_compatible = not (
+            raw["changed"]
+            or bindings_changed
+            or diagnostic_changed
+            or derivation_changed
+            or inventory_changed
+            or sdk["changed"]
+        )
+        compatible &= row_compatible
+        scenarios[name] = {
+            "compatible": row_compatible,
+            "raw": raw,
+            "bindings_changed": bindings_changed,
+            "bindings_diff": json_diff(before["bindings"], after["bindings"])
+            if bindings_changed
+            else [],
+            "diagnostic_changed": diagnostic_changed,
+            "baseline_diagnostic": before["extraction_diagnostic"],
+            "candidate_diagnostic": after["extraction_diagnostic"],
+            "derivation_changed": derivation_changed,
+            "derivation_diff": json_diff(
+                before["derivation"], after["derivation"]
+            )
+            if derivation_changed
+            else [],
+            "inventory_changed": inventory_changed,
+            "inventory_diff": json_diff(
+                before["inventory"], after["inventory"]
+            )
+            if inventory_changed
+            else [],
+            "sdk": sdk,
+        }
+    return {"compatible": compatible, "scenarios": scenarios}
+
+
+def public_pass(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: item
+        for key, item in value.items()
+        if key not in {"raw", "sdk"}
+    }
+
+
+def public_envelope(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        name: {
+            key: item
+            for key, item in scenario.items()
+            if key not in {"raw", "sdk"}
+        }
+        for name, scenario in value.items()
+    }
+
+
+def markdown(report: dict[str, Any]) -> str:
+    backend = report.get("backend", {})
+    baseline = backend.get("baseline", {})
+    candidate = backend.get("candidate", {})
+    default = report.get("default_boundary", {})
+    envelope = report.get("supported_envelope", {})
+    return "\\n".join(
+        [
+            "# Production manifest-free compatibility",
+            "",
+            f"- Repository: {backend.get('repository', 'unavailable')}",
+            f"- Baseline: {baseline.get('version', 'unavailable')} / {baseline.get('commit', 'unavailable')}",
+            f"- Candidate: {candidate.get('version', 'unavailable')} / {candidate.get('commit', 'unavailable')}",
+            "- Contract: unmodified upstream ordinary Rust + exact effective OpenAPI + default adapter",
+            "- Producer manifest required: no",
+            f"- Last stage: {report['last_stage']}",
+            f"- Default boundary drift-free: {default.get('compatible', False)}",
+            f"- Supported envelope drift-free: {envelope.get('compatible', False)}",
+            f"- Candidate default compiled/mock-HTTP proof: {report.get('candidate_compiled_http', 'not_run')}",
+            f"- Candidate capability-core compiled/mock-HTTP proof: {report.get('candidate_capability_http', 'not_run')}",
+            f"- Result: {'compatible' if report['compatible'] else 'incompatible'}",
+            f"- Diagnostic: {report.get('diagnostic', 'none')}",
+            "",
+            "Any raw, Bindings, derivation, inventory or generated SDK drift is fail-closed and must be reviewed before repinning.",
+        ]
+    ) + "\\n"
