@@ -119,6 +119,23 @@ grep -q sdk.conflicts "$work/sdk-conflict.err"
 cmp -s "$crate/src/sdk/stations.rs" <(printf 'handwritten rust\n')
 cp "$work/stations.rs" "$crate/src/sdk/stations.rs"
 
+# Missing or changed accepted reports must fail closed before touching source.
+for report in derivation inventory; do
+  cp "$crate/.sdkgen/$report.json" "$work/accepted-$report.json"
+  rm "$crate/.sdkgen/$report.json"
+  if cargo run --locked --bin sdk-adopter -- sync --crate "$crate" --offline     > /dev/null 2> "$work/missing-$report.err"; then
+    echo "missing $report audit evidence was accepted" >&2; exit 1
+  fi
+  grep -q recipe.audit_drift "$work/missing-$report.err"
+  cp "$work/accepted-$report.json" "$crate/.sdkgen/$report.json"
+  printf '\n' >> "$crate/.sdkgen/$report.json"
+  if cargo run --locked --bin sdk-adopter -- sync --crate "$crate" --offline     > /dev/null 2> "$work/stale-$report.err"; then
+    echo "stale $report audit evidence was accepted" >&2; exit 1
+  fi
+  grep -q recipe.audit_drift "$work/stale-$report.err"
+  cp "$work/accepted-$report.json" "$crate/.sdkgen/$report.json"
+done
+
 # Recipe backend/adapter migrations are explicit and cannot be inferred.
 cp "$crate/sdkgen.lock.json" "$work/recipe.json"
 python3 - "$crate/sdkgen.lock.json" <<'PY'
