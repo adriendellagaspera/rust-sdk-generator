@@ -24,8 +24,11 @@ async fn emitted_sse_stream_delivers_live_bytes_and_sets_accept() {
 #[tokio::test]
 async fn emitted_sse_stream_preserves_non_success_error() {
     let (url, server) = respond("401 Unauthorized", "application/json", br#"{"code":"auth","message":"denied"}"#);
-    let err = HttpClient::new().with_base_url(url)
-        .stream_events().await.expect_err("401 stream must fail");
+    let err = match HttpClient::new().with_base_url(url)
+        .stream_events().await {
+        Ok(_) => panic!("401 stream must fail"),
+        Err(error) => error,
+    };
     match err {
         ApiOpError::Api(api) => {
             assert_eq!(api.status, 401);
