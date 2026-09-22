@@ -395,3 +395,250 @@ def derive_and_generate(
             "root_sdk_derivation", "inventory file differs from generate stdout"
         )
     return derivation, inventory, snapshot(sdk)
+
+
+def cargo_manifest(raw: Path) -> str:
+    required = (raw / "REQUIRED_DEPS.toml").read_text()
+    if "[dependencies]" not in required:
+        raise StageFailure(
+            "compiled_http", "REQUIRED_DEPS.toml has no [dependencies] section"
+        )
+    additions: list[str] = []
+    for dependency, version in (("futures-util", "0.3"), ("bytes", "1")):
+        if re.search(rf"(?m)^\\s*{re.escape(dependency)}\\s*=", required) is None:
+            additions.append(f'{dependency} = "{version}"')
+    if additions:
+        required = required.replace(
+            "[dependencies]",
+            "[dependencies]\\n" + "\\n".join(additions),
+            1,
+        )
+    return (
+        '[package]\\nname = "production-compat-consumer"\\nversion = "0.0.0"\\n'
+        'edition = "2024"\\npublish = false\\n\\n[workspace]\\n\\n'
+        + required
+        + '\\n\\n[dev-dependencies]\\ntokio = { version = "1", features = ["macros", "rt-multi-thread"] }\\n'
+    )
+
+
+def compile_default_consumer(
+    source_fixture: Path,
+    raw: Path,
+    sdk: Path,
+    destination: Path,
+) -> None:
+    shutil.copytree(source_fixture, destination)
+    generated = destination / "src/generated"
+    sdk_destination = destination / "src/sdk"
+    generated.mkdir(parents=True, exist_ok=True)
+    sdk_destination.mkdir(parents=True, exist_ok=True)
+    for path in raw.glob("*.rs"):
+        copy_file(path, generated / path.name)
+    for path in sdk.glob("*.rs"):
+        copy_file(path, sdk_destination / path.name)
+    (destination / "Cargo.toml").write_text(cargo_manifest(raw))
+    run(
+        "compiled_http",
+        "cargo",
+        "test",
+        "--manifest-path",
+        destination / "Cargo.toml",
+        "--all-targets",
+        cwd=destination,
+    )
+
+
+def default_pass(
+    repo_root: Path,
+    tracker: dict[str, Any],
+    generator: Path,
+    adapter: Path,
+    root_generator: Path,
+    destination: Path,
+    *,
+    compile_http: bool,
+) -> dict[str, Any]:
+    destination.mkdir(parents=True)
+    boundary = tracker["boundary"]
+    spec = destination / "openapi.json"
+    config = destination / "openapi-to-rust.toml"
+    surface = destination / "surface.json"
+    overrides = destination / "overrides.json"
+    copy_file(repo_root / boundary["effective_openapi"], spec)
+    copy_file(repo_root / boundary["generation_config"], config)
+    copy_file(repo_root / boundary["surface"], surface)
+    copy_file(repo_root / boundary["overrides"], overrides)
+
+    run("raw_generation", generator, "generate", "--config", config.name, cwd=destination)
+    raw = destination / "raw"
+    ensure_raw(raw)
+    raw_snapshot = snapshot(raw)
+
+    bindings, diagnostic = run_adapter(adapter, raw, spec)
+    if bindings is None or diagnostic is not None:
+        raise StageFailure("adapter_evidence", diagnostic or "bindings unavailable")
+    try:
+        assert_source_coverage(file_json(spec), bindings)
+    except ValueError as error:
+        raise StageFailure("adapter_evidence", str(error)) from error
+    bindings_path = destination / "rust-bindings.json"
+    bindings_path.write_bytes(canonical_json(bindings))
+
+    derivation, inventory, sdk_snapshot = derive_and_generate(
+        root_generator,
+        spec,
+        bindings_path,
+        destination,
+        surface=surface,
+        overrides=overrides,
+    )
+    rejected = {
+        operation: outcome
+        for operation, outcome in derivation["report"]["operations"].items()
+        if outcome["status"] == "rejected"
+    }
+    if rejected:
+        raise StageFailure(
+            "root_sdk_derivation",
+            f"default fixture unexpectedly rejected operations: {sorted(rejected)}",
+        )
+
+    compiled_http = "not_run"
+    if compile_http:
+        compile_default_consumer(
+            repo_root / boundary["consumer_fixture"],
+            raw,
+            destination / "sdk",
+            destination / "consumer",
+        )
+        compiled_http = "passed"
+
+    return {
+        "provenance": {
+            "effective_openapi_sha256": sha256_file(spec),
+            "generation_config_sha256": sha256_file(config),
+            "surface_sha256": sha256_file(surface),
+            "overrides_sha256": sha256_file(overrides),
+        },
+        "source_operations": openapi_operations(file_json(spec)),
+        "raw": raw_snapshot,
+        "bindings": bindings,
+        "derivation": derivation,
+        "inventory": inventory,
+        "sdk": sdk_snapshot,
+        "compiled_http": compiled_http,
+    }
+
+
+def selector_matches(
+    operation: dict[str, Any],
+    operation_id: str,
+    selector: dict[str, Any],
+) -> bool:
+    metadata = operation.get("metadata")
+    if not isinstance(metadata, dict):
+        return False
+    source = metadata.get("source_operation")
+    if not isinstance(source, dict) or source.get("operation_id") != operation_id:
+        return False
+    if "representation" in selector:
+        representation = metadata.get("representation")
+        if (
+            not isinstance(representation, dict)
+            or representation.get("kind") != selector["representation"]
+        ):
+            return False
+    if "kind" in selector and metadata.get("kind") != selector["kind"]:
+        return False
+    if selector.get("request_discriminator") is True:
+        values = metadata.get("request_discriminators")
+        if not isinstance(values, list) or not values:
+            return False
+    return True
+
+
+def expected_status(expected: Any, label: str) -> tuple[str, str | None]:
+    if not isinstance(expected, dict) or not isinstance(expected.get("status"), str):
+        raise ValueError(f"{label} expected status is invalid")
+    diagnostic = expected.get("diagnostic")
+    if diagnostic is not None and not isinstance(diagnostic, str):
+        raise ValueError(f"{label} expected diagnostic is invalid")
+    return expected["status"], diagnostic
+
+
+def capability_observation(
+    bindings: dict[str, Any] | None,
+    extraction_diagnostic: str | None,
+    capability: dict[str, Any],
+) -> dict[str, Any]:
+    if extraction_diagnostic is not None:
+        return {
+            "status": "adapter_evidence_gap",
+            "diagnostic": extraction_diagnostic,
+            "failure_owner": "adapter",
+        }
+    if bindings is None:
+        raise ValueError("bindings missing without extraction diagnostic")
+    operations = bindings.get("operations")
+    if not isinstance(operations, dict):
+        raise ValueError("Bindings operations missing")
+    found = any(
+        isinstance(operation, dict)
+        and selector_matches(
+            operation, capability["operation_id"], capability["selector"]
+        )
+        for operation in operations.values()
+    )
+    if found:
+        return {"status": "supported", "diagnostic": None, "failure_owner": None}
+    return {
+        "status": "raw_generation_gap",
+        "diagnostic": f"raw.{capability['id']}_not_emitted",
+        "failure_owner": "raw_backend",
+    }
+
+
+def check_expected(actual: dict[str, Any], expected: Any, label: str) -> None:
+    status, diagnostic = expected_status(expected, label)
+    if actual.get("status") != status:
+        raise StageFailure(
+            "supported_envelope",
+            f"{label}: expected status {status!r}, got {actual.get('status')!r}",
+        )
+    if diagnostic is not None and actual.get("diagnostic") != diagnostic:
+        raise StageFailure(
+            "supported_envelope",
+            f"{label}: expected diagnostic {diagnostic!r}, got {actual.get('diagnostic')!r}",
+        )
+
+
+def compile_capability_core(
+    repo_root: Path,
+    raw: Path,
+    sdk: Path,
+    destination: Path,
+) -> None:
+    fixture_root = repo_root / "openapi-to-rust-bindings/tests/fixtures/capability-v1"
+    (destination / "src/generated").mkdir(parents=True)
+    (destination / "src/sdk").mkdir(parents=True)
+    (destination / "tests").mkdir(parents=True)
+    for path in raw.glob("*.rs"):
+        copy_file(path, destination / "src/generated" / path.name)
+    for path in sdk.glob("*.rs"):
+        copy_file(path, destination / "src/sdk" / path.name)
+    copy_file(
+        repo_root / "examples/independent-sdk/consumer/src/sdk/error.rs",
+        destination / "src/sdk/error.rs",
+    )
+    copy_file(fixture_root / "core/http.rs", destination / "tests/http.rs")
+    (destination / "src/lib.rs").write_text("pub mod generated;\\npub mod sdk;\\n")
+    (destination / "Cargo.toml").write_text(cargo_manifest(raw))
+    run(
+        "compiled_http",
+        "cargo",
+        "test",
+        "--manifest-path",
+        destination / "Cargo.toml",
+        "--all-targets",
+        cwd=destination,
+    )
