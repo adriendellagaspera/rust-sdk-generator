@@ -186,7 +186,7 @@ jobs:
           test -f "$fixture/raw/types.rs"
           test -f "$fixture/raw/binding-manifest.json"
 
-          target/debug/openapi-to-rust-bindings "$fixture/raw" > "$RUNNER_TEMP/manifest-bindings.json"
+          target/debug/openapi-to-rust-bindings --legacy-metadata "$fixture/raw" > "$RUNNER_TEMP/manifest-bindings.json"
           target/debug/openapi-to-rust-bindings \
             --extract "$fixture/raw" "$fixture/openapi.json" > "$RUNNER_TEMP/extracted-bindings.json"
 

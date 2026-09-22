@@ -31,8 +31,7 @@ Rust sources and dependency fragment, and the generated public facade.
 Its minimal handwritten runtime is `consumer/src/sdk/error.rs`.
 
 The consumer's local TCP mock tests exercise actual HTTP request
-serialization, response deserialization, error statuses/bodies and buffered
-and buffered binary responses. It imports neither the generator, adapter nor
+serialization, response deserialization, error statuses/bodies and buffered binary responses. It imports neither the generator, adapter nor
 any other SDK. The same Cargo command runs in the CI `independent-sdk` job
 and is required by the final `gate`; Python is not part of this user path.
 

@@ -115,6 +115,4 @@ async fn exercises_buffered_binary_contract() {
     assert_eq!(body.as_ref(), payload);
     let request = server.join().expect("buffered request");
     assert!(request.starts_with("GET /notes/n-1/export HTTP/1.1"), "{request}");
-
-
 }
