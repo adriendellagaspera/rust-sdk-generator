@@ -153,6 +153,8 @@ struct Recipe {
     raw_output: String,
     sdk_output: String,
     dependency_fragment_sha256: String,
+    derivation_sha256: String,
+    inventory_sha256: String,
     surface: Option<Evidence>,
     overrides: Option<Evidence>,
     coverage: BTreeMap<String, String>,
@@ -184,6 +186,8 @@ fn validate_recipe(recipe: &Recipe) -> Result<()> {
     }
     if recipe.dependency_fragment_sha256.len() != 64
         || recipe.source.sha256.len() != 64
+        || recipe.derivation_sha256.len() != 64
+        || recipe.inventory_sha256.len() != 64
         || recipe.owned_raw.values().any(|digest| digest.len() != 64)
     {
         return Err(err(
@@ -203,6 +207,21 @@ fn validate_recipe(recipe: &Recipe) -> Result<()> {
     }
     driver::verify_lock(&recipe.backend, &recipe.backend.revision)
 }
+fn verify_previous_audit(crate_dir: &Path, recipe: &Recipe) -> Result<()> {
+    for (path, expected) in [
+        (".sdkgen/derivation.json", &recipe.derivation_sha256),
+        (".sdkgen/inventory.json", &recipe.inventory_sha256),
+    ] {
+        let actual = read(&crate_dir.join(path), "recipe.audit_drift")?;
+        if hash(&actual) != *expected {
+            return Err(err("recipe.audit_drift", format!(
+                "{path} differs from the accepted recipe; restore the audited evidence before sync, or perform an explicit reviewed migration"
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn coverage(report: &Derivation) -> Result<BTreeMap<String, String>> {
     if report.report.schema_version != 1 || report.report.operations.is_empty() {
         return Err(err(
@@ -626,6 +645,7 @@ fn main_inner() -> Result<()> {
             "recipe.json",
         )?;
         validate_recipe(&recipe)?;
+        verify_previous_audit(&output, &recipe)?;
         Some(recipe)
     };
     let mut recipe = if let Some(old) = old.clone() {
@@ -647,6 +667,8 @@ fn main_inner() -> Result<()> {
             raw_output: "src/generated".into(),
             sdk_output: "src/sdk".into(),
             dependency_fragment_sha256: String::new(),
+            derivation_sha256: String::new(),
+            inventory_sha256: String::new(),
             surface: None,
             overrides: None,
             coverage: BTreeMap::new(),
@@ -850,6 +872,8 @@ fn main_inner() -> Result<()> {
     if cli.check {
         return Ok(());
     }
+    recipe.derivation_sha256 = hash(&json_bytes(&derivation)?);
+    recipe.inventory_sha256 = hash(&json_bytes(&inventory)?);
     if old.is_none() {
         create_starter(&stage.0, &recipe, &generated.dependencies)?;
     }
