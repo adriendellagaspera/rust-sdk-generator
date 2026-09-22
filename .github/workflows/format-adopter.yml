@@ -1,0 +1,25 @@
+name: Temporary adopter formatter
+on:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: formatter-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  format:
+    name: adopter-rustfmt
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Format and emit Rust sources
+        shell: bash
+        run: |
+          cargo fmt --all
+          for file in src/bin/sdk-adopter.rs src/bin/sdk_adopter/driver.rs; do
+            echo "BEGIN_FORMATTED:$file"
+            cat "$file"
+            echo "END_FORMATTED:$file"
+          done
