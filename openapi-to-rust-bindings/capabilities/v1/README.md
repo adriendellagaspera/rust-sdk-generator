@@ -79,6 +79,12 @@ cargo run --locked -p openapi-to-rust-bindings --example capability-matrix -- \
   --output "$RUNNER_TEMP/capability-report.json"
 ```
 
+Successful `upstream-only-semantic` jobs also publish the deterministic
+`capability-report.json` as the `manifest-free-capability-observation-v1`
+GitHub Actions artifact. This is the per-source observation for reviewing
+future compatibility diffs; `matrix.json` remains the concise versioned
+expectation file, not a substitute for observing emitted Rust.
+
 The `--upstream-root` and `--fork-root` paths are generated fixture
 directories with `core/raw`, `sse/raw` and `discriminator/raw` subfolders,
 not arbitrary checkout sources. `--expected PATH` can additionally compare
