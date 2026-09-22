@@ -42,9 +42,7 @@ API. A reusable Rust-native `init`/`sync` workflow for user-supplied OpenAPI
 is tracked in [#146](https://github.com/adriendellagaspera/rust-sdk-generator/issues/146).
 The pinned default is unmodified upstream
 `gpu-cli/openapi-to-rust@5a3487edbe27cfd4efb32dda893774e23d7fa195`.
-The historical fork is not used by this quickstart; its separate compatibility
-tracker will be migrated under #157. No general own-API `init` or `sync`
-command is implemented here.
+The historical fork is not used by this quickstart or by production compatibility. `COMPATIBILITY.json` tracks this same upstream boundary; the isolated `LEGACY_COMPATIBILITY.json` oracle is opt-in only. No general own-API `init` or `sync` command is implemented here.
 
 ## Follow the inputs and output
 
