@@ -5,8 +5,9 @@ on:
     paths:
       - ".github/workflows/openapi-to-rust-compat.yml"
       - "openapi-to-rust-bindings/COMPATIBILITY.json"
-      - "openapi-to-rust-bindings/scripts/check_backend_compat.py"
+      - "openapi-to-rust-bindings/scripts/**"
       - "openapi-to-rust-bindings/tests/fixtures/**"
+      - "docs/compatibility-migration-157.md"
       - "openapi-to-rust-bindings/src/**"
   schedule:
     - cron: "23 3 * * *"
@@ -27,7 +28,7 @@ concurrency:
 
 jobs:
   compatibility:
-    name: canonical-bindings
+    name: legacy-manifest-oracle-compatibility
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
@@ -56,25 +57,19 @@ jobs:
               print(f"BASELINE_COMMIT={baseline['commit']}", file=env)
           PY
 
-      - name: Resolve baseline and candidate commits
+      - name: Resolve baseline and candidate commits with an exact verified pin
         shell: bash
         run: |
           set -euo pipefail
-          repository="https://github.com/${BACKEND_REPOSITORY}.git"
-
-          git init "${RUNNER_TEMP}/baseline-source"
-          git -C "${RUNNER_TEMP}/baseline-source" remote add origin "${repository}"
-          git -C "${RUNNER_TEMP}/baseline-source" fetch --depth=1 origin "${BASELINE_COMMIT}"
-          git -C "${RUNNER_TEMP}/baseline-source" checkout --detach FETCH_HEAD
-          resolved_baseline="$(git -C "${RUNNER_TEMP}/baseline-source" rev-parse HEAD)"
-          test "${resolved_baseline}" = "${BASELINE_COMMIT}"
-
-          git init "${RUNNER_TEMP}/candidate-source"
-          git -C "${RUNNER_TEMP}/candidate-source" remote add origin "${repository}"
-          git -C "${RUNNER_TEMP}/candidate-source" fetch --depth=1 origin "${CANDIDATE_REF}"
-          git -C "${RUNNER_TEMP}/candidate-source" checkout --detach FETCH_HEAD
-          candidate_commit="$(git -C "${RUNNER_TEMP}/candidate-source" rev-parse HEAD)"
-          echo "CANDIDATE_COMMIT=${candidate_commit}" >> "${GITHUB_ENV}"
+          acquire=openapi-to-rust-bindings/scripts/acquire_backend.py
+          python3 "$acquire" \
+            --repository "$BACKEND_REPOSITORY" --ref "$BASELINE_COMMIT" \
+            --expected-sha "$BASELINE_COMMIT" \
+            --destination "$RUNNER_TEMP/baseline-source"
+          candidate_commit="$(python3 "$acquire" \
+            --repository "$BACKEND_REPOSITORY" --ref "$CANDIDATE_REF" \
+            --destination "$RUNNER_TEMP/candidate-source")"
+          echo "CANDIDATE_COMMIT=$candidate_commit" >> "$GITHUB_ENV"
 
       - name: Build standalone bindings adapter
         run: cargo build --locked -p openapi-to-rust-bindings --bin openapi-to-rust-bindings
@@ -103,11 +98,24 @@ jobs:
             --candidate-generator "${RUNNER_TEMP}/candidate-target/release/openapi-to-rust" \
             --candidate-commit "${CANDIDATE_COMMIT}" \
             --report "${RUNNER_TEMP}/compatibility-report.md" \
+            --report-json "${RUNNER_TEMP}/compatibility-report.json" \
             --update-data "${RUNNER_TEMP}/pin-update.json"
           status=$?
           set -e
 
-          cat "${RUNNER_TEMP}/compatibility-report.md" >> "${GITHUB_STEP_SUMMARY}"
+          if test -f "${RUNNER_TEMP}/compatibility-report.md"; then
+            cat "${RUNNER_TEMP}/compatibility-report.md" >> "${GITHUB_STEP_SUMMARY}"
+          fi
+          if test -f "${RUNNER_TEMP}/compatibility-report.json"; then
+            {
+              echo
+              echo "## Machine-readable stage and provenance report"
+              echo
+              echo '~~~json'
+              cat "${RUNNER_TEMP}/compatibility-report.json"
+              echo '~~~'
+            } >> "${GITHUB_STEP_SUMMARY}"
+          fi
           if test -f "${RUNNER_TEMP}/pin-update.json"; then
             {
               echo
@@ -118,4 +126,12 @@ jobs:
               echo '~~~'
             } >> "${GITHUB_STEP_SUMMARY}"
           fi
+          {
+            echo
+            echo "## Reproduce this exact legacy oracle comparison"
+            echo
+            echo "`gh workflow run openapi-to-rust-compat.yml -f candidate_ref=${CANDIDATE_COMMIT}`"
+            echo
+            echo "This runner still requires producer manifests. Fork main after #18 is not a manifest-capable candidate; its failure is recorded, not hidden."
+          } >> "${GITHUB_STEP_SUMMARY}"
           exit "${status}"
