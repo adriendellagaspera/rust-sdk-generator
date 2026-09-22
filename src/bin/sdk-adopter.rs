@@ -698,13 +698,13 @@ fn main_inner() -> Result<()> {
     recipe.source.sha256 = hash(&source);
     recipe.coverage = decisions;
     let deps_digest = hash(generated.dependencies.as_bytes());
-    if let Some(previous) = &old {
-        if previous.dependency_fragment_sha256 != deps_digest {
-            return Err(err(
-                "sync.dependencies",
-                "backend dependency fragment changed; consumer owns Cargo.toml and must review a recipe/runtime migration",
-            ));
-        }
+    if let Some(previous) = &old
+        && previous.dependency_fragment_sha256 != deps_digest
+    {
+        return Err(err(
+            "sync.dependencies",
+            "backend dependency fragment changed; consumer owns Cargo.toml and must review a recipe/runtime migration",
+        ));
     }
     recipe.dependency_fragment_sha256 = deps_digest;
     let raw_digests = if let Some(previous) = &old {
@@ -785,11 +785,11 @@ fn main_inner() -> Result<()> {
     // This is not a multi-directory atomic transaction; root SDK publication retains
     // the independently tested conflict, lock, and recovery semantics.
     compile(&stage.0, cli.offline)?;
-    if old.is_some() {
-        raw_ownership(&output, old.as_ref().expect("sync recipe"), &generated.rust)?;
+    if let Some(previous) = &old {
+        raw_ownership(&output, previous, &generated.rust)?;
         publish_raw(
             &output.join(&recipe.raw_output),
-            &old.as_ref().expect("sync recipe").owned_raw,
+            &previous.owned_raw,
             &generated.rust,
         )?;
         run(
