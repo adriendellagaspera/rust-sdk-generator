@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -300,11 +301,18 @@ def main() -> None:
             baseline_raw = work / name / "baseline" / "raw"
             candidate_raw = work / name / "candidate" / "raw"
 
-            generate_fixture(args.baseline_generator, fixture, baseline_raw)
-            generate_fixture(args.candidate_generator, fixture, candidate_raw)
+            baseline_raw_error = candidate_raw_error = None
+            try:
+                generate_fixture(args.baseline_generator, fixture, baseline_raw)
+            except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
+                baseline_raw_error = f"{type(error).__name__}: {error}"
+            try:
+                generate_fixture(args.candidate_generator, fixture, candidate_raw)
+            except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
+                candidate_raw_error = f"{type(error).__name__}: {error}"
 
-            baseline_snapshot = snapshot(baseline_raw)
-            candidate_snapshot = snapshot(candidate_raw)
+            baseline_snapshot = snapshot(baseline_raw) if baseline_raw_error is None else {}
+            candidate_snapshot = snapshot(candidate_raw) if candidate_raw_error is None else {}
             raw_changed = changed_files(baseline_snapshot, candidate_snapshot)
             raw_added = raw_removed = 0
             for filename in raw_changed:
@@ -322,6 +330,8 @@ def main() -> None:
             candidate_sources: set[str] = set()
             candidate_representations: set[str] = set()
             try:
+                if baseline_raw_error:
+                    raise RuntimeError(f"raw_generation_failure: {baseline_raw_error}")
                 baseline_value = bindings_value(args.bindings_adapter, baseline_raw)
                 baseline_sources, baseline_representations = binding_identities(
                     baseline_value
@@ -329,17 +339,14 @@ def main() -> None:
             except Exception as error:
                 baseline_error = f"{type(error).__name__}: {error}"
             try:
+                if candidate_raw_error:
+                    raise RuntimeError(f"raw_generation_failure: {candidate_raw_error}")
                 candidate_value = bindings_value(args.bindings_adapter, candidate_raw)
                 candidate_sources, candidate_representations = binding_identities(
                     candidate_value
                 )
             except Exception as error:
                 candidate_error = f"{type(error).__name__}: {error}"
-
-            if baseline_error is not None:
-                raise RuntimeError(
-                    f"baseline fixture {name} no longer normalizes: {baseline_error}"
-                )
 
             sections = (
                 changed_sections(baseline_value, candidate_value)
@@ -354,6 +361,7 @@ def main() -> None:
             )
             compatible = (
                 candidate_error is None
+                and baseline_error is None
                 and not sections
                 and not source_added
                 and not source_removed
@@ -369,12 +377,35 @@ def main() -> None:
                     "raw_changed": raw_changed,
                     "raw_added_lines": raw_added,
                     "raw_removed_lines": raw_removed,
+                    "baseline_error": baseline_error,
                     "candidate_error": candidate_error,
+                    "stages": {
+                        "baseline_raw_generation": "failed" if baseline_raw_error else "passed",
+                        "candidate_raw_generation": "failed" if candidate_raw_error else "passed",
+                        "baseline_adapter_evidence": "not_run" if baseline_raw_error else ("failed" if baseline_error else "passed"),
+                        "candidate_adapter_evidence": "not_run" if candidate_raw_error else ("failed" if candidate_error else "passed"),
+                        "root_sdk_derivation": "not_run_legacy_oracle",
+                    },
+                    "failure_stage": (
+                        "raw_generation" if baseline_raw_error or candidate_raw_error
+                        else "adapter_evidence" if baseline_error or candidate_error
+                        else None
+                    ),
                     "bindings_changed": sections,
                     "source_added": source_added,
                     "source_removed": source_removed,
                     "representation_added": representation_added,
                     "representation_removed": representation_removed,
+                    "raw_diff": {
+                        filename: "".join(difflib.unified_diff(
+                            baseline_snapshot.get(filename, b"").decode(errors="replace").splitlines(keepends=True),
+                            candidate_snapshot.get(filename, b"").decode(errors="replace").splitlines(keepends=True),
+                            fromfile=f"baseline/{filename}",
+                            tofile=f"candidate/{filename}",
+                        ))
+                        for filename in raw_changed
+                        if filename.endswith((".rs", ".toml"))
+                    },
                 }
             )
 
