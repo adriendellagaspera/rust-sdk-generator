@@ -521,6 +521,36 @@ fn compare_supported_subset(upstream: &Value, fork: &Value) -> Result<Vec<String
     Ok(matched)
 }
 
+// A supported scenario is a claim about the whole fixture, not just named
+// capability selectors. Reject a newly added or silently dropped source
+// operation even when no individual capability entry mentions it.
+fn assert_supported_operation_inventory(
+    scenario_id: &str,
+    scenario: &Value,
+    operations: &[Value],
+) -> Result<()> {
+    for backend in ["upstream", "fork_oracle"] {
+        if scenario[backend]["status"].as_str() != Some("supported") {
+            continue;
+        }
+        for operation in operations {
+            if operation[backend]["supported"].as_bool() == Some(true) {
+                continue;
+            }
+            let source = &operation["openapi"];
+            return Err(format!(
+                "capability.silent_operation_drop: scenario {scenario_id}, {backend}, {} {} ({:?}): raw emitted={}, adapter diagnostic={}",
+                source["method"].as_str().unwrap_or("<unknown>"),
+                source["path"].as_str().unwrap_or("<unknown>"),
+                source["operation_id"].as_str().unwrap_or("<unknown>"),
+                operation[backend]["raw_backend"]["emitted"],
+                operation[backend]["adapter"]["diagnostic"],
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn main_inner() -> Result<()> {
     let mut matrix_path: Option<PathBuf> = None;
     let mut upstream_root: Option<PathBuf> = None;
@@ -640,6 +670,7 @@ fn main_inner() -> Result<()> {
                 })
             })
             .collect::<Vec<_>>();
+        assert_supported_operation_inventory(id, scenario, &operations)?;
         scenario_reports.insert(
             id.to_owned(),
             json!({
@@ -743,6 +774,34 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn supported_scenario_rejects_an_unadvertised_missing_operation() {
+        let scenario = json!({
+            "upstream": {"status": "supported"},
+            "fork_oracle": {"status": "supported"}
+        });
+        let operations = vec![json!({
+            "openapi": {"operation_id": "missing", "method": "GET", "path": "/missing"},
+            "upstream": {
+                "supported": false,
+                "raw_backend": {"emitted": false},
+                "adapter": {"diagnostic": "raw.source_operation_not_emitted"}
+            },
+            "fork_oracle": {"supported": true}
+        })];
+        let error = assert_supported_operation_inventory("core", &scenario, &operations)
+            .expect_err("all declared operations in a supported fixture must be proven");
+        assert!(error.starts_with("capability.silent_operation_drop:"));
+        assert!(error.contains("GET /missing"));
+        assert!(error.contains("raw.source_operation_not_emitted"));
+        let unsupported = json!({
+            "upstream": {"status": "adapter_evidence_gap"},
+            "fork_oracle": {"status": "supported"}
+        });
+        assert_supported_operation_inventory("core", &unsupported, &operations)
+            .expect("unsupported upstream fixtures must remain reportable");
+    }
 
     #[test]
     fn oracle_comparison_normalizes_only_equivalent_rust_type_spelling() {
