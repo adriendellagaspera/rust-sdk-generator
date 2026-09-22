@@ -1,0 +1,16 @@
+[generator]
+spec_path = "openapi.json"
+output_dir = "raw"
+module_name = "fixture"
+
+[features]
+enable_async_client = true
+
+[http_client]
+base_url = "http://127.0.0.1"
+
+[http_client.retry]
+max_retries = 0
+
+[client]
+prune_models = false

@@ -263,6 +263,189 @@ jobs:
           print("Fresh fork manifest == manifest-free canonical Bindings v3: verified.")
           PY
 
+      - name: Generate pinned capability-matrix raw outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture_root="$PWD/openapi-to-rust-bindings/tests/fixtures/capability-v1"
+          upstream_root="$RUNNER_TEMP/capability-upstream"
+          fork_root="$RUNNER_TEMP/capability-fork"
+
+          for scenario in core sse discriminator; do
+            upstream_fixture="$upstream_root/$scenario"
+            mkdir -p "$upstream_fixture"
+            cp "$fixture_root/$scenario/openapi.json" "$upstream_fixture/openapi.json"
+            cp "$fixture_root/upstream.toml" "$upstream_fixture/config.toml"
+            (
+              cd "$upstream_fixture"
+              "$RUNNER_TEMP/upstream-target/debug/openapi-to-rust" generate --config config.toml
+            )
+            test -f "$upstream_fixture/raw/client.rs"
+            test -f "$upstream_fixture/raw/types.rs"
+            test ! -e "$upstream_fixture/raw/binding-manifest.json"
+
+            fork_fixture="$fork_root/$scenario"
+            mkdir -p "$fork_fixture"
+            cp "$fixture_root/$scenario/openapi.json" "$fork_fixture/openapi.json"
+            if test "$scenario" = discriminator; then
+              cp "$fixture_root/discriminator/fork.toml" "$fork_fixture/config.toml"
+            else
+              cp "$fixture_root/fork.toml" "$fork_fixture/config.toml"
+            fi
+            (
+              cd "$fork_fixture"
+              "$RUNNER_TEMP/fork-target/debug/openapi-to-rust" generate --config config.toml
+            )
+            test -f "$fork_fixture/raw/client.rs"
+            test -f "$fork_fixture/raw/types.rs"
+            test -f "$fork_fixture/raw/binding-manifest.json"
+          done
+
+      - name: Prove versioned capability observations
+        shell: bash
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/capability-report.json"
+          cargo run --locked -p openapi-to-rust-bindings --example capability-matrix -- \
+            --matrix openapi-to-rust-bindings/capabilities/v1/matrix.json \
+            --upstream-root "$RUNNER_TEMP/capability-upstream" \
+            --fork-root "$RUNNER_TEMP/capability-fork" \
+            --output "$report"
+          cat "$report"
+
+      - name: Compile and HTTP-test independent unmodified-upstream capability consumer
+        shell: bash
+        run: |
+          set -euo pipefail
+          raw="$RUNNER_TEMP/capability-upstream/core/raw"
+          spec="$PWD/openapi-to-rust-bindings/tests/fixtures/capability-v1/core/openapi.json"
+          bindings="$RUNNER_TEMP/capability-core-bindings.json"
+          definition="$RUNNER_TEMP/capability-core-definition.json"
+          sdk="$RUNNER_TEMP/capability-core-sdk"
+          consumer="$RUNNER_TEMP/capability-core-consumer"
+
+          test -f "$raw/client.rs"
+          test -f "$raw/types.rs"
+          test ! -e "$raw/binding-manifest.json"
+          target/debug/openapi-to-rust-bindings --extract "$raw" "$spec" > "$bindings"
+          for repetition in 1 2 3; do
+            target/debug/openapi-to-rust-bindings --extract "$raw" "$spec" \
+              > "$RUNNER_TEMP/upstream-capability-bindings-$repetition.json"
+            cmp "$bindings" "$RUNNER_TEMP/upstream-capability-bindings-$repetition.json"
+          done
+          echo "Upstream canonical Bindings v3: three independent-process extractions are byte-identical."
+          target/debug/rust-sdk-generator derive \
+            --openapi "$spec" --bindings "$bindings" \
+            --definition-output "$definition" > "$RUNNER_TEMP/capability-core-derivation.json"
+          target/debug/rust-sdk-generator generate \
+            --openapi "$spec" --bindings "$bindings" \
+            --definition "$definition" --output "$sdk" \
+            > "$RUNNER_TEMP/capability-core-inventory.json"
+
+          mkdir -p "$consumer/src/generated" "$consumer/src/sdk" "$consumer/tests"
+          cp "$raw"/*.rs "$consumer/src/generated/"
+          cp "$sdk"/*.rs "$consumer/src/sdk/"
+          cp examples/independent-sdk/consumer/src/sdk/error.rs "$consumer/src/sdk/error.rs"
+          cp openapi-to-rust-bindings/tests/fixtures/capability-v1/core/http.rs "$consumer/tests/http.rs"
+          printf 'pub mod generated;\npub mod sdk;\n' > "$consumer/src/lib.rs"
+          {
+            echo '[package]'
+            echo 'name = "capability-matrix-consumer"'
+            echo 'version = "0.0.0"'
+            echo 'edition = "2024"'
+            echo 'publish = false'
+            echo ''
+            echo '[workspace]'
+            echo ''
+            cat "$raw/REQUIRED_DEPS.toml"
+            echo ''
+            echo '[dev-dependencies]'
+            echo 'tokio = { version = "1", features = ["macros", "rt-multi-thread"] }'
+          } > "$consumer/Cargo.toml"
+
+          cargo test --manifest-path "$consumer/Cargo.toml" --all-targets
+          echo "Pinned unmodified upstream -> ordinary Rust -> Bindings v3 -> facade -> standalone compile + mock HTTP: verified."
+
+      - name: Compile and HTTP-test fork-only emitted transport variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture_root="$PWD/openapi-to-rust-bindings/tests/fixtures/capability-v1"
+          for scenario in core sse discriminator; do
+            raw="$RUNNER_TEMP/capability-fork/$scenario/raw"
+            spec="$fixture_root/$scenario/openapi.json"
+            bindings="$RUNNER_TEMP/fork-$scenario-bindings.json"
+            definition="$RUNNER_TEMP/fork-$scenario-definition.json"
+            sdk="$RUNNER_TEMP/fork-$scenario-sdk"
+            consumer="$RUNNER_TEMP/fork-$scenario-consumer"
+
+            test -f "$raw/client.rs"
+            test -f "$raw/binding-manifest.json"
+            target/debug/openapi-to-rust-bindings --extract "$raw" "$spec" > "$bindings"
+            for repetition in 1 2 3; do
+              target/debug/openapi-to-rust-bindings --extract "$raw" "$spec" \
+                > "$RUNNER_TEMP/fork-$scenario-bindings-$repetition.json"
+              cmp "$bindings" "$RUNNER_TEMP/fork-$scenario-bindings-$repetition.json"
+            done
+            echo "Fork $scenario canonical Bindings v3: three independent-process extractions are byte-identical."
+            target/debug/rust-sdk-generator derive \
+              --openapi "$spec" --bindings "$bindings" \
+              --definition-output "$definition" > "$RUNNER_TEMP/fork-$scenario-derivation.json"
+            target/debug/rust-sdk-generator generate \
+              --openapi "$spec" --bindings "$bindings" \
+              --definition "$definition" --output "$sdk" \
+              > "$RUNNER_TEMP/fork-$scenario-inventory.json"
+
+            mkdir -p "$consumer/src/generated" "$consumer/src/sdk" "$consumer/tests"
+            cp "$raw"/*.rs "$consumer/src/generated/"
+            cp "$sdk"/*.rs "$consumer/src/sdk/"
+            cp examples/independent-sdk/consumer/src/sdk/error.rs "$consumer/src/sdk/error.rs"
+            cp "$fixture_root/$scenario/fork_http.rs" "$consumer/tests/http.rs"
+            cp "$fixture_root/fork_http_support.rs" "$consumer/tests/fork_http_support.rs"
+            if test "$scenario" = core; then
+              cp "$fixture_root/core/http.rs" "$consumer/tests/core_http.rs"
+            fi
+            printf 'pub mod generated;\npub mod sdk;\n' > "$consumer/src/lib.rs"
+            {
+              echo '[package]'
+              echo 'name = "capability-matrix-consumer"'
+              echo 'version = "0.0.0"'
+              echo 'edition = "2024"'
+              echo 'publish = false'
+              echo ''
+              echo '[workspace]'
+              echo ''
+              cat "$raw/REQUIRED_DEPS.toml"
+              echo ''
+              echo '[dev-dependencies]'
+              echo 'futures-util = "0.3"'
+              echo 'tokio = { version = "1", features = ["macros", "rt-multi-thread"] }'
+            } > "$consumer/Cargo.toml"
+            cargo test --manifest-path "$consumer/Cargo.toml" --all-targets
+            echo "Fork-only $scenario: manifest-free Bindings v3, standalone native compilation and actual HTTP calls verified."
+          done
+
+      - name: Cross-compile fork-only streaming facades for wasm32
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup target add wasm32-unknown-unknown
+          for scenario in core sse discriminator; do
+            consumer="$RUNNER_TEMP/fork-$scenario-consumer"
+            CARGO_TARGET_DIR="$RUNNER_TEMP/capability-wasm-$scenario-target" \
+              cargo check --manifest-path "$consumer/Cargo.toml" \
+              --target wasm32-unknown-unknown --lib
+            echo "Fork-only $scenario: generated stream facade and raw client compiled for wasm32-unknown-unknown."
+          done
+
+      - name: Publish versioned observed capability report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: manifest-free-capability-observation-v1
+          path: ${{ runner.temp }}/capability-report.json
+          if-no-files-found: error
+          retention-days: 30
+
   manifest-free-sdk:
     name: manifest-free-sdk
     runs-on: ubuntu-24.04

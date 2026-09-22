@@ -74,6 +74,7 @@ struct MethodSignals {
     bytes_stream: bool,
     bytes: bool,
     text: bool,
+    bounded_text: bool,
     accept_event_stream: bool,
 }
 
@@ -83,6 +84,56 @@ fn semantic_error(code: &str, detail: impl std::fmt::Display) -> Error {
 
 fn normalized_tokens<T: ToTokens>(value: &T) -> String {
     value.to_token_stream().to_string().replace(' ', "")
+}
+
+// Both the upstream and fork backends can return text through a shared bounded
+// response reader. The successful branch must return the text derived from
+// exactly that response, not merely expose a String or declare text in OpenAPI.
+fn proves_bounded_text(block: &syn::Block) -> bool {
+    let expected = [
+        (
+            "body_bytes",
+            "__read_bounded_response_body(response,self.max_response_body_bytes,).await?",
+        ),
+        ("raw_body", "body_bytes"),
+        (
+            "body_text",
+            "String::from_utf8_lossy(&raw_body).into_owned()",
+        ),
+    ];
+    let mut next = 0;
+    for statement in &block.stmts {
+        let syn::Stmt::Local(local) = statement else {
+            continue;
+        };
+        let syn::Pat::Ident(pattern) = &local.pat else {
+            continue;
+        };
+        if !expected.iter().any(|(name, _)| pattern.ident == *name) {
+            continue;
+        }
+        if next == expected.len()
+            || pattern.ident != expected[next].0
+            || local
+                .init
+                .as_ref()
+                .is_none_or(|init| normalized_tokens(&init.expr) != expected[next].1)
+        {
+            return false;
+        }
+        next += 1;
+    }
+    if next != expected.len() {
+        return false;
+    }
+    let Some(syn::Stmt::Expr(Expr::If(status), _)) = block.stmts.last() else {
+        return false;
+    };
+    matches!(
+        status.then_branch.stmts.last(),
+        Some(syn::Stmt::Expr(value, None))
+            if normalized_tokens(value) == "Ok(body_text)"
+    )
 }
 
 fn self_field(expr: &Expr) -> Option<&syn::Ident> {
@@ -719,7 +770,7 @@ fn choose_representation(
         .iter()
         .filter(|(kind, _)| kind.to_ascii_lowercase().starts_with("text/"))
         .collect();
-    if compact == "String" && signals.text && text_media.len() == 1 {
+    if compact == "String" && (signals.text || signals.bounded_text) && text_media.len() == 1 {
         return Ok(RepresentationEvidence::Text {
             media_type: text_media[0].0.clone(),
         });
@@ -807,6 +858,7 @@ pub fn inspect_semantics(
         let documented = operation_doc(&method.attrs)?;
         let mut signals = MethodSignals::default();
         signals.visit_block(&method.block);
+        signals.bounded_text = proves_bounded_text(&method.block);
         if signals.http_calls.len() != 1 {
             return Err(semantic_error(
                 "extract.source_identity_ambiguous",
@@ -942,4 +994,82 @@ pub fn inspect_semantics(
         unsupported_stream_methods,
         unmatched_source_operations,
     })
+}
+
+#[cfg(test)]
+mod bounded_text_tests {
+    use super::*;
+
+    const EMITTED: &str = r#"{
+        let body_bytes = __read_bounded_response_body(
+            response,
+            self.max_response_body_bytes,
+        ).await?;
+        let raw_body = body_bytes;
+        let body_text = String::from_utf8_lossy(&raw_body).into_owned();
+        if status_code == 200 {
+            let _ = raw_body;
+            Ok(body_text)
+        } else {
+            Err(ApiOpError::Api(problem))
+        }
+    }"#;
+
+    fn proved(source: &str) -> bool {
+        let block: syn::Block =
+            syn::parse_str(source).expect("parse actual generated method block");
+        proves_bounded_text(&block)
+    }
+
+    #[test]
+    fn proves_bounded_text_from_the_response_and_direct_success_return() {
+        let block: syn::Block = syn::parse_str(EMITTED).expect("valid generated body");
+        let locals = block
+            .stmts
+            .iter()
+            .filter_map(|statement| {
+                let syn::Stmt::Local(local) = statement else {
+                    return None;
+                };
+                let syn::Pat::Ident(pattern) = &local.pat else {
+                    return None;
+                };
+                Some((
+                    pattern.ident.to_string(),
+                    local
+                        .init
+                        .as_ref()
+                        .map(|init| normalized_tokens(&init.expr)),
+                ))
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            proved(EMITTED),
+            "unproved bounded text; locals={locals:?}, final={:?}",
+            block.stmts.last().map(normalized_tokens),
+        );
+    }
+
+    #[test]
+    fn rejects_unrelated_or_unbounded_text_and_wrong_success_result() {
+        for changed in [
+            EMITTED.replace("__read_bounded_response_body", "read_other_body"),
+            EMITTED.replace("let raw_body = body_bytes;", "let raw_body = other_bytes;"),
+            EMITTED.replace(
+                "String::from_utf8_lossy(&raw_body)",
+                "String::from_utf8_lossy(&other)",
+            ),
+            EMITTED.replace("Ok(body_text)", "Ok(other_text)"),
+            EMITTED.replace(
+                "Ok(body_text)",
+                "if something { Ok(body_text) } else { Ok(other) }",
+            ),
+            EMITTED.replace("let raw_body = body_bytes;", "let body_text = body_bytes;"),
+        ] {
+            assert!(
+                !proved(&changed),
+                "unproved bounded text was accepted: {changed}"
+            );
+        }
+    }
 }
