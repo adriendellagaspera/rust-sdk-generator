@@ -5,7 +5,7 @@ Derive, validate and deterministically generate a Rust SDK from OpenAPI and a ba
 This Cargo workspace contains two separate crates:
 
 - `rust-sdk-generator`: OpenAPI indexing, Bindings consumption, public API derivation, structural validation, lowering and emission. It can be used with another backend that produces the same canonical Bindings contract.
-- `openapi-to-rust-bindings`: an adapter for the pinned `openapi-to-rust` backend's generator-owned `binding-manifest.json`. It emits canonical Bindings v3 and can also validate existing v2/v3 sidecars.
+- `openapi-to-rust-bindings`: an adapter extracting canonical Bindings v3 from unmodified upstream's ordinary generated Rust plus the exact effective OpenAPI JSON. Historical manifest/sidecar reading requires an explicit oracle-only CLI flag.
 
 The adapter is a producer of data, not a dependency of the root generator. Application-specific naming, source updates, integration runtime and publishing are owned by consumers.
 
@@ -18,7 +18,7 @@ cargo run --locked --example independent-sdk-quickstart
 ```
 
 This native Rust entry point checks out the immutable raw-backend revision pinned
-in `openapi-to-rust-bindings/COMPATIBILITY.json`, builds the backend, adapter and
+in `openapi-to-rust-bindings/DEFAULT_BACKEND.json`, builds the backend, adapter and
 generator, then derives, generates, compiles and HTTP-tests a standalone notebook
 SDK. It prints the output directory. No Python or downstream consumer checkout
 is needed. [Follow the quickstart and adapt your own API](docs/getting-started.md).
@@ -34,7 +34,7 @@ normalized Bindings JSON file, run from the workspace root:
 
 ```sh
 cargo test --workspace --all-targets --all-features
-cargo run --quiet -p openapi-to-rust-bindings -- path/to/raw-output > rust-bindings.json
+cargo run --locked -p openapi-to-rust-bindings -- path/to/raw-output effective-openapi.json > rust-bindings.json
 
 cargo run --quiet -p rust-sdk-generator -- derive \
   --openapi openapi.json --bindings rust-bindings.json \
@@ -69,6 +69,6 @@ It supplies its own API fixture and minimal runtime, not an existing consumer's 
 - [Contracts and CLI](docs/contracts.md): versions, evidence, derivation report and error behavior.
 - [Output safety](docs/output.md): markers, conflicts, publication, crash recovery and read-only checks.
 - [Development and quality gates](docs/development.md): local verification, CI and review guidance.
-- [Bindings adapter](openapi-to-rust-bindings/README.md): manifest precedence, compatibility and adapter API.
+- [Bindings adapter](openapi-to-rust-bindings/README.md): manifest-free extraction, historical oracle, support envelope and diagnostics.
 
 Consumer integrations should pin immutable revisions and explicitly review any contract or generated-output migration. A repository release does not automatically change consumer pins.
