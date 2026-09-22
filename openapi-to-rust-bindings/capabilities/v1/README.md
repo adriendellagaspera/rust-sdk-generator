@@ -46,11 +46,18 @@ transport-specific request-discriminator variants are recorded as
 fork-provided variants remain separately compared with a freshly generated
 manifest oracle. Actual upstream raw-generation remediation is owned by #158.
 
-The matrix does not claim a native/WASM compilation proof for a stream ABI
-merely because both aliases occur in generated Rust. A target not compiled by
-the dedicated integration jobs remains **unverified** at that target. Do not
-convert an anonymous stream into a supported shape by guessing the alias or
-suppressing `extract.*` diagnostics.
+The stream target-proof entries in `matrix.json` are **observed compile
+outcomes**, separate from OpenAPI declarations, raw emission and adapter
+proof. The pinned fork's binary-stream, SSE and transport-discriminator
+variants are compiled in independent native consumers and exercised through
+real generated HTTP methods (including a 404/401 error, streamed bytes,
+multipart filename and serialized discriminator values). The same generated
+consumers' raw clients and facades also pass `cargo check --lib --target
+wasm32-unknown-unknown` in CI. **WASM execution or actual HTTP behavior is
+not asserted**; only cross-target compilation is verified. The unmodified
+upstream's anonymous SSE ABI remains rejected before cross-target compilation,
+and its missing binary stream cannot be promoted to supported simply because
+the fork compiled. Never suppress `extract.*` diagnostics.
 
 ## Reproduction
 
@@ -76,6 +83,17 @@ The `--upstream-root` and `--fork-root` paths are generated fixture
 directories with `core/raw`, `sse/raw` and `discriminator/raw` subfolders,
 not arbitrary checkout sources. `--expected PATH` can additionally compare
 the complete deterministic JSON observation with a previously reviewed report.
+The same workflow also separately proves **fork-only** observed shapes.
+For each freshly generated `core`, `sse` and `discriminator` fork fixture,
+it extracts canonical Bindings v3 without reading the producer manifest,
+derives/generates a public facade, compiles a separate consumer and runs its
+actual generated calls against TCP mock HTTP fixtures (native target). It
+then installs the wasm32 Rust standard-library target and runs
+`cargo check --manifest-path "$RUNNER_TEMP/fork-$scenario-consumer/Cargo.toml"
+--target wasm32-unknown-unknown --lib` for each scenario. Successful native
+and WASM *compilation* is distinct from the pinned producer-manifest oracle
+comparison and from the unsupported upstream stream ABI.
+
 The `manifest-free-sdk` job is a separate, existing fork-based HTTP smoke
 proof; it must not be represented as upstream-specific HTTP evidence.
 
