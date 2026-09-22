@@ -927,3 +927,166 @@ def markdown(report: dict[str, Any]) -> str:
             "Any raw, Bindings, derivation, inventory or generated SDK drift is fail-closed and must be reviewed before repinning.",
         ]
     ) + "\\n"
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--repo-root", type=Path, default=Path("."))
+    parser.add_argument("--tracker", type=Path)
+    parser.add_argument("--baseline-generator", type=Path, required=True)
+    parser.add_argument("--candidate-generator", type=Path, required=True)
+    parser.add_argument("--baseline-commit", required=True)
+    parser.add_argument("--candidate-commit", required=True)
+    parser.add_argument("--adapter", type=Path, required=True)
+    parser.add_argument("--root-generator", type=Path, required=True)
+    parser.add_argument("--report-json", type=Path, required=True)
+    parser.add_argument("--report-md", type=Path, required=True)
+    parser.add_argument("--update-data", type=Path)
+    args = parser.parse_args()
+
+    repo_root = args.repo_root.resolve()
+    tracker_path = (
+        args.tracker.resolve()
+        if args.tracker is not None
+        else repo_root / "openapi-to-rust-bindings/COMPATIBILITY.json"
+    )
+    report: dict[str, Any] = {
+        "schema_version": 1,
+        "profile": "production_manifest_free_upstream",
+        "compatible": False,
+        "last_stage": "configuration",
+    }
+    try:
+        tracker = load_tracker(repo_root, tracker_path)
+        baseline_commit = immutable_sha(args.baseline_commit, "baseline commit")
+        candidate_commit = immutable_sha(args.candidate_commit, "candidate commit")
+        if baseline_commit != tracker["backend"]["baseline"]["commit"]:
+            raise ValueError(
+                f"baseline commit {baseline_commit} does not match tracker "
+                f"{tracker['backend']['baseline']['commit']}"
+            )
+        baseline_version = generator_version(args.baseline_generator)
+        candidate_version = generator_version(args.candidate_generator)
+        if baseline_version != tracker["backend"]["baseline"]["version"]:
+            raise ValueError(
+                f"baseline version {baseline_version} does not match tracker "
+                f"{tracker['backend']['baseline']['version']}"
+            )
+        report["backend"] = {
+            "repository": tracker["backend"]["repository"],
+            "baseline": {
+                "version": baseline_version,
+                "commit": baseline_commit,
+            },
+            "candidate": {
+                "version": candidate_version,
+                "commit": candidate_commit,
+            },
+        }
+        report["tracker_sha256"] = sha256_file(tracker_path)
+        report["boundary"] = tracker["boundary"]
+        report["last_stage"] = "raw_generation"
+
+        with tempfile.TemporaryDirectory(prefix="production-compat-") as temporary:
+            work = Path(temporary)
+            baseline_default = default_pass(
+                repo_root,
+                tracker,
+                args.baseline_generator,
+                args.adapter,
+                args.root_generator,
+                work / "baseline-default",
+                compile_http=False,
+            )
+            candidate_default = default_pass(
+                repo_root,
+                tracker,
+                args.candidate_generator,
+                args.adapter,
+                args.root_generator,
+                work / "candidate-default",
+                compile_http=True,
+            )
+            report["candidate_compiled_http"] = candidate_default["compiled_http"]
+
+            report["last_stage"] = "supported_envelope"
+            baseline_envelope = envelope_pass(
+                repo_root,
+                tracker,
+                args.baseline_generator,
+                args.adapter,
+                args.root_generator,
+                work / "baseline-envelope",
+                compile_http=False,
+            )
+            candidate_envelope = envelope_pass(
+                repo_root,
+                tracker,
+                args.candidate_generator,
+                args.adapter,
+                args.root_generator,
+                work / "candidate-envelope",
+                compile_http=True,
+            )
+            report["candidate_capability_http"] = candidate_envelope["core"][
+                "compiled_http"
+            ]
+            report["baseline_evidence"] = {
+                "default": public_pass(baseline_default),
+                "supported_envelope": public_envelope(baseline_envelope),
+            }
+            report["candidate_evidence"] = {
+                "default": public_pass(candidate_default),
+                "supported_envelope": public_envelope(candidate_envelope),
+            }
+
+            report["last_stage"] = "compatibility_drift"
+            default_comparison = compare_default(
+                baseline_default, candidate_default
+            )
+            envelope_comparison = compare_envelope(
+                baseline_envelope, candidate_envelope
+            )
+            report["default_boundary"] = default_comparison
+            report["supported_envelope"] = envelope_comparison
+            if not default_comparison["compatible"]:
+                raise StageFailure(
+                    "compatibility_drift",
+                    "candidate changed the production default boundary",
+                )
+            if not envelope_comparison["compatible"]:
+                raise StageFailure(
+                    "compatibility_drift",
+                    "candidate changed the versioned supported envelope",
+                )
+            report["compatible"] = True
+            report["last_stage"] = "passed"
+    except StageFailure as error:
+        report["last_stage"] = error.stage
+        report["diagnostic"] = error.detail
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as error:
+        report["diagnostic"] = f"{type(error).__name__}: {error}"
+
+    if "backend" in report:
+        report["rerun"] = {
+            "workflow": ".github/workflows/openapi-to-rust-compat.yml",
+            "candidate_ref": report["backend"]["candidate"]["commit"],
+        }
+        report["pin_update"] = {
+            "previous_baseline": report["backend"]["baseline"],
+            "proposed_baseline": report["backend"]["candidate"],
+            "requires_review_of_all_reported_diffs": True,
+        }
+    args.report_json.write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n"
+    )
+    args.report_md.write_text(markdown(report))
+    if args.update_data is not None and "pin_update" in report:
+        args.update_data.write_text(
+            json.dumps(report["pin_update"], indent=2, sort_keys=True) + "\n"
+        )
+    return 0 if report["compatible"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
