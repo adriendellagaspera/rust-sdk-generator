@@ -354,14 +354,16 @@ def main() -> None:
 
             sections = (
                 changed_sections(baseline_value, candidate_value)
-                if candidate_value is not None
+                if baseline_value is not None and candidate_value is not None
                 else []
             )
-            source_added, source_removed = identity_diff(
-                baseline_sources, candidate_sources
+            source_added, source_removed = (
+                identity_diff(baseline_sources, candidate_sources)
+                if baseline_value is not None and candidate_value is not None else ([], [])
             )
-            representation_added, representation_removed = identity_diff(
-                baseline_representations, candidate_representations
+            representation_added, representation_removed = (
+                identity_diff(baseline_representations, candidate_representations)
+                if baseline_value is not None and candidate_value is not None else ([], [])
             )
             compatible = (
                 candidate_error is None
