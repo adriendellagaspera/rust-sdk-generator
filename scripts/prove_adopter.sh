@@ -29,6 +29,8 @@ import json, sys
 value = json.load(open(sys.argv[1]))
 assert value["generated_source_diff"] == {"missing":[],"changed":[],"extra":[],"conflicts":[]}, value
 assert value["derivation"]["operations"]["read_station"]["status"] == "derived", value
+assert value["public_api_inventory"]["resources"], value
+assert value["generated_source_changes"] == [], value
 PY
 
 cp "$fixture/updated.json" "$crate/openapi.json"
@@ -43,6 +45,10 @@ assert all(item["status"] == "derived" for item in operations.values()), operati
 diff = value["generated_source_diff"]
 assert diff["missing"] or diff["changed"], diff
 assert not diff["conflicts"], diff
+changes = value["generated_source_changes"]
+assert changes, value
+assert any(entry["previous"] != entry["candidate"] for entry in changes), changes
+assert value["public_api_inventory"]["resources"], value
 PY
 if cargo run --locked --bin sdk-adopter -- sync --crate "$crate" --offline \
     > "$work/rejected-coverage.out" 2> "$work/rejected-coverage.err"; then
@@ -70,6 +76,20 @@ if cargo run --locked --bin sdk-adopter -- init --openapi "$work/invalid.json" \
 fi
 grep -q source.json "$work/invalid.err"
 test ! -e "$work/invalid-sdk"
+
+# An unsupported ordinary upstream stream may not become an omitted operation.
+if cargo run --locked --bin sdk-adopter -- init   --openapi "$repo/openapi-to-rust-bindings/tests/fixtures/capability-v1/sse/openapi.json"   --output "$work/unsupported-sdk" --name unsupported-sdk   > "$work/unsupported.out" 2> "$work/unsupported.err"; then
+  echo 'unproven SSE operation accepted as an SDK' >&2; exit 1
+fi
+grep -Eq '(raw.generate|adapter.extract|derive.unsupported|derive.contract|bindings.v3)' "$work/unsupported.err"
+test ! -e "$work/unsupported-sdk"
+
+# No producer manifest or fabricated Bindings from absent ordinary Rust.
+mkdir -p "$work/empty-raw"
+if cargo run --locked -p openapi-to-rust-bindings -- "$work/empty-raw" "$fixture/initial.json"   > /dev/null 2> "$work/missing-evidence.err"; then
+  echo 'missing backend evidence was accepted' >&2; exit 1
+fi
+grep -q adapter.extract "$work/missing-evidence.err"
 
 # An offline installation may not silently fetch a different backend.
 RUST_SDK_ADOPTER_CACHE="$work/empty-cache" \
@@ -115,6 +135,22 @@ if cargo run --locked --bin sdk-adopter -- sync --crate "$crate" --offline \
 fi
 grep -q recipe.backend_contract "$work/recipe.err"
 cp "$work/recipe.json" "$crate/sdkgen.lock.json"
+
+# A checkout without its compiled binary is an incomplete offline cache, not a
+# reason to fetch/build over the network despite the offline request.
+revision="$(python3 - "$crate/sdkgen.lock.json" <<'PY'
+import json, sys
+print(json.load(open(sys.argv[1]))["backend"]["revision"])
+PY
+)"
+backend_bin="$RUST_SDK_ADOPTER_CACHE/backend-target/$revision/release/openapi-to-rust"
+test -f "$backend_bin"
+mv "$backend_bin" "$work/backend-bin"
+if cargo run --locked --bin sdk-adopter -- sync --crate "$crate" --offline   > /dev/null 2> "$work/incomplete-cache.err"; then
+  echo 'incomplete compiled offline cache was accepted' >&2; exit 1
+fi
+grep -q backend.offline_cache "$work/incomplete-cache.err"
+mv "$work/backend-bin" "$backend_bin"
 
 echo 'Independent own-API init/sync, compile, mock HTTP, coverage review, repeatability and fail-closed checks passed'
 cat "$work/cold-start.txt"
