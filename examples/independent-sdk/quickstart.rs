@@ -212,12 +212,7 @@ struct Pass {
     sdk: BTreeMap<PathBuf, Vec<u8>>,
 }
 
-fn pass(
-    backend: &Path,
-    adapter: &Path,
-    generator: &Path,
-    destination: &Path,
-) -> ProofResult<Pass> {
+fn pass(backend: &Path, adapter: &Path, generator: &Path, destination: &Path) -> ProofResult<Pass> {
     mkdir(destination)?;
     let raw = destination.join("raw");
     mkdir(&raw)?;
@@ -235,7 +230,10 @@ fn pass(
     )?;
     for required in ["client.rs", "types.rs", "REQUIRED_DEPS.toml"] {
         if !raw.join(required).is_file() {
-            return Err(format!("[raw backend] missing {}", raw.join(required).display()));
+            return Err(format!(
+                "[raw backend] missing {}",
+                raw.join(required).display()
+            ));
         }
     }
     let manifest_path = raw.join("binding-manifest.json");
@@ -523,7 +521,9 @@ fn main_inner() -> ProofResult<()> {
             &read(&example().join("openapi.json"))?,
         )?;
     }
-    println!("[pipeline] pinned unmodified upstream, manifest-free Bindings v3, derivation and byte-level determinism passed");
+    println!(
+        "[pipeline] pinned unmodified upstream, manifest-free Bindings v3, derivation and byte-level determinism passed"
+    );
     consumer(&work)?;
     println!(
         "[quickstart] complete: inspect {} and {}",

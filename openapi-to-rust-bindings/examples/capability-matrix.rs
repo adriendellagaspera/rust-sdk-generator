@@ -5,7 +5,7 @@
 //! and emits one deterministic JSON report suitable for compatibility diffs.
 
 use openapi_to_rust_bindings::{
-    extract_bindings, inspect_generated, inspect_semantics, read_bindings,
+    extract_bindings, inspect_generated, inspect_semantics, read_legacy_metadata,
 };
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
@@ -616,7 +616,7 @@ fn main_inner() -> Result<()> {
         let upstream = observe_backend(&upstream_root.join(id).join("raw"), &spec_path)?;
         let fork = observe_backend(&fork_root.join(id).join("raw"), &spec_path)?;
 
-        let fork_manifest = read_bindings(fork_root.join(id).join("raw"))
+        let fork_manifest = read_legacy_metadata(fork_root.join(id).join("raw"))
             .map_err(|error| format!("capability.oracle_unreadable: {id}: {error}"))?;
         let fork_extracted = fork.bindings.as_ref().ok_or_else(|| {
             format!(
