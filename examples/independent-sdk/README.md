@@ -58,7 +58,9 @@ future generic `init`/`sync` workflow. Genuine unsupported operations must
 remain explicitly rejected.
 
 `prove.py` is retained only as a historical manifest-producing fork oracle;
-it is not a public onboarding command or a default SDK proof.\n\nThe first-run path rejects `binding-manifest.json` in raw output and compares
+it is not a public onboarding command or a default SDK proof.
+
+The first-run path rejects `binding-manifest.json` in raw output and compares
 both complete generation passes byte-for-byte. The
 [versioned capability matrix](../../openapi-to-rust-bindings/capabilities/v1/README.md)
 records supported and unsupported upstream emitted variants. Fork-only streams,
