@@ -256,6 +256,12 @@ fn compile(dir: &Path, offline: bool) -> Result<()> {
     cmd.args(["test", "--locked", "--manifest-path"]).arg(dir.join("Cargo.toml")).arg("--all-targets");
     if offline { cmd.arg("--offline"); }
     // The staging crate is isolated from the root workspace and has its own lock.
+    if !dir.join("Cargo.lock").is_file() {
+        let mut lock = Command::new("cargo");
+        lock.arg("generate-lockfile").args(["--manifest-path"]).arg(dir.join("Cargo.toml"));
+        if offline { lock.arg("--offline"); }
+        run("crate.lockfile", &mut lock)?;
+    }
     run("crate.compile", &mut cmd)?;
     Ok(())
 }
@@ -323,13 +329,15 @@ fn main_inner() -> Result<()> {
     if old.is_some() { copy_tree(&output, &stage.0)?; }
     else { fs::create_dir_all(stage.0.join("src")).map_err(|e| err("stage.create", e))?; }
     write_if_changed(&stage.0.join(&recipe.source.path), &source, "source.stage")?;
-    for (path, target) in [(cli.surface.as_ref(), &mut recipe.surface), (cli.overrides.as_ref(), &mut recipe.overrides)] {
-        if let Some(path) = path {
-            let bytes = read(path, "evidence.read")?;
-            let file = if std::ptr::eq(target, &mut recipe.surface) { "surface.json" } else { "overrides.json" };
-            write_if_changed(&stage.0.join(file), &bytes, "evidence.stage")?;
-            *target = Some(Evidence { path: file.into(), sha256: hash(&bytes) });
-        }
+    if let Some(path) = &cli.surface {
+        let bytes = read(path, "evidence.read")?;
+        write_if_changed(&stage.0.join("surface.json"), &bytes, "evidence.stage")?;
+        recipe.surface = Some(Evidence { path: "surface.json".into(), sha256: hash(&bytes) });
+    }
+    if let Some(path) = &cli.overrides {
+        let bytes = read(path, "evidence.read")?;
+        write_if_changed(&stage.0.join("overrides.json"), &bytes, "evidence.stage")?;
+        recipe.overrides = Some(Evidence { path: "overrides.json".into(), sha256: hash(&bytes) });
     }
     // Existing naming evidence is immutable until an explicit recipe migration.
     let surface: PublicSdkSurface = if let Some(bytes) = read_evidence(&stage.0, &recipe.surface, "evidence.surface")? {
@@ -397,7 +405,7 @@ fn main_inner() -> Result<()> {
     if cli.check { return Ok(()); }
     if old.is_none() { create_starter(&stage.0, &recipe, &generated.dependencies)?; }
     publish_raw(&stage.0.join(&recipe.raw_output), &BTreeMap::new(), &generated.rust)?;
-    let inv_result = run("sdk.generate", root_command(&generator, "generate", &work, Some(&stage.0.join(&recipe.sdk_output))).as_mut())?;
+    let inv_result = run("sdk.generate", &mut root_command(&generator, "generate", &work, Some(&stage.0.join(&recipe.sdk_output))))?;
     let inventory: Value = parse(&inv_result.stdout, "sdk.inventory")?;
     write_if_changed(&stage.0.join(".sdkgen/inventory.json"), &json_bytes(&inventory)?, "report.inventory")?;
     // Staging compilation must succeed before any source in the existing crate is changed.
@@ -407,7 +415,7 @@ fn main_inner() -> Result<()> {
     if old.is_some() {
         raw_ownership(&output, old.as_ref().expect("sync recipe"), &generated.rust)?;
         publish_raw(&output.join(&recipe.raw_output), &old.as_ref().expect("sync recipe").owned_raw, &generated.rust)?;
-        run("sdk.publish", root_command(&generator, "generate", &work, Some(&output_dir)).as_mut())?;
+        run("sdk.publish", &mut root_command(&generator, "generate", &work, Some(&output_dir)))?;
         write_if_changed(&output.join(".sdkgen/inventory.json"), &json_bytes(&inventory)?, "report.inventory")?;
         write_if_changed(&output.join(".sdkgen/derivation.json"), &json_bytes(&derivation)?, "report.write")?;
         write_if_changed(&output.join("sdkgen.lock.json"), &json_bytes(&recipe)?, "recipe.write")?;
