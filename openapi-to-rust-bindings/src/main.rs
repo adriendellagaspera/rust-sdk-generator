@@ -1,5 +1,5 @@
 use openapi_to_rust_bindings::{
-    extract_bindings, inspect_generated, inspect_semantics, read_bindings,
+    inspect_generated, inspect_semantics, read_bindings, read_legacy_metadata,
 };
 use std::env;
 use std::io::{self, Write};
@@ -31,7 +31,7 @@ fn run() -> Result<(), String> {
             ));
         }
         [flag, directory] if flag == "--legacy-metadata" => {
-            let bindings = read_bindings(PathBuf::from(directory))
+            let bindings = read_legacy_metadata(PathBuf::from(directory))
                 .map_err(|error| format!("adapter.legacy_metadata: {error}"))?;
             serde_json::to_writer_pretty(&mut output, bindings.as_value())
                 .map_err(|error| error.to_string())?;
@@ -49,13 +49,13 @@ fn run() -> Result<(), String> {
                 .map_err(|error| error.to_string())?;
         }
         [directory, openapi] if directory != "--inspect" && directory != "--legacy-metadata" => {
-            let bindings = extract_bindings(PathBuf::from(directory), PathBuf::from(openapi))
+            let bindings = read_bindings(PathBuf::from(directory), PathBuf::from(openapi))
                 .map_err(|error| format!("adapter.extract: {error}"))?;
             serde_json::to_writer_pretty(&mut output, bindings.as_value())
                 .map_err(|error| error.to_string())?;
         }
         [flag, directory, openapi] if flag == "--extract" => {
-            let bindings = extract_bindings(PathBuf::from(directory), PathBuf::from(openapi))
+            let bindings = read_bindings(PathBuf::from(directory), PathBuf::from(openapi))
                 .map_err(|error| format!("adapter.extract: {error}"))?;
             serde_json::to_writer_pretty(&mut output, bindings.as_value())
                 .map_err(|error| error.to_string())?;

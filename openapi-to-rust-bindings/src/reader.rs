@@ -6,8 +6,9 @@ use std::path::Path;
 /// Canonical sidecar name accepted when generator-owned metadata is materialized separately.
 pub const SIDECAR_NAME: &str = "rust-bindings.json";
 
-/// Read normalized bindings from generator-owned metadata or a canonical sidecar.
-pub fn read_bindings(path: impl AsRef<Path>) -> Result<Bindings, Error> {
+/// Historical oracle only: read generator-owned manifest metadata or a canonical sidecar.
+/// Never call this from the default generated-Rust/effective-OpenAPI path.
+pub fn read_legacy_metadata(path: impl AsRef<Path>) -> Result<Bindings, Error> {
     let path = path.as_ref();
 
     let manifest = path.join(MANIFEST_NAME);

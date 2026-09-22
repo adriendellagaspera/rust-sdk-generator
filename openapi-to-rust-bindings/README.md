@@ -24,7 +24,7 @@ and invalid structure fail closed with `adapter.extract:` and specific
 directory is never consulted or used as a fallback.
 
 **Historical oracle only:** `--legacy-metadata <generated-directory>`
-explicitly invokes the retained `read_bindings(directory)` library function.
+explicitly invokes the retained `read_legacy_metadata(directory)` library function.
 It prefers `binding-manifest.json` over `rust-bindings.json`, rejects invalid
 metadata and does not inspect generated Rust. The manifest-specific
 `COMPATIBILITY.json` remains the separate fork tracker pending #157; the
