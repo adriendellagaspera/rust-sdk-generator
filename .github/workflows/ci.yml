@@ -57,6 +57,10 @@ jobs:
           enable-cache: true
       - name: Check Python proof syntax
         run: python3 -m py_compile examples/independent-sdk/prove.py
+      - name: Check compatibility fixture and pin helpers
+        run: |
+          python3 -m unittest discover -s openapi-to-rust-bindings/scripts -p "test_*.py"
+          python3 -m py_compile openapi-to-rust-bindings/scripts/*.py
       - name: Reject high-confidence Python defects
         run: >-
           uvx --from ruff==0.16.8 ruff check
@@ -105,7 +109,7 @@ jobs:
           persist-credentials: false
       - run: cargo build --locked -p rust-sdk-generator --bin rust-sdk-generator
       - run: cargo build --locked -p openapi-to-rust-bindings --bin openapi-to-rust-bindings
-      - name: Prove adapter sidecar drives the Rust CLI
+      - name: Prove historical manifest-oracle adapter drives the Rust CLI
         env:
           RUST_SDK_GENERATOR_BIN: target/debug/rust-sdk-generator
           OPENAPI_TO_RUST_BINDINGS_BIN: target/debug/openapi-to-rust-bindings
