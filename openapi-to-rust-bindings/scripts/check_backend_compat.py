@@ -416,13 +416,24 @@ def main() -> None:
                     "generation_config": config.read_text() if config.is_file() else None,
                 }
 
+            baseline_provenance = provenance(baseline_raw, baseline_raw_error is not None)
+            candidate_provenance = provenance(candidate_raw, candidate_raw_error is not None)
+            effective_baseline = baseline_provenance["effective_openapi_sha256"]
+            effective_candidate = candidate_provenance["effective_openapi_sha256"]
+            effective_drift = (
+                effective_baseline != effective_candidate
+                if effective_baseline is not None and effective_candidate is not None
+                else None
+            )
+
             rows.append(
                 {
                     "fixture": name,
                     "provenance": {
-                        "baseline": provenance(baseline_raw, baseline_raw_error is not None),
-                        "candidate": provenance(candidate_raw, candidate_raw_error is not None),
+                        "baseline": baseline_provenance,
+                        "candidate": candidate_provenance,
                     },
+                    "effective_openapi_changed": effective_drift,
                     "raw_changed": raw_changed,
                     "raw_added_lines": raw_added,
                     "raw_removed_lines": raw_removed,
@@ -521,6 +532,14 @@ def main() -> None:
                 )
         if details:
             lines.extend(["", f"## {row['fixture']} identity drift", "", *details])
+        if row["effective_openapi_changed"] is True:
+            lines.extend([
+                "",
+                f"## {row['fixture']} effective OpenAPI drift",
+                "",
+                f"- Baseline SHA-256: `{row['provenance']['baseline']['effective_openapi_sha256']}`",
+                f"- Candidate SHA-256: `{row['provenance']['candidate']['effective_openapi_sha256']}`",
+            ])
         if row["raw_diff"]:
             lines.extend(["", f"## {row['fixture']} generated-output differences", ""])
             for filename, diff in sorted(row["raw_diff"].items()):
@@ -557,7 +576,14 @@ def main() -> None:
             },
             "bindings_schema_version": compatibility["bindings_schema_version"],
             "source_api_drift": [
-                {"fixture": row["fixture"], "added": row["source_added"], "removed": row["source_removed"]}
+                {
+                    "fixture": row["fixture"],
+                    "emitted_source_identities_added": row["source_added"],
+                    "emitted_source_identities_removed": row["source_removed"],
+                    "effective_openapi_changed": row["effective_openapi_changed"],
+                    "baseline_effective_sha256": row["provenance"]["baseline"]["effective_openapi_sha256"],
+                    "candidate_effective_sha256": row["provenance"]["candidate"]["effective_openapi_sha256"],
+                }
                 for row in rows
             ],
             "fixture_results": rows,
