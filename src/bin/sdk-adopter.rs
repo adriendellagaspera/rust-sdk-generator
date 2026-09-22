@@ -185,7 +185,7 @@ fn dependencies(fragment: &str, crate_name: &str) -> String {
         if !present { extras.push_str(&format!("{name} = \"{version}\"\n")); }
     }
     let included = fragment.replacen("[dependencies]", &format!("[dependencies]\n{extras}"), 1);
-    format!("[package]\nname = \"{crate_name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[workspace]\n\n{included}\n")
+    format!("[package]\nname = \"{crate_name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[workspace]\n\n{included}\n\n[dev-dependencies]\ntokio = {{ version = \"1\", features = [\"macros\", \"rt-multi-thread\"] }}\n")
 }
 fn create_starter(dir: &Path, recipe: &Recipe, fragment: &str) -> Result<()> {
     write_if_changed(&dir.join("Cargo.toml"), dependencies(fragment, &recipe.crate_name).as_bytes(), "template.manifest")?;
