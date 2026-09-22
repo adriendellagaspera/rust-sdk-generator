@@ -438,6 +438,14 @@ jobs:
             echo "Fork-only $scenario: generated stream facade and raw client compiled for wasm32-unknown-unknown."
           done
 
+      - name: Publish versioned observed capability report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: manifest-free-capability-observation-v1
+          path: ${{ runner.temp }}/capability-report.json
+          if-no-files-found: error
+          retention-days: 30
+
   manifest-free-sdk:
     name: manifest-free-sdk
     runs-on: ubuntu-24.04
