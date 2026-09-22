@@ -436,7 +436,9 @@ def compile_default_consumer(
         copy_file(path, generated / path.name)
     for path in sdk.glob("*.rs"):
         copy_file(path, sdk_destination / path.name)
-    (destination / "Cargo.toml").write_text(\n        cargo_manifest(raw, "independent-notebook-consumer")\n    )
+    (destination / "Cargo.toml").write_text(
+        cargo_manifest(raw, "independent-notebook-consumer")
+    )
     run(
         "compiled_http",
         "cargo",
@@ -632,7 +634,9 @@ def compile_capability_core(
     )
     copy_file(fixture_root / "core/http.rs", destination / "tests/http.rs")
     (destination / "src/lib.rs").write_text("pub mod generated;\npub mod sdk;\n")
-    (destination / "Cargo.toml").write_text(\n        cargo_manifest(raw, "capability-matrix-consumer")\n    )
+    (destination / "Cargo.toml").write_text(
+        cargo_manifest(raw, "capability-matrix-consumer")
+    )
     run(
         "compiled_http",
         "cargo",
