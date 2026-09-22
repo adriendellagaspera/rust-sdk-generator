@@ -17,8 +17,12 @@
     {
       "id": "core",
       "spec": "openapi-to-rust-bindings/tests/fixtures/capability-v1/core/openapi.json",
-      "upstream": {"status": "supported"},
-      "fork_oracle": {"status": "supported"},
+      "upstream": {
+        "status": "supported"
+      },
+      "fork_oracle": {
+        "status": "supported"
+      },
       "cross_backend_parity": true
     },
     {
@@ -28,14 +32,20 @@
         "status": "adapter_evidence_gap",
         "diagnostic": "extract.stream_abi_unproven"
       },
-      "fork_oracle": {"status": "supported"},
+      "fork_oracle": {
+        "status": "supported"
+      },
       "cross_backend_parity": false
     },
     {
       "id": "discriminator",
       "spec": "openapi-to-rust-bindings/tests/fixtures/capability-v1/discriminator/openapi.json",
-      "upstream": {"status": "supported"},
-      "fork_oracle": {"status": "supported"},
+      "upstream": {
+        "status": "supported"
+      },
+      "fork_oracle": {
+        "status": "supported"
+      },
       "cross_backend_parity": false
     }
   ],
@@ -44,85 +54,159 @@
       "id": "json_response",
       "scenario": "core",
       "operation_id": "update_widget",
-      "selector": {"representation": "json"},
-      "upstream": {"status": "supported"},
-      "fork_oracle": {"status": "supported"}
+      "selector": {
+        "representation": "json"
+      },
+      "upstream": {
+        "status": "supported"
+      },
+      "fork_oracle": {
+        "status": "supported"
+      }
     },
     {
       "id": "text_response",
       "scenario": "core",
       "operation_id": "read_text",
-      "selector": {"representation": "text"},
-      "upstream": {"status": "supported"},
-      "fork_oracle": {"status": "supported"}
+      "selector": {
+        "representation": "text"
+      },
+      "upstream": {
+        "status": "supported"
+      },
+      "fork_oracle": {
+        "status": "supported"
+      }
     },
     {
       "id": "empty_response",
       "scenario": "core",
       "operation_id": "delete_widget",
-      "selector": {"representation": "empty"},
-      "upstream": {"status": "supported"},
-      "fork_oracle": {"status": "supported"}
+      "selector": {
+        "representation": "empty"
+      },
+      "upstream": {
+        "status": "supported"
+      },
+      "fork_oracle": {
+        "status": "supported"
+      }
     },
     {
       "id": "buffered_binary",
       "scenario": "core",
       "operation_id": "download_blob",
-      "selector": {"representation": "binary_buffered"},
-      "upstream": {"status": "supported"},
-      "fork_oracle": {"status": "supported"}
+      "selector": {
+        "representation": "binary_buffered"
+      },
+      "upstream": {
+        "status": "supported"
+      },
+      "fork_oracle": {
+        "status": "supported"
+      }
     },
     {
       "id": "binary_stream",
       "scenario": "core",
       "operation_id": "download_blob",
-      "selector": {"representation": "binary_stream"},
+      "selector": {
+        "representation": "binary_stream"
+      },
       "upstream": {
         "status": "raw_generation_gap",
         "diagnostic": "raw.binary_stream_not_emitted"
       },
-      "fork_oracle": {"status": "supported"}
+      "fork_oracle": {
+        "status": "supported"
+      }
     },
     {
       "id": "multipart",
       "scenario": "core",
       "operation_id": "upload_file",
-      "selector": {"kind": "call_shape", "representation": "json"},
-      "upstream": {"status": "supported"},
-      "fork_oracle": {"status": "supported"}
+      "selector": {
+        "kind": "call_shape",
+        "representation": "json"
+      },
+      "upstream": {
+        "status": "supported"
+      },
+      "fork_oracle": {
+        "status": "supported"
+      }
     },
     {
       "id": "multipart_filename_helper",
       "scenario": "core",
       "operation_id": "upload_file",
-      "selector": {"kind": "multipart_filenames"},
+      "selector": {
+        "kind": "multipart_filenames"
+      },
       "upstream": {
         "status": "raw_generation_gap",
         "diagnostic": "raw.multipart_filename_helper_not_emitted"
       },
-      "fork_oracle": {"status": "supported"}
+      "fork_oracle": {
+        "status": "supported"
+      }
     },
     {
       "id": "sse_stream",
       "scenario": "sse",
       "operation_id": "stream_events",
-      "selector": {"representation": "event_stream"},
+      "selector": {
+        "representation": "event_stream"
+      },
       "upstream": {
         "status": "adapter_evidence_gap",
         "diagnostic": "extract.stream_abi_unproven"
       },
-      "fork_oracle": {"status": "supported"}
+      "fork_oracle": {
+        "status": "supported"
+      }
     },
     {
       "id": "request_discriminator",
       "scenario": "discriminator",
       "operation_id": "render",
-      "selector": {"request_discriminator": true},
+      "selector": {
+        "request_discriminator": true
+      },
       "upstream": {
         "status": "raw_generation_gap",
         "diagnostic": "raw.request_discriminator_not_emitted"
       },
-      "fork_oracle": {"status": "supported"}
+      "fork_oracle": {
+        "status": "supported"
+      }
     }
-  ]
+  ],
+  "target_proofs": {
+    "upstream": {
+      "sse_stream": {
+        "native": "rejected_anonymous_stream_abi",
+        "wasm": "rejected_anonymous_stream_abi"
+      },
+      "binary_stream": {
+        "native": "raw_method_not_emitted",
+        "wasm": "raw_method_not_emitted"
+      }
+    },
+    "fork_oracle": {
+      "binary_stream": {
+        "native": "compiled_and_http_tested",
+        "wasm": "library_compiled"
+      },
+      "sse_stream": {
+        "native": "compiled_and_http_tested",
+        "wasm": "library_compiled"
+      },
+      "request_discriminator_stream": {
+        "native": "compiled_and_http_tested",
+        "wasm": "library_compiled"
+      }
+    },
+    "evidence": "Upstream semantic evidence workflow: pinned fork ordinary Rust -> manifest-free Bindings v3 -> generated standalone consumers (core/sse/discriminator); native Cargo test plus wasm32-unknown-unknown cargo check --lib; no WASM runtime HTTP assertion."
+  }
 }
