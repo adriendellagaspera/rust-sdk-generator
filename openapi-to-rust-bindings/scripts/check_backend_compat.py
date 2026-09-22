@@ -13,6 +13,8 @@ import subprocess
 import tempfile
 from typing import Any
 
+from compat_fixtures import discover_fixtures
+
 
 def run(*args: object, cwd: Path | None = None) -> None:
     subprocess.run([str(arg) for arg in args], cwd=cwd, check=True)
@@ -261,6 +263,7 @@ def main() -> None:
     parser.add_argument("--candidate-commit", required=True)
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--update-data", type=Path)
+    parser.add_argument("--report-json", type=Path, help="Stage-aware legacy oracle report")
     parser.add_argument("--update-compatibility", action="store_true")
     args = parser.parse_args()
 
@@ -281,11 +284,10 @@ def main() -> None:
         raise RuntimeError("candidate commit must be resolved to an immutable SHA")
 
     fixture_root = package_root / "tests" / "fixtures"
-    fixture_names = sorted(
-        path.name
-        for path in fixture_root.iterdir()
-        if path.is_dir() and (path / "openapi.json").is_file()
-    )
+    fixture_names = [
+        path.relative_to(fixture_root).as_posix()
+        for path in discover_fixtures(fixture_root, "legacy_manifest_oracle")
+    ]
     if not fixture_names:
         raise RuntimeError("no bindings compatibility fixtures found")
 
@@ -383,6 +385,7 @@ def main() -> None:
         f"- Baseline: `{baseline_version}` / `{baseline_commit}`",
         f"- Candidate: `{candidate_version}` / `{args.candidate_commit}`",
         f"- Bindings schema: `{compatibility['bindings_schema_version']}`",
+        "- Profile: **historical manifest oracle**, not production manifest-free compatibility",
         "- Authority: generator-owned `binding-manifest.json` normalized to canonical Bindings",
         "",
         "| Fixture | Raw generator diff | Normalization | Bindings diff | Source identity | Representation identity |",
