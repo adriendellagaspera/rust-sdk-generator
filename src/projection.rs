@@ -802,12 +802,13 @@ fn response_view(
     resource_path: &[String],
     public_name: &str,
 ) -> Result<(String, ModelDefinition), &'static str> {
-    response_view_named(
-        openapi,
-        bindings,
-        raw,
-        response_model_name(resource_path, public_name),
-    )
+    let mut name = response_model_name(resource_path, public_name);
+    if name == raw {
+        // A public view and its raw source type cannot share one Rust symbol.
+        // Only exact self-collisions receive this deterministic distinct name.
+        name.push_str("View");
+    }
+    response_view_named(openapi, bindings, raw, name)
 }
 
 fn inline_response_view_named(
