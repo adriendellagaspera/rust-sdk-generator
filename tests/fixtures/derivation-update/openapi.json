@@ -1,0 +1,41 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title": "Work queue", "version": "1"},
+  "paths": {
+    "/workspaces/{workspace_id}/jobs/{job_id}": {
+      "parameters": [
+        {"name": "workspace_id", "in": "path", "required": true, "schema": {"type": "string"}},
+        {"name": "job_id", "in": "path", "required": true, "schema": {"type": "string"}}
+      ],
+      "patch": {
+        "operationId": "revise_job",
+        "parameters": [
+          {"name": "dry-run", "in": "query", "required": false, "schema": {"type": "boolean"}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/UpdateJobRequest"}
+            }
+          }
+        },
+        "responses": {
+          "204": {"description": "Updated"}
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "UpdateJobRequest": {
+        "type": "object",
+        "required": ["title"],
+        "properties": {
+          "title": {"type": "string"},
+          "priority": {"type": "integer"}
+        }
+      }
+    }
+  }
+}

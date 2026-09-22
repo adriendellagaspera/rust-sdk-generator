@@ -1,0 +1,128 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Canonical response projection fixture",
+    "version": "1"
+  },
+  "paths": {
+    "/reports/current": {
+      "get": {
+        "operationId": "read_report",
+        "responses": {
+          "200": {
+            "description": "report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Report"
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "206": {
+            "description": "partial report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Report"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reports/cache": {
+      "delete": {
+        "operationId": "purge_reports",
+        "responses": {
+          "202": {
+            "description": "accepted"
+          },
+          "204": {
+            "description": "purged"
+          }
+        }
+      }
+    },
+    "/reports/marker": {
+      "get": {
+        "operationId": "read_marker",
+        "responses": {
+          "200": {
+            "description": "marker",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Marker"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Report": {
+        "type": "object",
+        "required": [
+          "name",
+          "count",
+          "details"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "details": {
+            "$ref": "#/components/schemas/ReportDetails"
+          }
+        }
+      },
+      "ReportDetails": {
+        "type": "object",
+        "required": [
+          "label"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "flags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Marker": {
+        "type": "object",
+        "required": [
+          "id",
+          "active"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "active": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

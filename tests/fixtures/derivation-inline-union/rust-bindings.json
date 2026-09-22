@@ -1,0 +1,42 @@
+{
+  "schema_version": 2,
+  "structs": {
+    "OpaquePayload17": [
+      {"name": "message", "type": "String"}
+    ],
+    "OpaquePayload42": [
+      {"name": "retryable", "type": "Option<bool>"},
+      {"name": "code", "type": "i64"}
+    ]
+  },
+  "enums": {
+    "OpaqueUnion3": [
+      {"name": "RawB", "payload": "OpaquePayload42", "wire_name": null},
+      {"name": "RawA", "payload": "OpaquePayload17", "wire_name": null}
+    ]
+  },
+  "aliases": {},
+  "operations": {
+    "call_union_9": {
+      "name": "unrelated_event_method",
+      "parameters": [],
+      "return_type": "Result<OpaqueUnion3, Error>",
+      "success_type": "OpaqueUnion3",
+      "stream": null
+    }
+  },
+  "symbol_paths": {
+    "OpaquePayload17": "crate::generated::types::OpaquePayload17",
+    "OpaquePayload42": "crate::generated::types::OpaquePayload42",
+    "OpaqueUnion3": "crate::generated::types::OpaqueUnion3"
+  },
+  "binding": {
+    "client": {
+      "type_path": "crate::generated::client::HttpClient",
+      "constructor": "new",
+      "api_key_builder": "with_api_key",
+      "base_url_builder": "with_base_url"
+    },
+    "type_preludes": ["crate::generated::types::*"]
+  }
+}

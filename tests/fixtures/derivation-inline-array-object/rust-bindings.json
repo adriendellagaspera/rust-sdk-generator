@@ -1,0 +1,35 @@
+{
+  "schema_version": 2,
+  "structs": {
+    "OpaqueRow9": [
+      {"name": "note", "type": "Option<String>"},
+      {"name": "enabled", "type": "bool"},
+      {"name": "name", "type": "String"}
+    ]
+  },
+  "enums": {},
+  "aliases": {
+    "OpaqueRows4": "Vec<OpaqueRow9>"
+  },
+  "operations": {
+    "call_rows_28": {
+      "name": "unrelated_rows_method",
+      "parameters": [],
+      "return_type": "Result<OpaqueRows4, Error>",
+      "success_type": "OpaqueRows4"
+    }
+  },
+  "symbol_paths": {
+    "OpaqueRow9": "crate::generated::types::OpaqueRow9",
+    "OpaqueRows4": "crate::generated::types::OpaqueRows4"
+  },
+  "binding": {
+    "client": {
+      "type_path": "crate::generated::client::HttpClient",
+      "constructor": "new",
+      "api_key_builder": "with_api_key",
+      "base_url_builder": "with_base_url"
+    },
+    "type_preludes": ["crate::generated::types::*"]
+  }
+}

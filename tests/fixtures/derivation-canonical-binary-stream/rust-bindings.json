@@ -1,0 +1,53 @@
+{
+  "schema_version": 3,
+  "structs": {},
+  "enums": {},
+  "aliases": {},
+  "operations": {
+    "raw_archive_stream_41": {
+      "name": "raw_archive_stream_41",
+      "parameters": [],
+      "return_type": "Result<OpaqueBinaryStream7, Error>",
+      "success_type": "OpaqueBinaryStream7",
+      "stream": {
+        "item_type": "bytes::Bytes",
+        "error_type": "reqwest::Error",
+        "lifetime": "'static"
+      },
+      "metadata": {
+        "kind": "call_shape",
+        "source_operation": {
+          "operation_id": "stream_archive",
+          "method": "GET",
+          "path": "/archives/export"
+        },
+        "emitted_operation_id": "stream_archive",
+        "representation": {
+          "kind": "binary_stream",
+          "media_type": "application/octet-stream",
+          "wildcard": false
+        },
+        "success_statuses": ["200", "206"],
+        "request_discriminators": [],
+        "stream_abi": {
+          "alias": "OpaqueBinaryStream7",
+          "item_type": "bytes::Bytes",
+          "error_type": "reqwest::Error",
+          "lifetime": "'static",
+          "native_type": "futures_util::stream::BoxStream<'static, Result<bytes::Bytes, reqwest::Error>>",
+          "wasm_type": "futures_util::stream::LocalBoxStream<'static, Result<bytes::Bytes, reqwest::Error>>"
+        }
+      }
+    }
+  },
+  "symbol_paths": {},
+  "binding": {
+    "client": {
+      "type_path": "crate::generated::client::HttpClient",
+      "constructor": "new",
+      "api_key_builder": "with_api_key",
+      "base_url_builder": "with_base_url"
+    },
+    "type_preludes": []
+  }
+}

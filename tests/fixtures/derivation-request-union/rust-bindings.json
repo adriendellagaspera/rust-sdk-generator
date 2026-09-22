@@ -1,0 +1,57 @@
+{
+  "schema_version": 2,
+  "structs": {
+    "OpaqueDelivery7": [
+      {"name": "fallback", "type": "Option<OpaqueFallback6>"},
+      {"name": "destination", "type": "OpaqueDestination3"},
+      {"name": "label", "type": "String"}
+    ],
+    "OpaqueEmail4": [
+      {"name": "address", "type": "String"}
+    ],
+    "OpaqueHook8": [
+      {"name": "retries", "type": "Option<i64>"},
+      {"name": "url", "type": "String"}
+    ]
+  },
+  "enums": {
+    "OpaqueDestination3": [
+      {"name": "CaseB", "payload": "OpaqueHook8", "wire_name": null},
+      {"name": "CaseA", "payload": "OpaqueEmail4", "wire_name": null}
+    ],
+    "OpaqueFallback6": [
+      {"name": "Choice9", "payload": "OpaqueEmail4", "wire_name": null},
+      {"name": "Choice2", "payload": "OpaqueHook8", "wire_name": null}
+    ]
+  },
+  "aliases": {},
+  "operations": {
+    "opaque_delivery_call": {
+      "name": "unrelated_delivery_method",
+      "parameters": [
+        {"name": "dry_run", "type": "Option<bool>"},
+        {"name": "payload", "type": "OpaqueDelivery7"},
+        {"name": "workspace_id", "type": "impl AsRef<str>"}
+      ],
+      "return_type": "Result<(), Error>",
+      "success_type": "()",
+      "stream": null
+    }
+  },
+  "symbol_paths": {
+    "OpaqueDelivery7": "crate::raw::OpaqueDelivery7",
+    "OpaqueEmail4": "crate::raw::OpaqueEmail4",
+    "OpaqueHook8": "crate::raw::OpaqueHook8",
+    "OpaqueDestination3": "crate::raw::OpaqueDestination3",
+    "OpaqueFallback6": "crate::raw::OpaqueFallback6"
+  },
+  "binding": {
+    "client": {
+      "type_path": "crate::raw::Client",
+      "constructor": "new",
+      "api_key_builder": "with_api_key",
+      "base_url_builder": "with_base_url"
+    },
+    "type_preludes": ["crate::raw::*"]
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "schema_version": 2,
+  "structs": {
+    "OpaqueUpload5": [
+      {"name": "note", "type": "Option<String>"},
+      {"name": "publish", "type": "bool"},
+      {"name": "file", "type": "Option<Option<bytes::Bytes>>"},
+      {"name": "labels", "type": "Vec<String>"},
+      {"name": "thumbnail", "type": "bytes::Bytes"}
+    ],
+    "OpaqueForm6": [
+      {"name": "priority", "type": "Option<i64>"},
+      {"name": "tags", "type": "Vec<String>"},
+      {"name": "title", "type": "String"}
+    ]
+  },
+  "enums": {},
+  "aliases": {},
+  "operations": {
+    "raw_upload_17": {
+      "name": "unrelated_upload_method",
+      "parameters": [
+        {"name": "dry_run", "type": "Option<bool>"},
+        {"name": "request", "type": "OpaqueUpload5"},
+        {"name": "project_id", "type": "impl AsRef<str>"}
+      ],
+      "return_type": "Result<(), Error>",
+      "success_type": "()"
+    },
+    "raw_form_23": {
+      "name": "unrelated_form_method",
+      "parameters": [
+        {"name": "request", "type": "OpaqueForm6"},
+        {"name": "project_id", "type": "impl AsRef<str>"},
+        {"name": "audit", "type": "Option<bool>"}
+      ],
+      "return_type": "Result<(), Error>",
+      "success_type": "()"
+    }
+  },
+  "symbol_paths": {
+    "OpaqueUpload5": "crate::generated::types::OpaqueUpload5",
+    "OpaqueForm6": "crate::generated::types::OpaqueForm6"
+  },
+  "binding": {
+    "client": {
+      "type_path": "crate::generated::client::HttpClient",
+      "constructor": "new",
+      "api_key_builder": "with_api_key",
+      "base_url_builder": "with_base_url"
+    },
+    "type_preludes": ["crate::generated::types::*"]
+  }
+}

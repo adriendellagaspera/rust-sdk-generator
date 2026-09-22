@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "client": "ReportsClient",
+  "operations": {
+    "read_rows": ["reports.rows"]
+  }
+}

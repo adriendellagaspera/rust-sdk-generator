@@ -1,0 +1,334 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Normalized Rust bindings consumed by rust-sdk-generator",
+  "oneOf": [
+    {"$ref": "#/$defs/bindingsV2"},
+    {"$ref": "#/$defs/bindingsV3"}
+  ],
+  "$defs": {
+    "fieldV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": {"type": "string"},
+        "wire_name": {"type": ["string", "null"]},
+        "type": {"type": "string"}
+      }
+    },
+    "fieldV3": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "wire_name", "type"],
+      "properties": {
+        "name": {"type": "string"},
+        "wire_name": {"type": ["string", "null"]},
+        "type": {"type": "string"}
+      }
+    },
+    "variant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "payload", "wire_name"],
+      "properties": {
+        "name": {"type": "string"},
+        "payload": {"type": ["string", "null"]},
+        "wire_name": {"type": ["string", "null"]}
+      }
+    },
+    "parameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": {"type": "string"},
+        "type": {"type": "string"}
+      }
+    },
+    "stream": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["item_type", "error_type", "lifetime"],
+          "properties": {
+            "item_type": {"type": "string", "minLength": 1},
+            "error_type": {"type": "string", "minLength": 1},
+            "lifetime": {"type": "string", "minLength": 1}
+          }
+        }
+      ]
+    },
+    "sourceOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation_id", "method", "path"],
+      "properties": {
+        "operation_id": {"type": "string", "minLength": 1},
+        "method": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1}
+      }
+    },
+    "representation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "schema_name", "media_type"],
+          "properties": {
+            "kind": {"const": "json"},
+            "schema_name": {"type": "string", "minLength": 1},
+            "media_type": {"type": "string", "minLength": 1}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "media_type"],
+          "properties": {
+            "kind": {"enum": ["text", "event_stream"]},
+            "media_type": {"type": "string", "minLength": 1}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "media_type", "wildcard"],
+          "properties": {
+            "kind": {"enum": ["binary_buffered", "binary_stream"]},
+            "media_type": {"type": "string", "minLength": 1},
+            "wildcard": {"type": "boolean"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": {"const": "empty"}
+          }
+        }
+      ]
+    },
+    "requestDiscriminator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "wire_name",
+        "rust_access_path",
+        "rust_value_type",
+        "value",
+        "field_required",
+        "field_nullable",
+        "field_tri_state"
+      ],
+      "properties": {
+        "wire_name": {"type": "string", "minLength": 1},
+        "rust_access_path": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "rust_value_type": {"type": "string", "minLength": 1},
+        "value": {
+          "oneOf": [
+            {"type": "boolean"},
+            {"type": "integer"},
+            {"type": "string"}
+          ]
+        },
+        "field_required": {"type": "boolean"},
+        "field_nullable": {"type": "boolean"},
+        "field_tri_state": {"type": "boolean"}
+      }
+    },
+    "streamAbi": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "alias",
+            "item_type",
+            "error_type",
+            "lifetime",
+            "native_type",
+            "wasm_type"
+          ],
+          "properties": {
+            "alias": {"type": "string", "minLength": 1},
+            "item_type": {"type": "string", "minLength": 1},
+            "error_type": {"type": "string", "minLength": 1},
+            "lifetime": {"type": "string", "minLength": 1},
+            "native_type": {"type": "string", "minLength": 1},
+            "wasm_type": {"type": "string", "minLength": 1}
+          }
+        }
+      ]
+    },
+    "operationMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "source_operation",
+        "emitted_operation_id",
+        "representation",
+        "success_statuses",
+        "request_discriminators",
+        "stream_abi"
+      ],
+      "properties": {
+        "kind": {"enum": ["call_shape", "multipart_filenames"]},
+        "source_operation": {"$ref": "#/$defs/sourceOperation"},
+        "emitted_operation_id": {"type": "string", "minLength": 1},
+        "representation": {"$ref": "#/$defs/representation"},
+        "success_statuses": {
+          "type": "array",
+          "items": {"type": "string"},
+          "uniqueItems": true
+        },
+        "request_discriminators": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/requestDiscriminator"}
+        },
+        "stream_abi": {"$ref": "#/$defs/streamAbi"}
+      }
+    },
+    "operationV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "parameters", "return_type", "success_type"],
+      "properties": {
+        "name": {"type": "string"},
+        "parameters": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/parameter"}
+        },
+        "return_type": {"type": "string"},
+        "success_type": {"type": "string"},
+        "stream": {"$ref": "#/$defs/stream"}
+      }
+    },
+    "operationV3": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "parameters", "return_type", "success_type", "metadata"],
+      "properties": {
+        "name": {"type": "string"},
+        "parameters": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/parameter"}
+        },
+        "return_type": {"type": "string"},
+        "success_type": {"type": "string"},
+        "stream": {"$ref": "#/$defs/stream"},
+        "metadata": {"$ref": "#/$defs/operationMetadata"}
+      }
+    },
+    "bindingLayout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["client", "type_preludes"],
+      "properties": {
+        "client": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type_path",
+            "constructor",
+            "api_key_builder",
+            "base_url_builder"
+          ],
+          "properties": {
+            "type_path": {"type": "string"},
+            "constructor": {"type": "string"},
+            "api_key_builder": {"type": "string"},
+            "base_url_builder": {"type": "string"}
+          }
+        },
+        "type_preludes": {
+          "type": "array",
+          "items": {"type": "string"},
+          "uniqueItems": true
+        }
+      }
+    },
+    "bindingsV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "structs",
+        "enums",
+        "aliases",
+        "operations",
+        "symbol_paths",
+        "binding"
+      ],
+      "properties": {
+        "schema_version": {"const": 2},
+        "structs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {"$ref": "#/$defs/fieldV2"}
+          }
+        },
+        "enums": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {"$ref": "#/$defs/variant"}
+          }
+        },
+        "aliases": {"type": "object", "additionalProperties": {"type": "string"}},
+        "operations": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/operationV2"}
+        },
+        "symbol_paths": {"type": "object", "additionalProperties": {"type": "string"}},
+        "binding": {"$ref": "#/$defs/bindingLayout"}
+      }
+    },
+    "bindingsV3": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "structs",
+        "enums",
+        "aliases",
+        "operations",
+        "symbol_paths",
+        "binding"
+      ],
+      "properties": {
+        "schema_version": {"const": 3},
+        "structs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {"$ref": "#/$defs/fieldV3"}
+          }
+        },
+        "enums": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {"$ref": "#/$defs/variant"}
+          }
+        },
+        "aliases": {"type": "object", "additionalProperties": {"type": "string"}},
+        "operations": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/operationV3"}
+        },
+        "symbol_paths": {"type": "object", "additionalProperties": {"type": "string"}},
+        "binding": {"$ref": "#/$defs/bindingLayout"}
+      }
+    }
+  }
+}

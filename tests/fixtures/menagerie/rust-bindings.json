@@ -1,0 +1,64 @@
+{
+  "schema_version": 2,
+  "structs": {
+    "AnimalRequest": [
+      {"name": "animals", "type": "Vec<AnimalUnion>"},
+      {"name": "model", "type": "String"},
+      {"name": "energy", "type": "Option<i64>"}
+    ],
+    "Cat": [
+      {"name": "content", "type": "CatContent"},
+      {"name": "kind", "type": "Option<String>"}
+    ],
+    "Dog": [
+      {"name": "content", "type": "DogContent"},
+      {"name": "kind", "type": "Option<String>"}
+    ],
+    "AnimalResponse": [
+      {"name": "id", "type": "String"}
+    ]
+  },
+  "enums": {
+    "AnimalUnion": [
+      {"name": "Cat", "payload": "Cat", "wire_name": null},
+      {"name": "Dog", "payload": "Dog", "wire_name": null}
+    ],
+    "CatContent": [
+      {"name": "String", "payload": "String", "wire_name": null},
+      {"name": "Parts", "payload": "Vec<String>", "wire_name": null}
+    ],
+    "DogContent": [
+      {"name": "String", "payload": "String", "wire_name": null},
+      {"name": "Parts", "payload": "Vec<String>", "wire_name": null}
+    ]
+  },
+  "aliases": {},
+  "operations": {
+    "adopt": {
+      "name": "adopt",
+      "parameters": [
+        {"name": "request", "type": "AnimalRequest"}
+      ],
+      "return_type": "Result<AnimalResponse, Error>",
+      "success_type": "AnimalResponse"
+    }
+  },
+  "symbol_paths": {
+    "AnimalRequest": "crate::generated::types::AnimalRequest",
+    "AnimalUnion": "crate::generated::types::AnimalUnion",
+    "Cat": "crate::generated::types::Cat",
+    "CatContent": "crate::generated::types::CatContent",
+    "Dog": "crate::generated::types::Dog",
+    "DogContent": "crate::generated::types::DogContent",
+    "AnimalResponse": "crate::generated::types::AnimalResponse"
+  },
+  "binding": {
+    "client": {
+      "type_path": "crate::generated::client::HttpClient",
+      "constructor": "new",
+      "api_key_builder": "with_api_key",
+      "base_url_builder": "with_base_url"
+    },
+    "type_preludes": ["crate::generated::types::*"]
+  }
+}

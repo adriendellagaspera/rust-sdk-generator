@@ -1,0 +1,51 @@
+{
+  "schema_version": 2,
+  "structs": {
+    "LabelMap": [
+      {"name": "additional_properties", "type": "std::collections::BTreeMap<String, String>"}
+    ]
+  },
+  "enums": {
+    "RunMode": [
+      {"name": "Fast", "payload": null, "wire_name": "fast"},
+      {"name": "Safe", "payload": null, "wire_name": "safe"}
+    ]
+  },
+  "aliases": {
+    "TagList": "Vec<String>"
+  },
+  "operations": {
+    "binding_tags": {
+      "name": "binding_tags",
+      "parameters": [],
+      "return_type": "Result<TagList, Error>",
+      "success_type": "TagList"
+    },
+    "binding_labels": {
+      "name": "binding_labels",
+      "parameters": [],
+      "return_type": "Result<LabelMap, Error>",
+      "success_type": "LabelMap"
+    },
+    "binding_mode": {
+      "name": "binding_mode",
+      "parameters": [],
+      "return_type": "Result<RunMode, Error>",
+      "success_type": "RunMode"
+    }
+  },
+  "symbol_paths": {
+    "TagList": "crate::generated::types::TagList",
+    "LabelMap": "crate::generated::types::LabelMap",
+    "RunMode": "crate::generated::types::RunMode"
+  },
+  "binding": {
+    "client": {
+      "type_path": "crate::generated::client::HttpClient",
+      "constructor": "new",
+      "api_key_builder": "with_api_key",
+      "base_url_builder": "with_base_url"
+    },
+    "type_preludes": ["crate::generated::types::*"]
+  }
+}

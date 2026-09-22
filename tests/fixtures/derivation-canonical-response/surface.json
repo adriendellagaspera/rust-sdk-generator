@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "client": "ReportsClient",
+  "operations": {
+    "read_report": [
+      "reports.current"
+    ],
+    "purge_reports": [
+      "reports.purge"
+    ],
+    "read_marker": [
+      "reports.marker"
+    ]
+  }
+}

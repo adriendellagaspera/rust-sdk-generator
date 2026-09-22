@@ -1,0 +1,65 @@
+{
+  "schema_version": 3,
+  "structs": {},
+  "enums": {},
+  "aliases": {},
+  "operations": {
+    "raw_read_message": {
+      "name": "raw_read_message",
+      "parameters": [],
+      "return_type": "Result<String, Error>",
+      "success_type": "String",
+      "stream": null,
+      "metadata": {
+        "kind": "call_shape",
+        "source_operation": {
+          "operation_id": "read_message",
+          "method": "GET",
+          "path": "/payload/message"
+        },
+        "emitted_operation_id": "read_message",
+        "representation": {
+          "kind": "text",
+          "media_type": "text/plain"
+        },
+        "success_statuses": ["200", "206"],
+        "request_discriminators": [],
+        "stream_abi": null
+      }
+    },
+    "raw_read_blob": {
+      "name": "raw_read_blob",
+      "parameters": [],
+      "return_type": "Result<bytes::Bytes, Error>",
+      "success_type": "bytes::Bytes",
+      "stream": null,
+      "metadata": {
+        "kind": "call_shape",
+        "source_operation": {
+          "operation_id": "read_blob",
+          "method": "GET",
+          "path": "/payload/blob"
+        },
+        "emitted_operation_id": "read_blob",
+        "representation": {
+          "kind": "binary_buffered",
+          "media_type": "application/octet-stream",
+          "wildcard": false
+        },
+        "success_statuses": ["200"],
+        "request_discriminators": [],
+        "stream_abi": null
+      }
+    }
+  },
+  "symbol_paths": {},
+  "binding": {
+    "client": {
+      "type_path": "crate::generated::client::HttpClient",
+      "constructor": "new",
+      "api_key_builder": "with_api_key",
+      "base_url_builder": "with_base_url"
+    },
+    "type_preludes": []
+  }
+}

@@ -1,0 +1,121 @@
+name: openapi-to-rust compatibility
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/openapi-to-rust-compat.yml"
+      - "openapi-to-rust-bindings/COMPATIBILITY.json"
+      - "openapi-to-rust-bindings/scripts/check_backend_compat.py"
+      - "openapi-to-rust-bindings/tests/fixtures/**"
+      - "openapi-to-rust-bindings/src/**"
+  schedule:
+    - cron: "23 3 * * *"
+  workflow_dispatch:
+    inputs:
+      candidate_ref:
+        description: openapi-to-rust branch, tag, or commit to resolve immutably
+        required: true
+        default: main
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openapi-to-rust-compat-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compatibility:
+    name: canonical-bindings
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      PACKAGE_ROOT: openapi-to-rust-bindings
+      CANDIDATE_REF: ${{ github.event.inputs.candidate_ref || 'main' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read immutable tracker baseline
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          config = json.loads(
+              (Path(os.environ["PACKAGE_ROOT"]) / "COMPATIBILITY.json").read_text()
+          )
+          backend = config["backend"]
+          baseline = backend["baseline"]
+          with open(os.environ["GITHUB_ENV"], "a") as env:
+              print(f"BACKEND_REPOSITORY={backend['repository']}", file=env)
+              print(f"BASELINE_COMMIT={baseline['commit']}", file=env)
+          PY
+
+      - name: Resolve baseline and candidate commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          repository="https://github.com/${BACKEND_REPOSITORY}.git"
+
+          git init "${RUNNER_TEMP}/baseline-source"
+          git -C "${RUNNER_TEMP}/baseline-source" remote add origin "${repository}"
+          git -C "${RUNNER_TEMP}/baseline-source" fetch --depth=1 origin "${BASELINE_COMMIT}"
+          git -C "${RUNNER_TEMP}/baseline-source" checkout --detach FETCH_HEAD
+          resolved_baseline="$(git -C "${RUNNER_TEMP}/baseline-source" rev-parse HEAD)"
+          test "${resolved_baseline}" = "${BASELINE_COMMIT}"
+
+          git init "${RUNNER_TEMP}/candidate-source"
+          git -C "${RUNNER_TEMP}/candidate-source" remote add origin "${repository}"
+          git -C "${RUNNER_TEMP}/candidate-source" fetch --depth=1 origin "${CANDIDATE_REF}"
+          git -C "${RUNNER_TEMP}/candidate-source" checkout --detach FETCH_HEAD
+          candidate_commit="$(git -C "${RUNNER_TEMP}/candidate-source" rev-parse HEAD)"
+          echo "CANDIDATE_COMMIT=${candidate_commit}" >> "${GITHUB_ENV}"
+
+      - name: Build standalone bindings adapter
+        run: cargo build --locked -p openapi-to-rust-bindings --bin openapi-to-rust-bindings
+
+      - name: Build immutable generator revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          CARGO_TARGET_DIR="${RUNNER_TEMP}/baseline-target" \
+            cargo build --locked --release \
+            --manifest-path "${RUNNER_TEMP}/baseline-source/Cargo.toml" \
+            --bin openapi-to-rust
+          CARGO_TARGET_DIR="${RUNNER_TEMP}/candidate-target" \
+            cargo build --locked --release \
+            --manifest-path "${RUNNER_TEMP}/candidate-source/Cargo.toml" \
+            --bin openapi-to-rust
+
+      - name: Compare canonical Bindings
+        shell: bash
+        run: |
+          set +e
+          python3 openapi-to-rust-bindings/scripts/check_backend_compat.py \
+            --package-root openapi-to-rust-bindings \
+            --bindings-adapter target/debug/openapi-to-rust-bindings \
+            --baseline-generator "${RUNNER_TEMP}/baseline-target/release/openapi-to-rust" \
+            --candidate-generator "${RUNNER_TEMP}/candidate-target/release/openapi-to-rust" \
+            --candidate-commit "${CANDIDATE_COMMIT}" \
+            --report "${RUNNER_TEMP}/compatibility-report.md" \
+            --update-data "${RUNNER_TEMP}/pin-update.json"
+          status=$?
+          set -e
+
+          cat "${RUNNER_TEMP}/compatibility-report.md" >> "${GITHUB_STEP_SUMMARY}"
+          if test -f "${RUNNER_TEMP}/pin-update.json"; then
+            {
+              echo
+              echo "## Reproducible pin update data"
+              echo
+              echo '~~~json'
+              cat "${RUNNER_TEMP}/pin-update.json"
+              echo '~~~'
+            } >> "${GITHUB_STEP_SUMMARY}"
+          fi
+          exit "${status}"

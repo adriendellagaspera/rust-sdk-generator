@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "client": "WorkClient",
+  "operations": {
+    "revise_job": ["work.jobs.update"]
+  }
+}

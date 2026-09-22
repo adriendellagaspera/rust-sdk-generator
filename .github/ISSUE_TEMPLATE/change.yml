@@ -1,0 +1,31 @@
+name: Change proposal
+description: Propose a capability, refactor, or maintenance change
+title: "feat: "
+labels: ["C-feature"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: State the capability or constraint, not an implementation wish list.
+    validations:
+      required: true
+  - type: textarea
+    id: boundary
+    attributes:
+      label: Owning boundary
+      description: Why does this belong in the generator, bindings adapter, integration contract, or repository infrastructure?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List observable conditions that prove the change is complete.
+    validations:
+      required: true
+  - type: textarea
+    id: exclusions
+    attributes:
+      label: Explicitly out of scope
+      description: Note nearby work that should remain separate.
