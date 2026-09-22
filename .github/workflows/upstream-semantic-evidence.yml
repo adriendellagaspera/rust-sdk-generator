@@ -413,6 +413,19 @@ jobs:
             echo "Fork-only $scenario: manifest-free Bindings v3, standalone native compilation and actual HTTP calls verified."
           done
 
+      - name: Cross-compile fork-only streaming facades for wasm32
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup target add wasm32-unknown-unknown
+          for scenario in core sse discriminator; do
+            consumer="$RUNNER_TEMP/fork-$scenario-consumer"
+            CARGO_TARGET_DIR="$RUNNER_TEMP/capability-wasm-target" \
+              cargo check --manifest-path "$consumer/Cargo.toml" \
+              --target wasm32-unknown-unknown --lib
+            echo "Fork-only $scenario: generated stream facade and raw client compiled for wasm32-unknown-unknown."
+          done
+
   manifest-free-sdk:
     name: manifest-free-sdk
     runs-on: ubuntu-24.04
