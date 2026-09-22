@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   semantic:
-    name: upstream-only-semantic
+    name: upstream-semantic-with-explicit-fork-oracle
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
