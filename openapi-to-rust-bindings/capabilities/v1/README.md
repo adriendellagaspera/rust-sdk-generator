@@ -100,8 +100,6 @@ then installs the wasm32 Rust standard-library target and runs
 and WASM *compilation* is distinct from the pinned producer-manifest oracle
 comparison and from the unsupported upstream stream ABI.
 
-The `manifest-free-sdk` job is a separate, existing fork-based HTTP smoke
-proof; it must not be represented as upstream-specific HTTP evidence.
+The `manifest-free-sdk` job is the separate native #156 proof of the pinned unmodified-upstream default fixture. Production CI/nightly compatibility additionally runs the versioned upstream envelope and its independent capability-core HTTP fixture.
 
-No command here switches the default adapter, backend pin, init/sync,
-compatibility workflows or nightly paths. Those changes belong to #156/#157.
+The default adapter/backend and compatibility workflow now share the same upstream pin. The fork half of this evidence remains an explicit oracle only and does not participate in the production compatibility boundary.
