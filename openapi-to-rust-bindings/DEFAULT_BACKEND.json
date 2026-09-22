@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "repository": "gpu-cli/openapi-to-rust",
+  "commit": "5a3487edbe27cfd4efb32dda893774e23d7fa195",
+  "effective_openapi": "examples/independent-sdk/openapi.json",
+  "generation_config": "examples/independent-sdk/upstream.toml",
+  "supported_envelope": "openapi-to-rust-bindings/capabilities/v1/matrix.json",
+  "fork_only_capabilities": "openapi-to-rust-bindings/FORK_CAPABILITIES.json",
+  "legacy_tracker": "openapi-to-rust-bindings/COMPATIBILITY.json"
+}

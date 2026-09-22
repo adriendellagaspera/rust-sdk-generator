@@ -10,7 +10,7 @@ cargo run --locked --example independent-sdk-quickstart
 ```
 
 This **native Rust** example checks out the exact raw-backend commit from
-[`COMPATIBILITY.json`](../openapi-to-rust-bindings/COMPATIBILITY.json),
+[`DEFAULT_BACKEND.json`](../openapi-to-rust-bindings/DEFAULT_BACKEND.json),
 builds the raw backend, adapter and generator from locked Cargo dependencies,
 then runs the entire generation pipeline twice and compares its output
 byte-for-byte. Finally it compiles a standalone consumer crate and runs its
@@ -30,7 +30,7 @@ Inspect these artifacts inside the printed directory:
 | Path | Role |
 | --- | --- |
 | `_backend/`, `_backend-target/`, `_tools-target/` | Verified pinned source and locally compiled tools |
-| `first/openapi-to-rust.toml`, `first/raw/` | Backend configuration, raw Rust client and its manifest |
+| `first/openapi-to-rust.toml`, `first/openapi.json`, `first/raw/` | Exact generation config, effective OpenAPI and raw Rust without a producer manifest |
 | `first/rust-bindings.json` | Adapter-produced canonical Bindings v3 |
 | `first/derivation.json`, `first/definition.json` | Exhaustive operation report and derived SDK definition |
 | `first/sdk/`, `first/inventory.json` | Public facade sources and API inventory |
@@ -40,26 +40,29 @@ Inspect these artifacts inside the printed directory:
 The example is **turnkey for the notebook fixture**, not for an arbitrary new
 API. A reusable Rust-native `init`/`sync` workflow for user-supplied OpenAPI
 is tracked in [#146](https://github.com/adriendellagaspera/rust-sdk-generator/issues/146).
-The currently pinned raw backend emits a custom manifest; eliminating that
-requirement in favor of an unmodified upstream backend is tracked in
-[#147](https://github.com/adriendellagaspera/rust-sdk-generator/issues/147).
-Neither feature is implicitly provided by this quickstart.
+The pinned default is unmodified upstream
+`gpu-cli/openapi-to-rust@5a3487edbe27cfd4efb32dda893774e23d7fa195`.
+The historical fork is not used by this quickstart; its separate compatibility
+tracker will be migrated under #157. No general own-API `init` or `sync`
+command is implemented here.
 
 ## Follow the inputs and output
 
 The raw backend generates Rust models and the HTTP client **from OpenAPI JSON**.
-Its backend-owned manifest records emitted symbols, operation identities and
-transport evidence. The `openapi-to-rust-bindings` adapter normalizes that
-evidence into canonical `Bindings` v3; the backend-neutral root generator
-does not parse the backend's Rust source or invoke its CLI.
+The `openapi-to-rust-bindings` adapter inspects generated `types.rs`,
+`client.rs` and the exact effective OpenAPI to prove emitted signatures,
+source operation identity and transport behavior. It produces canonical
+`Bindings` v3 or rejects unproven operations. The backend-neutral root
+generator does not parse backend-specific Rust or invoke its CLI.
 
 `PublicSdkSurface` optionally supplies reviewed client/resource/method naming
 evidence. `SdkOverrides` supplies explicit consumer decisions, such as
 excluding an operation with a reason or choosing a supported response
 representation. Neither can override unproven raw HTTP/type behavior.
-The example's `surface.json` exposes both buffered and streaming binary
-methods for one source operation, with the selection specified in
-`overrides.json`.
+The example's `surface.json` selects a buffered binary export; the pinned
+upstream does not emit the fork-only binary streaming method. The
+[versioned capability matrix](../openapi-to-rust-bindings/capabilities/v1/README.md)
+records upstream supported and rejected shapes with mock HTTP evidence.
 
 The Rust `derive` command returns `Derivation`: a validated
 `SdkDefinition` and an exhaustive `DerivationReport`. Every relevant
@@ -86,27 +89,31 @@ The example is a reference integration, not a generic initializer. Until
 [#146](https://github.com/adriendellagaspera/rust-sdk-generator/issues/146),
 you must supply a backend configuration for your OpenAPI **JSON** file, run
 the selected pinned raw backend, integrate its Rust sources/dependencies and
-provide a handwritten runtime in your consumer crate. The generated
-`first/openapi-to-rust.toml` shows the current backend options; this
-particular backend requires `binding_manifest = true` until #147/#151
-complete the manifest-free adapter migration.
+provide a handwritten runtime in your consumer crate. The versioned
+`examples/independent-sdk/upstream.toml` records this fixture's exact
+options. Supply the same **effective** OpenAPI JSON to the adapter and root
+`derive`/`generate`; if a producer applies transformations or overlays,
+use its resulting effective document, not the original source.
 
 Normalize the generated raw directory with
-`openapi-to-rust-bindings <raw-output-dir> > rust-bindings.json`.
+`openapi-to-rust-bindings <raw-output-dir> <effective-openapi.json> > rust-bindings.json`.
+Calling with just a directory fails with `adapter.input.effective_openapi_required`:
+there is no manifest or sidecar fallback. Only historical oracle comparisons
+may use `--legacy-metadata <raw-output-dir>`.
 Then derive the SDK without supplying naming evidence or overrides until a
 reviewed decision is necessary:
 
 ```sh
 rust-sdk-generator derive \
-  --openapi openapi.json --bindings rust-bindings.json \
+  --openapi effective-openapi.json --bindings rust-bindings.json \
   --definition-output sdk-definition.json > derivation.json
 
 rust-sdk-generator generate \
-  --openapi openapi.json --bindings rust-bindings.json \
+  --openapi effective-openapi.json --bindings rust-bindings.json \
   --definition sdk-definition.json --output src/sdk
 
 rust-sdk-generator check-generated \
-  --openapi openapi.json --bindings rust-bindings.json \
+  --openapi effective-openapi.json --bindings rust-bindings.json \
   --definition sdk-definition.json --output src/sdk
 ```
 
@@ -125,7 +132,7 @@ at a consumer's source directory.
 
 The independent fixture proves JSON requests/responses, path/query
 parameters, optional/nullable fields, documented errors, empty DELETE, and
-buffered/streamed binary export. It does **not** prove universal OpenAPI 3.x,
+buffered binary export. It does **not** prove universal OpenAPI 3.x,
 all union/map/multipart/event-stream schema shapes, arbitrary authorization
 schemes, or a reusable production runtime. Refer to the report for your
 specific API; a missing structural proof is a documented limitation, not an

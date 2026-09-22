@@ -7,7 +7,7 @@ The Rust library exports `derive(DeriveInput) -> Result<Derivation, DerivationEr
 | Contract | Version / behavior |
 | --- | --- |
 | `OpenApi` | Published OpenAPI JSON supplied separately by the consumer |
-| `Bindings` | v3 is the structured manifest adapter's output; the root generator and adapter also validate legacy v2 inputs |
+| `Bindings` | v3 is the canonical manifest-free adapter's output; the root generator and adapter also validate legacy v2 inputs |
 | `PublicSdkSurface` | v1: optional `client` and source operation ID → public-path list under `operations` |
 | `SdkOverrides` | v1: explicit exclusions and bounded operation overrides |
 | `SdkDefinition` | v2: complete public client, models and resources accepted by generation |
@@ -15,7 +15,7 @@ The Rust library exports `derive(DeriveInput) -> Result<Derivation, DerivationEr
 | `Runtime` | Consumer-owned integration paths, with defaults; no separate schema-version field |
 | `GeneratedSdk` | Generated-file map and public API inventory produced by the same lowering pass |
 
-Canonical Bindings include Rust symbols, qualified paths, call shapes and, in v3, source-operation identity, representation, statuses, discriminators, stream ABI and field wire names. The adapter's [JSON schema](../openapi-to-rust-bindings/rust-bindings.schema.json) and `src/contracts.rs` / `src/validation.rs` define the accepted structures; do not reconstruct them from generated Rust source. `openapi-to-rust-bindings/COMPATIBILITY.json` pins the backend revision independently of the root generator.
+Canonical Bindings include Rust symbols, qualified paths, call shapes and, in v3, source-operation identity, representation, statuses, discriminators, stream ABI and field wire names. The adapter's [JSON schema](../openapi-to-rust-bindings/rust-bindings.schema.json) and `src/contracts.rs` / `src/validation.rs` define the accepted structures; the backend-specific adapter proves them from emitted Rust and exact effective OpenAPI; the root generator never parses backend source. `openapi-to-rust-bindings/DEFAULT_BACKEND.json` pins the default upstream revision independently of the root generator; `COMPATIBILITY.json` remains a historical fork tracker pending #157.
 
 A `PublicSdkSurface` entry may list multiple paths for a single source operation (for example a buffered and streaming view). Explicit `response_representations` choose among structurally supported variants; `request_overrides` and exclusions are applied only through the validated generic contract. An override of a rejected operation is an error, not a way to bypass structural validation.
 

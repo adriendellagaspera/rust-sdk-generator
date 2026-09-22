@@ -137,7 +137,7 @@ def main() -> int:
             if not (before_raw / "binding-manifest.json").is_file():
                 raise RuntimeError("historical oracle failed to produce its manifest")
             report["stage"] = "historical_oracle_extraction"
-            historical = canonical(json.loads(command(args.adapter, before_raw)))
+            historical = canonical(json.loads(command(args.adapter, "--legacy-metadata", before_raw)))
             historical_extracted = canonical(json.loads(
                 command(args.adapter, "--extract", before_raw, before_spec)
             ))

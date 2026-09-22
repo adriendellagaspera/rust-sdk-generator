@@ -4,11 +4,31 @@ Backend-specific adapter from `openapi-to-rust` output to the backend-neutral Bi
 
 The producer-delta audit in [`FORK_CAPABILITIES.json`](FORK_CAPABILITIES.json) records why the pinned fork and unmodified upstream emit different ordinary Rust, which fork-only behaviors are retained or retired, and the evidence for each disposition. It is intentionally separate from the adapter-supported integration envelope tracked in #155.
 
-## Input precedence
+## Production input and explicit historical oracle
 
-The existing `read_bindings(directory)` path remains unchanged during the manifest-free migration. It reads `binding-manifest.json` when present and converts it to canonical Bindings v3. An invalid manifest is an error, even if a sidecar also exists. If there is no manifest, a validated `rust-bindings.json` sidecar is accepted (v2 or v3). When neither exists, loading fails.
+The production CLI takes two arguments: the generated directory containing
+ordinary `client.rs` and `types.rs`, and the **exact effective** OpenAPI JSON
+used by the pinned raw backend. This is the only default loading path:
 
-The manifest path is a compatibility/oracle path, not the target backend contract. The manifest-free extractor described below consumes the ordinary generated Rust plus the exact effective OpenAPI independently. #151 owns switching the default user-facing path after end-to-end parity is established.
+```sh
+cargo run --locked -p openapi-to-rust-bindings -- \
+  path/to/raw-output effective-openapi.json > rust-bindings.json
+```
+
+The adapter inspects emitted Rust signatures, source identities and transport
+behavior, cross-checks the effective spec and emits validated Bindings v3.
+Missing or ambiguous identities, unemitted operations, unsupported stream ABIs
+and invalid structure fail closed with `adapter.extract:` and specific
+`extract.*` diagnostics. Supplying only the raw directory fails with
+`adapter.input.effective_openapi_required`. A manifest or sidecar in the raw
+directory is never consulted or used as a fallback.
+
+**Historical oracle only:** `--legacy-metadata <generated-directory>`
+explicitly invokes the retained `read_legacy_metadata(directory)` library function.
+It prefers `binding-manifest.json` over `rust-bindings.json`, rejects invalid
+metadata and does not inspect generated Rust. The manifest-specific
+`COMPATIBILITY.json` remains the separate fork tracker pending #157; the
+default upstream pin is [`DEFAULT_BACKEND.json`](DEFAULT_BACKEND.json).
 
 ## Structural inspection
 
@@ -42,14 +62,14 @@ cargo run --locked -p openapi-to-rust-bindings -- \
 
 The extractor fails closed when source coverage is incomplete or required evidence is unavailable. Owned streams are accepted only when the emitted Rust exposes a complete native/WASM alias with matching item/error/lifetime ABI. Request discriminators and multipart helper semantics likewise require direct emitted-code evidence. Anonymous upstream stream return types, ambiguous aliases and unsupported discriminator projections remain explicit failures rather than naming guesses or replayed OpenAPI declarations.
 
-## Existing canonical loader
+## Explicit historical metadata loader
 
 ```sh
-cargo run --quiet -p openapi-to-rust-bindings -- path/to/raw-output > rust-bindings.json
+cargo run --locked -p openapi-to-rust-bindings -- --legacy-metadata path/to/raw-output > historical-rust-bindings.json
 ```
 
-This invokes the existing `read_bindings` manifest/sidecar path. The library also exports `parse_binding_manifest(&str)`, `Bindings::from_value(Value)` and `Bindings::as_value()`. `MANIFEST_NAME` and `SIDECAR_NAME` expose the compatibility file names.
+This explicitly invokes the historical `read_legacy_metadata` manifest/sidecar path. The library also exports `parse_binding_manifest(&str)`, `Bindings::from_value(Value)` and `Bindings::as_value()`. `MANIFEST_NAME` and `SIDECAR_NAME` expose the compatibility file names.
 
-The pinned backend compatibility workflow and the manifest fixtures remain independent oracles while the manifest-free extractor is developed. The root generator, not this adapter, chooses the public SDK surface and applies consumer policy.
+The manifest fixtures remain independent historical oracles. The scheduled/manual compatibility workflow and broader documentation audit belong to #157. The root generator, not this adapter, chooses the public SDK surface and applies consumer policy.
 
 See [architecture](../docs/architecture.md) and [contracts](../docs/contracts.md) for the boundary with the root generator.

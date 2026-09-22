@@ -12,7 +12,16 @@ mod structural;
 pub use extract::extract_bindings;
 pub use manifest::{MANIFEST_NAME, parse_binding_manifest};
 pub use model::{Bindings, Error};
-pub use reader::{SIDECAR_NAME, read_bindings};
+pub use reader::{SIDECAR_NAME, read_legacy_metadata};
+
+/// Default production loader: only proven generated Rust and the exact effective OpenAPI.
+/// Historical manifests and sidecars are never consulted or used as a fallback.
+pub fn read_bindings(
+    generated: impl AsRef<std::path::Path>,
+    effective_openapi: impl AsRef<std::path::Path>,
+) -> Result<Bindings, Error> {
+    extract_bindings(generated, effective_openapi)
+}
 pub use semantic::{
     OperationSemanticEvidence, RepresentationEvidence, SemanticEvidence, SourceOperationEvidence,
     inspect_semantics,

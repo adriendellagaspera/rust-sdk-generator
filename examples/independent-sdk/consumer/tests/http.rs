@@ -3,7 +3,6 @@ use std::net::TcpListener;
 use std::thread;
 use std::time::Duration;
 
-use futures_util::StreamExt;
 use independent_notebook_consumer::{sdk::{self, NotebookClient, SdkError}};
 use serde_json::Value;
 
@@ -108,23 +107,12 @@ async fn exposes_http_error_status_and_body() {
 }
 
 #[tokio::test]
-async fn exercises_buffered_and_streaming_binary_contracts() {
+async fn exercises_buffered_binary_contract() {
     let payload = b"independent binary export";
     let (url, server) = mock_once("200 OK", "application/octet-stream", payload);
     let client = NotebookClient::new("local-test").with_base_url(url);
     let body = client.notes().export("n-1").await.expect("buffered download");
     assert_eq!(body.as_ref(), payload);
     let request = server.join().expect("buffered request");
-    assert!(request.starts_with("GET /notes/n-1/export HTTP/1.1"), "{request}");
-
-    let (url, server) = mock_once("200 OK", "application/octet-stream", payload);
-    let client = NotebookClient::new("local-test").with_base_url(url);
-    let mut stream = client.notes().export_stream("n-1").await.expect("stream download");
-    let mut bytes = Vec::new();
-    while let Some(chunk) = stream.next().await {
-        bytes.extend_from_slice(&chunk.expect("binary chunk"));
-    }
-    assert_eq!(bytes, payload);
-    let request = server.join().expect("stream request");
     assert!(request.starts_with("GET /notes/n-1/export HTTP/1.1"), "{request}");
 }

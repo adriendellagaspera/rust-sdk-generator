@@ -203,7 +203,8 @@ fn assert_report(derivation: &Value) -> ProofResult<()> {
 
 #[derive(PartialEq, Debug)]
 struct Pass {
-    manifest: Option<Value>,
+    config: Vec<u8>,
+    effective_openapi: Vec<u8>,
     bindings: Value,
     derivation: Value,
     inventory: Value,
@@ -211,71 +212,42 @@ struct Pass {
     sdk: BTreeMap<PathBuf, Vec<u8>>,
 }
 
-fn pass(
-    backend: &Path,
-    adapter: &Path,
-    generator: &Path,
-    destination: &Path,
-    manifest_free: bool,
-) -> ProofResult<Pass> {
+fn pass(backend: &Path, adapter: &Path, generator: &Path, destination: &Path) -> ProofResult<Pass> {
     mkdir(destination)?;
     let raw = destination.join("raw");
     mkdir(&raw)?;
+    let spec = destination.join("openapi.json");
+    fs::copy(example().join("openapi.json"), &spec)
+        .map_err(|error| format!("[effective OpenAPI] copy {}: {error}", spec.display()))?;
     let config = destination.join("openapi-to-rust.toml");
-    let spec = example().join("openapi.json");
-    let spec_toml = serde_json::to_string(&spec.to_string_lossy().as_ref())
-        .map_err(|error| error.to_string())?;
-    let raw_toml = serde_json::to_string(&raw.to_string_lossy().as_ref())
-        .map_err(|error| error.to_string())?;
-    let manifest_setting = if manifest_free {
-        ""
-    } else {
-        "binding_manifest = true\n"
-    };
-    write(
-        &config,
-        format!(
-            "[generator]\nspec_path = {spec_toml}\noutput_dir = {raw_toml}\nmodule_name = \"notebook\"\n{manifest_setting}\n[features]\nenable_async_client = true\n\n[http_client]\nbase_url = \"http://127.0.0.1\"\n\n[http_client.retry]\nmax_retries = 0\n"
-        ),
-    )?;
+    fs::copy(example().join("upstream.toml"), &config)
+        .map_err(|error| format!("[raw backend config] copy {}: {error}", config.display()))?;
     run(
         "raw backend",
         Command::new(backend)
-            .args(["generate", "--config"])
-            .arg(&config),
+            .args(["generate", "--config", "openapi-to-rust.toml"])
+            .current_dir(destination),
     )?;
-    let manifest_path = raw.join("binding-manifest.json");
-    let manifest = if manifest_free {
-        if manifest_path.exists() {
+    for required in ["client.rs", "types.rs", "REQUIRED_DEPS.toml"] {
+        if !raw.join(required).is_file() {
             return Err(format!(
-                "[raw backend] manifest-free mode unexpectedly emitted {}",
-                manifest_path.display()
+                "[raw backend] missing {}",
+                raw.join(required).display()
             ));
         }
-        None
-    } else {
-        let manifest = json_file(&manifest_path)?;
-        assert_equal(
-            "raw backend manifest",
-            &manifest["schema"],
-            &json!("openapi-to-rust.binding-manifest"),
-        )?;
-        assert_equal(
-            "raw backend manifest version",
-            &manifest["schema_version"],
-            &json!(1),
-        )?;
-        Some(manifest)
-    };
+    }
+    let manifest_path = raw.join("binding-manifest.json");
+    if manifest_path.exists() {
+        return Err(format!(
+            "[raw backend] unmodified upstream unexpectedly emitted {}",
+            manifest_path.display()
+        ));
+    }
     let bindings_path = destination.join("rust-bindings.json");
-    let adapted = if manifest_free {
-        run(
-            "bindings adapter manifest-free extraction",
-            Command::new(adapter).arg("--extract").arg(&raw).arg(&spec),
-        )?
-    } else {
-        run("bindings adapter", Command::new(adapter).arg(&raw))?
-    };
+    let adapted = run(
+        "bindings adapter",
+        Command::new(adapter).arg(&raw).arg(&spec),
+    )?;
     write(&bindings_path, adapted.stdout)?;
     let bindings = json_file(&bindings_path)?;
     assert_equal("bindings version", &bindings["schema_version"], &json!(3))?;
@@ -359,7 +331,8 @@ fn pass(
     assert_equal("read-only freshness", &snapshot(&generated)?, &sdk)?;
 
     Ok(Pass {
-        manifest,
+        config: read(&config)?,
+        effective_openapi: read(&spec)?,
         bindings,
         derivation,
         inventory,
@@ -418,13 +391,10 @@ fn consumer(work: &Path) -> ProofResult<()> {
 }
 
 fn main_inner() -> ProofResult<()> {
-    let mut manifest_free = false;
     let mut work: Option<PathBuf> = None;
     let mut arguments = env::args_os().skip(1);
     while let Some(argument) = arguments.next() {
-        if argument == "--manifest-free" {
-            manifest_free = true;
-        } else if argument == "--work-dir" {
+        if argument == "--work-dir" {
             if work.is_some() {
                 return Err("--work-dir may only be provided once".to_owned());
             }
@@ -433,7 +403,7 @@ fn main_inner() -> ProofResult<()> {
             ));
         } else if argument == "--help" || argument == "-h" {
             println!(
-                "usage: cargo run --locked --example independent-sdk-quickstart -- [--manifest-free] [--work-dir NEW_OR_EMPTY_DIR]"
+                "usage: cargo run --locked --example independent-sdk-quickstart -- [--work-dir NEW_OR_EMPTY_DIR]"
             );
             return Ok(());
         } else {
@@ -465,11 +435,16 @@ fn main_inner() -> ProofResult<()> {
     let work = work.canonicalize().map_err(|error| error.to_string())?;
     println!("[quickstart] artifacts: {}", work.display());
 
-    let compatibility = json_file(&root().join("openapi-to-rust-bindings/COMPATIBILITY.json"))?;
-    let pin = compatibility["backend"]["baseline"]["commit"]
+    let compatibility = json_file(&root().join("openapi-to-rust-bindings/DEFAULT_BACKEND.json"))?;
+    assert_equal(
+        "backend repository",
+        &compatibility["repository"],
+        &json!("gpu-cli/openapi-to-rust"),
+    )?;
+    let pin = compatibility["commit"]
         .as_str()
         .filter(|value| value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
-        .ok_or("[backend pin] invalid immutable backend SHA in COMPATIBILITY.json")?;
+        .ok_or("[backend pin] invalid immutable backend SHA in DEFAULT_BACKEND.json")?;
     let backend = work.join("_backend");
     run(
         "backend checkout",
@@ -481,7 +456,7 @@ fn main_inner() -> ProofResult<()> {
             "remote",
             "add",
             "origin",
-            "https://github.com/adriendellagaspera/openapi-to-rust.git",
+            "https://github.com/gpu-cli/openapi-to-rust.git",
         ]),
     )?;
     run(
@@ -526,23 +501,28 @@ fn main_inner() -> ProofResult<()> {
         &tools_target.join("debug/openapi-to-rust-bindings"),
         &tools_target.join("debug/rust-sdk-generator"),
         &work.join("first"),
-        manifest_free,
     )?;
     let second = pass(
         &backend_target.join("release/openapi-to-rust"),
         &tools_target.join("debug/openapi-to-rust-bindings"),
         &tools_target.join("debug/rust-sdk-generator"),
         &work.join("second"),
-        manifest_free,
     )?;
     assert_equal("two independent complete generations", &second, &first)?;
+    for (label, pass) in [("first", &first), ("second", &second)] {
+        assert_equal(
+            &format!("{label} generation configuration"),
+            &pass.config,
+            &read(&example().join("upstream.toml"))?,
+        )?;
+        assert_equal(
+            &format!("{label} effective OpenAPI"),
+            &pass.effective_openapi,
+            &read(&example().join("openapi.json"))?,
+        )?;
+    }
     println!(
-        "[pipeline] pinned backend, Bindings v3, derivation and byte-level determinism passed ({})",
-        if manifest_free {
-            "manifest-free extraction"
-        } else {
-            "manifest adapter"
-        }
+        "[pipeline] pinned unmodified upstream, manifest-free Bindings v3, derivation and byte-level determinism passed"
     );
     consumer(&work)?;
     println!(

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pinned backend -> manifest -> Bindings v3 -> derive -> generate -> HTTP consumer."""
+"""Historical fork-manifest oracle proof only; not the supported default path."""
 
 from __future__ import annotations
 
@@ -105,7 +105,7 @@ def one_pass(backend: Path, adapter: Path, generator: Path, root: Path) -> dict:
     assert_equal("raw backend", manifest["schema_version"], 1)
 
     bindings_path = root / "rust-bindings.json"
-    bindings_path.write_text(run("bindings adapter", adapter, raw))
+    bindings_path.write_text(run("historical manifest oracle adapter", adapter, "--legacy-metadata", raw))
     bindings = json_file(bindings_path)
     assert_equal("bindings adapter", bindings["schema_version"], 3)
     identities = {

@@ -1,4 +1,6 @@
-use openapi_to_rust_bindings::{Bindings, MANIFEST_NAME, parse_binding_manifest, read_bindings};
+use openapi_to_rust_bindings::{
+    Bindings, MANIFEST_NAME, parse_binding_manifest, read_bindings, read_legacy_metadata,
+};
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -76,11 +78,12 @@ fn manifest_fixtures_preserve_the_checked_in_common_contract() {
             "{name} manifest/common contract diverged from the checked-in canonical sidecar"
         );
 
-        let read = read_bindings(&root).expect("prefer manifest metadata");
+        let read = read_legacy_metadata(&root).expect("prefer manifest metadata");
         assert_eq!(read, manifest);
     }
 
-    let menagerie = read_bindings(fixtures().join("menagerie")).expect("read menagerie manifest");
+    let menagerie =
+        read_legacy_metadata(fixtures().join("menagerie")).expect("read menagerie manifest");
     assert_eq!(
         menagerie.as_value()["operations"]["adopt"]["metadata"]["source_operation"],
         serde_json::json!({
@@ -104,7 +107,7 @@ fn canonical_sidecar_remains_supported() {
     )
     .expect("copy sidecar");
     assert_eq!(
-        read_bindings(root.path()).expect("read library sidecar"),
+        read_legacy_metadata(root.path()).expect("read library sidecar"),
         expected("library")
     );
 }
@@ -131,7 +134,8 @@ pub type HttpResponseByteStream =
     .expect("write cfg-exclusive aliases");
     fs::write(root.path().join("client.rs"), "this is not Rust").expect("write client source");
 
-    let bindings = read_bindings(root.path()).expect("manifest metadata must be authoritative");
+    let bindings =
+        read_legacy_metadata(root.path()).expect("manifest metadata must be authoritative");
     assert_eq!(
         bindings.as_value()["operations"]["render_stream_2"]["metadata"]["stream_abi"]["alias"],
         "HttpResponseByteStream"
@@ -245,7 +249,7 @@ fn sidecar_does_not_require_generated_sources() {
     )
     .expect("copy sidecar");
     assert_eq!(
-        read_bindings(root.path()).expect("read sidecar"),
+        read_legacy_metadata(root.path()).expect("read sidecar"),
         expected("menagerie")
     );
 }
@@ -263,7 +267,7 @@ fn invalid_manifest_fails_closed_without_sidecar_or_source_fallback() {
     fs::copy(fixture.join("client.rs"), root.path().join("client.rs")).expect("copy client");
     fs::write(root.path().join(MANIFEST_NAME), "{not json").expect("write manifest");
 
-    let error = read_bindings(root.path()).expect_err("invalid manifest must fail");
+    let error = read_legacy_metadata(root.path()).expect_err("invalid manifest must fail");
     assert!(
         error
             .to_string()
@@ -309,7 +313,7 @@ fn manifest_schema_identifier_version_and_required_fields_fail_closed() {
 fn invalid_sidecar_fails_closed() {
     let root = TestDir::new();
     fs::write(root.path().join("rust-bindings.json"), "{not json").expect("write sidecar");
-    let error = read_bindings(root.path()).expect_err("invalid sidecar must fail");
+    let error = read_legacy_metadata(root.path()).expect_err("invalid sidecar must fail");
     assert!(
         error
             .to_string()
@@ -331,7 +335,7 @@ fn schema_invalid_sidecar_fails_closed() {
         serde_json::to_vec(&value).expect("serialize invalid sidecar"),
     )
     .expect("write invalid sidecar");
-    let error = read_bindings(root.path()).expect_err("schema-invalid sidecar must fail");
+    let error = read_legacy_metadata(root.path()).expect_err("schema-invalid sidecar must fail");
     assert!(
         error
             .to_string()
@@ -346,9 +350,28 @@ fn generated_sources_without_metadata_are_rejected() {
     let fixture = fixtures().join("library");
     fs::copy(fixture.join("types.rs"), root.path().join("types.rs")).expect("copy types");
     fs::copy(fixture.join("client.rs"), root.path().join("client.rs")).expect("copy client");
-    let error = read_bindings(root.path()).expect_err("generated Rust is not a bindings input");
+    let error =
+        read_legacy_metadata(root.path()).expect_err("generated Rust is not a bindings input");
     assert!(error.to_string().contains(MANIFEST_NAME));
     assert!(error.to_string().contains("rust-bindings.json"));
+}
+
+#[test]
+fn default_library_loader_never_falls_back_to_historical_metadata() {
+    let root = TestDir::new();
+    let fixture = fixtures().join("menagerie");
+    fs::copy(fixture.join(MANIFEST_NAME), root.path().join(MANIFEST_NAME)).expect("copy manifest");
+    fs::copy(
+        fixture.join("rust-bindings.json"),
+        root.path().join("rust-bindings.json"),
+    )
+    .expect("copy sidecar");
+    let error = read_bindings(root.path(), fixture.join("openapi.json"))
+        .expect_err("ordinary generated Rust must be required even with valid legacy metadata");
+    assert!(
+        error.to_string().contains("client.rs") || error.to_string().contains("types.rs"),
+        "default loader must report missing generated source, not read legacy metadata: {error}"
+    );
 }
 
 #[test]
