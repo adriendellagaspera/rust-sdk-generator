@@ -99,6 +99,8 @@ class ForkRawWatchTests(unittest.TestCase):
                             if cwd.name == "historical":
                                 (raw / "binding-manifest.json").write_text("{}")
                             return ""
+                        if str(args[0]) == str(root / "adapter") and len(args) == 2:
+                            raise AssertionError("implicit historical metadata loading is forbidden")
                         return json.dumps(BINDINGS)
 
                     with (
