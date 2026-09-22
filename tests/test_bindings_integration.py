@@ -26,7 +26,7 @@ BINDINGS_ADAPTER = Path(
 
 
 class BindingsIntegrationTests(unittest.TestCase):
-    def test_adapter_sidecar_drives_rust_cli_deterministically(self):
+    def test_legacy_manifest_oracle_drives_rust_cli_deterministically(self):
         parsed_process = subprocess.run(
             [str(BINDINGS_ADAPTER), str(BINDINGS_FIXTURE)],
             check=False,
