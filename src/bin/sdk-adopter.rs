@@ -302,6 +302,38 @@ fn root_command(generator: &Path, command: &str, work: &Path, output: Option<&Pa
     }
     cmd
 }
+fn optional_source(path: &Path) -> Result<Option<String>> {
+    match fs::read_to_string(path) {
+        Ok(source) => Ok(Some(source)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(err("sdk.source_diff", format!("{}: {error}", path.display()))),
+    }
+}
+
+fn source_changes(previous: &Path, candidate: &Path, diff: &Value) -> Result<Vec<Value>> {
+    let mut changes = Vec::new();
+    for category in ["missing", "changed", "extra"] {
+        let entries = diff[category].as_array()
+            .ok_or_else(|| err("sdk.source_diff", format!("missing diff category {category}")))?;
+        for entry in entries {
+            let name = entry.as_str()
+                .filter(|value| safe_relative(value))
+                .ok_or_else(|| err("sdk.source_diff", "non-canonical source path in freshness report"))?;
+            let before = optional_source(&previous.join(name))?;
+            let after = optional_source(&candidate.join(name))?;
+            changes.push(json!({
+                "path": name,
+                "kind": category,
+                "previous_sha256": before.as_ref().map(|text| hash(text.as_bytes())),
+                "candidate_sha256": after.as_ref().map(|text| hash(text.as_bytes())),
+                "previous": before,
+                "candidate": after,
+            }));
+        }
+    }
+    Ok(changes)
+}
+
 fn dependencies(fragment: &str, crate_name: &str) -> String {
     let mut extras = String::new();
     for (name, version) in [("futures-util", "0.3"), ("bytes", "1")] {
@@ -682,7 +714,15 @@ fn main_inner() -> Result<()> {
         &json_bytes(&derivation.definition)?,
         "report.write",
     )?;
-    let decisions = coverage(&derivation)?;
+    let decisions = match coverage(&derivation) {
+        Ok(decisions) => decisions,
+        Err(error) => {
+            println!("{}", serde_json::to_string_pretty(&json!({
+                "derivation": derivation.report
+            })).map_err(|e| err("report.json", e))?);
+            return Err(error);
+        }
+    };
     if old
         .as_ref()
         .is_some_and(|previous| previous.coverage != decisions)
@@ -745,11 +785,34 @@ fn main_inner() -> Result<()> {
     } else {
         json!({"missing":[],"changed":[],"extra":[],"conflicts":[]})
     };
+    let preview = run(
+        "sdk.inventory",
+        &mut root_command(&generator, "check", &work, None),
+    )?;
+    let inventory: Value = parse(&preview.stdout, "sdk.inventory")?;
+    // Generate into a disposable clone first, retaining root marker/publication
+    // rules. A read-only sync --check never modifies the consumer crate.
+    let candidate_output = stage.0.join(&recipe.sdk_output);
+    let candidate = run(
+        "sdk.preview",
+        &mut root_command(&generator, "generate", &work, Some(&candidate_output)),
+    )?;
+    let generated_inventory: Value = parse(&candidate.stdout, "sdk.inventory")?;
+    if generated_inventory != inventory {
+        return Err(err("sdk.nondeterminism", "root check and staged generate disagree on public API inventory"));
+    }
+    let sources = if old.is_some() {
+        source_changes(&output_dir, &candidate_output, &diff)?
+    } else {
+        Vec::new()
+    };
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
             "derivation":derivation.report,
+            "public_api_inventory":inventory,
             "generated_source_diff":diff,
+            "generated_source_changes":sources,
             "raw_source_sha256":recipe.owned_raw,
             "effective_openapi_sha256":recipe.source.sha256
         }))
@@ -766,16 +829,6 @@ fn main_inner() -> Result<()> {
         &BTreeMap::new(),
         &generated.rust,
     )?;
-    let inv_result = run(
-        "sdk.generate",
-        &mut root_command(
-            &generator,
-            "generate",
-            &work,
-            Some(&stage.0.join(&recipe.sdk_output)),
-        ),
-    )?;
-    let inventory: Value = parse(&inv_result.stdout, "sdk.inventory")?;
     write_if_changed(
         &stage.0.join(".sdkgen/inventory.json"),
         &json_bytes(&inventory)?,
