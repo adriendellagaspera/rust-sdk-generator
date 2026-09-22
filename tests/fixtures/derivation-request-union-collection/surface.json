@@ -1,7 +1,0 @@
-{
-  "schema_version": 1,
-  "client": "DeliveryClient",
-  "operations": {
-    "send_batch": ["delivery.commands.send"]
-  }
-}

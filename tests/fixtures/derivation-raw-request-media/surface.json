@@ -1,9 +1,0 @@
-{
-  "schema_version": 1,
-  "client": "RawMediaClient",
-  "operations": {
-    "put_blob": ["media.raw.put"],
-    "replace_note": ["media.text.replace"],
-    "upload_image": ["media.images.upload"]
-  }
-}

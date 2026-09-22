@@ -1,8 +1,7 @@
 [generator]
 spec_path = "openapi.json"
 output_dir = "raw"
-module_name = "fixture"
-binding_manifest = true
+module_name = "notebook"
 
 [features]
 enable_async_client = true

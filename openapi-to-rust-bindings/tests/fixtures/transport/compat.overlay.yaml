@@ -1,7 +1,0 @@
-overlay: 1.1.0
-info:
-  title: Transport compatibility correction
-  version: "1"
-actions:
-  - target: "$.components.schemas.RenderRequest.required[?@ == 'payload-typo']"
-    update: payload

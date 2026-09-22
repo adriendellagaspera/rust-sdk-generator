@@ -25,7 +25,7 @@ def output(*args: object, cwd: Path | None = None) -> str:
 
 
 def bindings_value(adapter: Path, generated: Path) -> dict[str, Any]:
-    value = json.loads(output(adapter, generated))
+    value = json.loads(output(adapter, "--legacy-metadata", generated))
     if not isinstance(value, dict):
         raise RuntimeError("bindings adapter did not emit a JSON object")
     if value.get("schema_version") != 3:

@@ -12,8 +12,7 @@
       "notes.delete"
     ],
     "export_note": [
-      "notes.export",
-      "notes.export_stream"
+      "notes.export"
     ]
   }
 }

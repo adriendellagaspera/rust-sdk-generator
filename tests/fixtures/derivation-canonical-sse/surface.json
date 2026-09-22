@@ -1,8 +1,0 @@
-{
-  "schema_version": 1,
-  "client": "EventsClient",
-  "operations": {
-    "watch_job": ["jobs.watch"],
-    "subscribe_notifications": ["notifications.subscribe"]
-  }
-}

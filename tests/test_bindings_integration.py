@@ -26,9 +26,9 @@ BINDINGS_ADAPTER = Path(
 
 
 class BindingsIntegrationTests(unittest.TestCase):
-    def test_adapter_sidecar_drives_rust_cli_deterministically(self):
+    def test_historical_manifest_oracle_drives_rust_cli_deterministically(self):
         parsed_process = subprocess.run(
-            [str(BINDINGS_ADAPTER), str(BINDINGS_FIXTURE)],
+            [str(BINDINGS_ADAPTER), "--legacy-metadata", str(BINDINGS_FIXTURE)],
             check=False,
             capture_output=True,
             text=True,
@@ -96,6 +96,30 @@ class BindingsIntegrationTests(unittest.TestCase):
                 set(snapshots[0]), {"facade_types.rs", "zoo.rs", "mod.rs"}
             )
             self.assertIn("pub async fn adopt", snapshots[0]["zoo.rs"])
+
+    def test_default_requires_effective_openapi_and_never_reads_legacy_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            raw = Path(directory)
+            (raw / "binding-manifest.json").write_text(
+                (BINDINGS_FIXTURE / "binding-manifest.json").read_text()
+            )
+            (raw / "rust-bindings.json").write_text(
+                (BINDINGS_FIXTURE / "rust-bindings.json").read_text()
+            )
+            missing = subprocess.run(
+                [str(BINDINGS_ADAPTER), str(raw)],
+                check=False, capture_output=True, text=True,
+            )
+            self.assertNotEqual(missing.returncode, 0)
+            self.assertIn("adapter.input.effective_openapi_required", missing.stderr)
+            self.assertFalse(missing.stdout)
+            invalid = subprocess.run(
+                [str(BINDINGS_ADAPTER), str(raw), str(GENERATOR_FIXTURE / "openapi.json")],
+                check=False, capture_output=True, text=True,
+            )
+            self.assertNotEqual(invalid.returncode, 0)
+            self.assertIn("adapter.extract:", invalid.stderr)
+            self.assertFalse(invalid.stdout)
 
 
 if __name__ == "__main__":

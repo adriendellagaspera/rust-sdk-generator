@@ -1,6 +1,5 @@
 //! Canonical Bindings v3 normalization from proved structural + semantic
-//! evidence. This remains separate from read_bindings until #151 cuts over the
-//! default manifest-free path.
+//! evidence. The CLI uses this as its default; the legacy metadata reader is explicit.
 use crate::details::{OperationKindEvidence, inspect_details, prove_client_layout};
 use crate::rust_type::canonical_rust_type;
 use crate::semantic::{RepresentationEvidence, inspect_semantics};

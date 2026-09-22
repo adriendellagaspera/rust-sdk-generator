@@ -1,7 +1,0 @@
-{
-  "schema_version": 1,
-  "client": "EventsClient",
-  "operations": {
-    "read_latest_event": ["events.latest"]
-  }
-}

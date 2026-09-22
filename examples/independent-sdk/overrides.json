@@ -5,8 +5,7 @@
     "export_note": {
       "request_overrides": {},
       "response_representations": {
-        "notes.export": "binary_buffered",
-        "notes.export_stream": "binary_stream"
+        "notes.export": "binary_buffered"
       }
     }
   }

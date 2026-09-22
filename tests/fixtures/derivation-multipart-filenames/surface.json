@@ -1,7 +1,0 @@
-{
-  "schema_version": 1,
-  "client": "AssetsClient",
-  "operations": {
-    "upload_asset": ["assets.upload"]
-  }
-}
