@@ -1,4 +1,4 @@
-name: openapi-to-rust compatibility
+name: openapi-to-rust compatibility (legacy manifest oracle)
 
 on:
   pull_request:
