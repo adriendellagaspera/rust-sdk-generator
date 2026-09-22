@@ -5,13 +5,17 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import hashlib
 import json
 from pathlib import Path
 import re
 import shutil
 import subprocess
 import tempfile
+import tomllib
 from typing import Any
+
+from compat_fixtures import discover_fixtures
 
 
 def run(*args: object, cwd: Path | None = None) -> None:
@@ -261,6 +265,7 @@ def main() -> None:
     parser.add_argument("--candidate-commit", required=True)
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--update-data", type=Path)
+    parser.add_argument("--report-json", type=Path, help="Stage-aware legacy oracle report")
     parser.add_argument("--update-compatibility", action="store_true")
     args = parser.parse_args()
 
@@ -281,11 +286,10 @@ def main() -> None:
         raise RuntimeError("candidate commit must be resolved to an immutable SHA")
 
     fixture_root = package_root / "tests" / "fixtures"
-    fixture_names = sorted(
-        path.name
-        for path in fixture_root.iterdir()
-        if path.is_dir() and (path / "openapi.json").is_file()
-    )
+    fixture_names = [
+        path.relative_to(fixture_root).as_posix()
+        for path in discover_fixtures(fixture_root, "legacy_manifest_oracle")
+    ]
     if not fixture_names:
         raise RuntimeError("no bindings compatibility fixtures found")
 
@@ -298,12 +302,23 @@ def main() -> None:
             baseline_raw = work / name / "baseline" / "raw"
             candidate_raw = work / name / "candidate" / "raw"
 
-            generate_fixture(args.baseline_generator, fixture, baseline_raw)
-            generate_fixture(args.candidate_generator, fixture, candidate_raw)
+            baseline_raw_error = candidate_raw_error = None
+            try:
+                generate_fixture(args.baseline_generator, fixture, baseline_raw)
+            except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
+                baseline_raw_error = f"{type(error).__name__}: {error}"
+            try:
+                generate_fixture(args.candidate_generator, fixture, candidate_raw)
+            except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
+                candidate_raw_error = f"{type(error).__name__}: {error}"
 
-            baseline_snapshot = snapshot(baseline_raw)
-            candidate_snapshot = snapshot(candidate_raw)
-            raw_changed = changed_files(baseline_snapshot, candidate_snapshot)
+            baseline_snapshot = snapshot(baseline_raw) if baseline_raw_error is None else {}
+            candidate_snapshot = snapshot(candidate_raw) if candidate_raw_error is None else {}
+            raw_changed = (
+                changed_files(baseline_snapshot, candidate_snapshot)
+                if baseline_raw_error is None and candidate_raw_error is None
+                else []
+            )
             raw_added = raw_removed = 0
             for filename in raw_changed:
                 added, removed = changed_line_counts(
@@ -320,6 +335,8 @@ def main() -> None:
             candidate_sources: set[str] = set()
             candidate_representations: set[str] = set()
             try:
+                if baseline_raw_error:
+                    raise RuntimeError(f"raw_generation_failure: {baseline_raw_error}")
                 baseline_value = bindings_value(args.bindings_adapter, baseline_raw)
                 baseline_sources, baseline_representations = binding_identities(
                     baseline_value
@@ -327,6 +344,8 @@ def main() -> None:
             except Exception as error:
                 baseline_error = f"{type(error).__name__}: {error}"
             try:
+                if candidate_raw_error:
+                    raise RuntimeError(f"raw_generation_failure: {candidate_raw_error}")
                 candidate_value = bindings_value(args.bindings_adapter, candidate_raw)
                 candidate_sources, candidate_representations = binding_identities(
                     candidate_value
@@ -334,24 +353,22 @@ def main() -> None:
             except Exception as error:
                 candidate_error = f"{type(error).__name__}: {error}"
 
-            if baseline_error is not None:
-                raise RuntimeError(
-                    f"baseline fixture {name} no longer normalizes: {baseline_error}"
-                )
-
             sections = (
                 changed_sections(baseline_value, candidate_value)
-                if candidate_value is not None
+                if baseline_value is not None and candidate_value is not None
                 else []
             )
-            source_added, source_removed = identity_diff(
-                baseline_sources, candidate_sources
+            source_added, source_removed = (
+                identity_diff(baseline_sources, candidate_sources)
+                if baseline_value is not None and candidate_value is not None else ([], [])
             )
-            representation_added, representation_removed = identity_diff(
-                baseline_representations, candidate_representations
+            representation_added, representation_removed = (
+                identity_diff(baseline_representations, candidate_representations)
+                if baseline_value is not None and candidate_value is not None else ([], [])
             )
             compatible = (
                 candidate_error is None
+                and baseline_error is None
                 and not sections
                 and not source_added
                 and not source_removed
@@ -361,18 +378,94 @@ def main() -> None:
             if not compatible:
                 incompatible.append(name)
 
+            def provenance(raw: Path, generation_failed: bool) -> dict[str, Any]:
+                work = raw.parent
+                config = work / "openapi-to-rust.toml"
+                settings = (
+                    tomllib.loads(config.read_text()).get("generator", {})
+                    if config.is_file() else {}
+                )
+                has_overlay = bool(settings.get("overlays"))
+                overlay_name = settings.get("overlay_output", "openapi.overlaid.json")
+                overlay = work / overlay_name
+                effective = (
+                    None if generation_failed
+                    else overlay if overlay.is_file()
+                    else None if has_overlay
+                    else work / "openapi.json"
+                )
+                return {
+                    "source_openapi_sha256": hashlib.sha256(
+                        (fixture / "openapi.json").read_bytes()
+                    ).hexdigest(),
+                    "effective_openapi_sha256": (
+                        hashlib.sha256(effective.read_bytes()).hexdigest()
+                        if effective is not None and effective.is_file() else None
+                    ),
+                    "effective_openapi_file": effective.name if effective is not None and effective.is_file() else None,
+                    "effective_openapi_status": (
+                        "unavailable_generation_failed" if generation_failed
+                        else "unverified_missing_overlay_output" if effective is None
+                        else "recorded" if effective.is_file()
+                        else "unavailable"
+                    ),
+                    "generation_config_sha256": (
+                        hashlib.sha256(config.read_bytes()).hexdigest()
+                        if config.is_file() else None
+                    ),
+                    "generation_config": config.read_text() if config.is_file() else None,
+                }
+
+            baseline_provenance = provenance(baseline_raw, baseline_raw_error is not None)
+            candidate_provenance = provenance(candidate_raw, candidate_raw_error is not None)
+            effective_baseline = baseline_provenance["effective_openapi_sha256"]
+            effective_candidate = candidate_provenance["effective_openapi_sha256"]
+            effective_drift = (
+                effective_baseline != effective_candidate
+                if effective_baseline is not None and effective_candidate is not None
+                else None
+            )
+
             rows.append(
                 {
                     "fixture": name,
+                    "provenance": {
+                        "baseline": baseline_provenance,
+                        "candidate": candidate_provenance,
+                    },
+                    "effective_openapi_changed": effective_drift,
                     "raw_changed": raw_changed,
                     "raw_added_lines": raw_added,
                     "raw_removed_lines": raw_removed,
+                    "baseline_error": baseline_error,
                     "candidate_error": candidate_error,
+                    "stages": {
+                        "baseline_raw_generation": "failed" if baseline_raw_error else "passed",
+                        "candidate_raw_generation": "failed" if candidate_raw_error else "passed",
+                        "baseline_adapter_evidence": "not_run" if baseline_raw_error else ("failed" if baseline_error else "passed"),
+                        "candidate_adapter_evidence": "not_run" if candidate_raw_error else ("failed" if candidate_error else "passed"),
+                        "root_sdk_derivation": "not_run_legacy_oracle",
+                    },
+                    "failure_stage": (
+                        "raw_generation" if baseline_raw_error or candidate_raw_error
+                        else "adapter_evidence" if baseline_error or candidate_error
+                        else None
+                    ),
                     "bindings_changed": sections,
                     "source_added": source_added,
                     "source_removed": source_removed,
                     "representation_added": representation_added,
                     "representation_removed": representation_removed,
+                    "raw_diff": {
+                        filename: "".join(difflib.unified_diff(
+                            baseline_snapshot.get(filename, b"").decode(errors="replace").splitlines(keepends=True),
+                            candidate_snapshot.get(filename, b"").decode(errors="replace").splitlines(keepends=True),
+                            fromfile=f"baseline/{filename}",
+                            tofile=f"candidate/{filename}",
+                        ))
+                        for filename in raw_changed
+                        if filename.endswith((".rs", ".toml"))
+                    },
                 }
             )
 
@@ -383,6 +476,7 @@ def main() -> None:
         f"- Baseline: `{baseline_version}` / `{baseline_commit}`",
         f"- Candidate: `{candidate_version}` / `{args.candidate_commit}`",
         f"- Bindings schema: `{compatibility['bindings_schema_version']}`",
+        "- Profile: **historical manifest oracle**, not production manifest-free compatibility",
         "- Authority: generator-owned `binding-manifest.json` normalized to canonical Bindings",
         "",
         "| Fixture | Raw generator diff | Normalization | Bindings diff | Source identity | Representation identity |",
@@ -395,7 +489,9 @@ def main() -> None:
             else f"{len(row['raw_changed'])} files (+{row['raw_added_lines']}/-{row['raw_removed_lines']})"
         )
         normalization = (
-            f"error: `{row['candidate_error']}`"
+            f"baseline error: `{row['baseline_error']}`"
+            if row["baseline_error"]
+            else f"candidate error: `{row['candidate_error']}`"
             if row["candidate_error"]
             else "ok"
         )
@@ -436,6 +532,21 @@ def main() -> None:
                 )
         if details:
             lines.extend(["", f"## {row['fixture']} identity drift", "", *details])
+        if row["effective_openapi_changed"] is True:
+            lines.extend([
+                "",
+                f"## {row['fixture']} effective OpenAPI drift",
+                "",
+                f"- Baseline SHA-256: `{row['provenance']['baseline']['effective_openapi_sha256']}`",
+                f"- Candidate SHA-256: `{row['provenance']['candidate']['effective_openapi_sha256']}`",
+            ])
+        if row["raw_diff"]:
+            lines.extend(["", f"## {row['fixture']} generated-output differences", ""])
+            for filename, diff in sorted(row["raw_diff"].items()):
+                lines.extend([f"### `{filename}`", "", "```diff",
+                              *diff.splitlines()[:200], "```", ""])
+                if len(diff.splitlines()) > 200:
+                    lines.append("Diff preview truncated at 200 lines; inspect the raw artifacts for the full diff.")
 
     lines.extend(
         [
@@ -454,6 +565,51 @@ def main() -> None:
         ]
     )
     args.report.write_text("\n".join(lines) + "\n")
+    if args.report_json is not None:
+        report = {
+            "schema_version": 1,
+            "profile": "legacy_manifest_oracle",
+            "backend": {
+                "repository": compatibility["backend"]["repository"],
+                "baseline": {"version": baseline_version, "commit": baseline_commit},
+                "candidate": {"version": candidate_version, "commit": args.candidate_commit},
+            },
+            "bindings_schema_version": compatibility["bindings_schema_version"],
+            "source_api_drift": [
+                {
+                    "fixture": row["fixture"],
+                    "emitted_source_identities_added": row["source_added"],
+                    "emitted_source_identities_removed": row["source_removed"],
+                    "effective_openapi_changed": row["effective_openapi_changed"],
+                    "baseline_effective_sha256": row["provenance"]["baseline"]["effective_openapi_sha256"],
+                    "candidate_effective_sha256": row["provenance"]["candidate"]["effective_openapi_sha256"],
+                }
+                for row in rows
+            ],
+            "fixture_results": rows,
+            "rejected_operations": {"status": "not_run_legacy_oracle"},
+            "capability_differences": {
+                "status": "not_evaluated_legacy_oracle",
+                "producer_audit": "openapi-to-rust-bindings/FORK_CAPABILITIES.json",
+            },
+            "effective_openapi_provenance": {
+                row["fixture"]: row["provenance"] for row in rows
+            },
+            "compatible": not incompatible,
+            "rerun": {
+                "workflow": ".github/workflows/openapi-to-rust-compat.yml",
+                "candidate_ref": args.candidate_commit,
+                "required_cli_flags": [
+                    "--package-root", str(package_root),
+                    "--bindings-adapter", str(args.bindings_adapter),
+                    "--baseline-generator", str(args.baseline_generator),
+                    "--candidate-generator", str(args.candidate_generator),
+                    "--candidate-commit", args.candidate_commit,
+                    "--report", str(args.report),
+                ],
+            },
+        }
+        args.report_json.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
 
     if incompatible:
         raise SystemExit(1)
