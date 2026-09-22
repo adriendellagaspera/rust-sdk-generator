@@ -458,5 +458,4 @@ jobs:
         shell: bash
         run: |
           cargo run --locked --example independent-sdk-quickstart -- \
-            --manifest-free \
             --work-dir "$RUNNER_TEMP/manifest-free-sdk"
