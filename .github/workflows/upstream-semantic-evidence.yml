@@ -328,6 +328,12 @@ jobs:
           test -f "$raw/types.rs"
           test ! -e "$raw/binding-manifest.json"
           target/debug/openapi-to-rust-bindings --extract "$raw" "$spec" > "$bindings"
+          for repetition in 1 2 3; do
+            target/debug/openapi-to-rust-bindings --extract "$raw" "$spec" \
+              > "$RUNNER_TEMP/upstream-capability-bindings-$repetition.json"
+            cmp "$bindings" "$RUNNER_TEMP/upstream-capability-bindings-$repetition.json"
+          done
+          echo "Upstream canonical Bindings v3: three independent-process extractions are byte-identical."
           target/debug/rust-sdk-generator derive \
             --openapi "$spec" --bindings "$bindings" \
             --definition-output "$definition" > "$RUNNER_TEMP/capability-core-derivation.json"
@@ -376,6 +382,12 @@ jobs:
             test -f "$raw/client.rs"
             test -f "$raw/binding-manifest.json"
             target/debug/openapi-to-rust-bindings --extract "$raw" "$spec" > "$bindings"
+            for repetition in 1 2 3; do
+              target/debug/openapi-to-rust-bindings --extract "$raw" "$spec" \
+                > "$RUNNER_TEMP/fork-$scenario-bindings-$repetition.json"
+              cmp "$bindings" "$RUNNER_TEMP/fork-$scenario-bindings-$repetition.json"
+            done
+            echo "Fork $scenario canonical Bindings v3: three independent-process extractions are byte-identical."
             target/debug/rust-sdk-generator derive \
               --openapi "$spec" --bindings "$bindings" \
               --definition-output "$definition" > "$RUNNER_TEMP/fork-$scenario-derivation.json"
