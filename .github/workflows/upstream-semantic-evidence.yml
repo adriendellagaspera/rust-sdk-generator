@@ -432,7 +432,7 @@ jobs:
           rustup target add wasm32-unknown-unknown
           for scenario in core sse discriminator; do
             consumer="$RUNNER_TEMP/fork-$scenario-consumer"
-            CARGO_TARGET_DIR="$RUNNER_TEMP/capability-wasm-target" \
+            CARGO_TARGET_DIR="$RUNNER_TEMP/capability-wasm-$scenario-target" \
               cargo check --manifest-path "$consumer/Cargo.toml" \
               --target wasm32-unknown-unknown --lib
             echo "Fork-only $scenario: generated stream facade and raw client compiled for wasm32-unknown-unknown."
