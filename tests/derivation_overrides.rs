@@ -210,7 +210,7 @@ fn rejects_exclusion_override_conflict() {
 }
 
 #[test]
-fn rejects_override_when_generic_derivation_did_not_succeed() {
+fn reports_override_when_generic_derivation_did_not_succeed() {
     let (openapi, mut bindings, surface) = fixture();
     bindings
         .operations
@@ -218,19 +218,25 @@ fn rejects_override_when_generic_derivation_did_not_succeed() {
         .expect("operation binding")
         .success_type = "String".into();
 
-    let error = derive(DeriveInput {
+    let derivation = derive(DeriveInput {
         openapi,
         bindings,
         surface,
         overrides: request_override("archived", Some(true)),
     })
-    .expect_err("override must not rescue failed generic inference");
+    .expect("failed generic inference remains reportable");
 
-    assert_eq!(error.diagnostic.code, "overrides.unapplied");
-    assert_eq!(
-        error.diagnostic.path.as_deref(),
-        Some("overrides.operations.revise_job")
+    let outcome = &derivation.report.operations["revise_job"];
+    assert_eq!(outcome.status, DerivationStatus::Rejected);
+    assert_eq!(outcome.reason.code, "bindings.no_structural_match");
+    assert!(
+        outcome
+            .reason
+            .detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("configured override was not applied"))
     );
+    assert!(derivation.definition.resources.is_empty());
 }
 
 #[test]

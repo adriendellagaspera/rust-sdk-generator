@@ -1,0 +1,214 @@
+name: Fork manifest-removal evidence
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/fork-manifest-removal-evidence.yml"
+      - "openapi-to-rust-bindings/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-manifest-removal-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  parity:
+    name: raw-output-and-manifest-free-parity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build adapter and SDK generator
+        run: |
+          cargo build --locked -p openapi-to-rust-bindings --bin openapi-to-rust-bindings
+          cargo build --locked -p rust-sdk-generator --bin rust-sdk-generator
+
+      - name: Checkout immutable fork before and after manifest removal
+        shell: bash
+        run: |
+          set -euo pipefail
+          before=9fee7af67c05d896da86e41d326b067312120c53
+          after=ef5632c019982de6fd8bf1a7d86a9fcd868b9c55
+          for pair in "before:$before" "after:$after"; do
+            name="${pair%%:*}"
+            sha="${pair#*:}"
+            dir="$RUNNER_TEMP/openapi-$name"
+            git init "$dir"
+            git -C "$dir" remote add origin https://github.com/adriendellagaspera/openapi-to-rust.git
+            git -C "$dir" fetch --depth=1 origin "$sha"
+            git -C "$dir" checkout --detach FETCH_HEAD
+            test "$(git -C "$dir" rev-parse HEAD)" = "$sha"
+          done
+
+      - name: Build both exact fork revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          CARGO_TARGET_DIR="$RUNNER_TEMP/before-target" cargo build --locked             --manifest-path "$RUNNER_TEMP/openapi-before/Cargo.toml" --bin openapi-to-rust
+          CARGO_TARGET_DIR="$RUNNER_TEMP/after-target" cargo build --locked             --manifest-path "$RUNNER_TEMP/openapi-after/Cargo.toml" --bin openapi-to-rust
+
+      - name: Generate representative raw output before and after removal
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -R openapi-to-rust-bindings/tests/fixtures/fork-semantic "$RUNNER_TEMP/before-fixture"
+          cp -R openapi-to-rust-bindings/tests/fixtures/fork-semantic "$RUNNER_TEMP/after-fixture"
+          (
+            cd "$RUNNER_TEMP/before-fixture"
+            "$RUNNER_TEMP/before-target/debug/openapi-to-rust" generate --config compat.toml
+          )
+          sed -i '/^binding_manifest = true$/d' "$RUNNER_TEMP/after-fixture/compat.toml"
+          (
+            cd "$RUNNER_TEMP/after-fixture"
+            "$RUNNER_TEMP/after-target/debug/openapi-to-rust" generate --config compat.toml
+          )
+
+          test -f "$RUNNER_TEMP/before-fixture/raw/binding-manifest.json"
+          test ! -e "$RUNNER_TEMP/after-fixture/raw/binding-manifest.json"
+          for file in client.rs types.rs mod.rs REQUIRED_DEPS.toml; do
+            diff -u "$RUNNER_TEMP/before-fixture/raw/$file" "$RUNNER_TEMP/after-fixture/raw/$file"
+          done
+          echo "Manifest removal leaves representative ordinary Rust byte-for-byte unchanged."
+
+      - name: Reproduce fork-only multipart and enum output against unmodified upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          upstream=5a3487edbe27cfd4efb32dda893774e23d7fa195
+          git init "$RUNNER_TEMP/openapi-upstream"
+          git -C "$RUNNER_TEMP/openapi-upstream" remote add origin https://github.com/gpu-cli/openapi-to-rust.git
+          git -C "$RUNNER_TEMP/openapi-upstream" fetch --depth=1 origin "$upstream"
+          git -C "$RUNNER_TEMP/openapi-upstream" checkout --detach FETCH_HEAD
+          test "$(git -C "$RUNNER_TEMP/openapi-upstream" rev-parse HEAD)" = "$upstream"
+          CARGO_TARGET_DIR="$RUNNER_TEMP/upstream-target" cargo build --locked \
+            --manifest-path "$RUNNER_TEMP/openapi-upstream/Cargo.toml" --bin openapi-to-rust
+
+          spec="$PWD/openapi-to-rust-bindings/tests/producer-delta/openapi.json"
+          for variant in upstream before after; do
+            case "$variant" in
+              upstream) executable="$RUNNER_TEMP/upstream-target/debug/openapi-to-rust" ;;
+              before) executable="$RUNNER_TEMP/before-target/debug/openapi-to-rust" ;;
+              after) executable="$RUNNER_TEMP/after-target/debug/openapi-to-rust" ;;
+            esac
+            "$executable" generate "$spec" \
+              --output-dir "$RUNNER_TEMP/delta-$variant" --module-name raw_delta --quiet
+            test -f "$RUNNER_TEMP/delta-$variant/client.rs"
+            test -f "$RUNNER_TEMP/delta-$variant/types.rs"
+          done
+
+          # Actual emitted methods/encoders are the evidence, not the OpenAPI declarations.
+          grep -F 'form = form.text("labels", item.to_string());' "$RUNNER_TEMP/delta-after/client.rs"
+          if grep -F 'form = form.text("labels", item.to_string());' "$RUNNER_TEMP/delta-upstream/client.rs"; then
+            echo "upstream unexpectedly emitted repeated scalar multipart encoding" >&2
+            exit 1
+          fi
+          grep -F 'pub async fn create_upload_with_multipart_filenames(' "$RUNNER_TEMP/delta-after/client.rs"
+          if grep -F 'pub async fn create_upload_with_multipart_filenames(' "$RUNNER_TEMP/delta-upstream/client.rs"; then
+            echo "upstream unexpectedly emitted request-local multipart filenames" >&2
+            exit 1
+          fi
+          grep -F 'Created2' "$RUNNER_TEMP/delta-after/client.rs"
+          grep -F 'Created_2' "$RUNNER_TEMP/delta-upstream/client.rs"
+
+          for file in client.rs types.rs mod.rs REQUIRED_DEPS.toml; do
+            diff -u "$RUNNER_TEMP/delta-before/$file" "$RUNNER_TEMP/delta-after/$file"
+          done
+
+          # The fork's emitted Rust, including the multipart edge cases, must compile.
+          consumer="$RUNNER_TEMP/delta-consumer"
+          mkdir -p "$consumer/src/generated"
+          cp "$RUNNER_TEMP/delta-after/"*.rs "$consumer/src/generated/"
+          printf 'pub mod generated;\n' > "$consumer/src/lib.rs"
+          {
+            echo '[package]'
+            echo 'name = "fork-producer-delta-proof"'
+            echo 'version = "0.0.0"'
+            echo 'edition = "2024"'
+            echo 'publish = false'
+            echo ''
+            echo '[workspace]'
+            echo ''
+            cat "$RUNNER_TEMP/delta-after/REQUIRED_DEPS.toml"
+          } > "$consumer/Cargo.toml"
+          cargo check --manifest-path "$consumer/Cargo.toml" --all-targets
+          echo "Pinned upstream omits proven fork raw features; pre/post-removal fork raw output is identical and compiles."
+
+      - name: Compare old manifest oracle with post-removal manifest-free extraction
+        shell: bash
+        run: |
+          set -euo pipefail
+          target/debug/openapi-to-rust-bindings             "$RUNNER_TEMP/before-fixture/raw" > "$RUNNER_TEMP/before-bindings.json"
+          target/debug/openapi-to-rust-bindings             --extract "$RUNNER_TEMP/after-fixture/raw" "$RUNNER_TEMP/after-fixture/openapi.json"             > "$RUNNER_TEMP/after-bindings.json"
+
+          python3 - "$RUNNER_TEMP/before-bindings.json" "$RUNNER_TEMP/after-bindings.json" <<'PY'
+          import json
+          import re
+          import sys
+          from pathlib import Path
+
+          before = json.loads(Path(sys.argv[1]).read_text())
+          after = json.loads(Path(sys.argv[2]).read_text())
+
+          def canonical_type(value):
+              return re.sub(r",(?=>)", "", re.sub(r"\s+", "", value))
+
+          for bindings in (before, after):
+              for operation in bindings["operations"].values():
+                  operation["return_type"] = canonical_type(operation["return_type"])
+                  abi = operation["metadata"]["stream_abi"]
+                  if abi is not None:
+                      for target in ("native_type", "wasm_type"):
+                          abi[target] = canonical_type(abi[target])
+
+          assert before == after
+          operations = after["operations"].values()
+          assert any(op["metadata"]["kind"] == "multipart_filenames" for op in operations)
+          operations = after["operations"].values()
+          assert any(op["metadata"]["representation"]["kind"] == "event_stream" for op in operations)
+          operations = after["operations"].values()
+          assert any(op["metadata"]["representation"]["kind"] == "binary_stream" for op in operations)
+          operations = after["operations"].values()
+          assert any(op["metadata"]["request_discriminators"] for op in operations)
+          print("Pre-removal manifest oracle == post-removal manifest-free Bindings v3.")
+          PY
+
+      - name: Derive, generate and compile facade from post-removal fork
+        shell: bash
+        run: |
+          set -euo pipefail
+          spec="$RUNNER_TEMP/after-fixture/openapi.json"
+          raw="$RUNNER_TEMP/after-fixture/raw"
+          bindings="$RUNNER_TEMP/after-bindings.json"
+          definition="$RUNNER_TEMP/fork-definition.json"
+          sdk="$RUNNER_TEMP/fork-sdk"
+          consumer="$RUNNER_TEMP/fork-consumer"
+
+          target/debug/rust-sdk-generator derive             --openapi "$spec" --bindings "$bindings"             --definition-output "$definition" > "$RUNNER_TEMP/fork-derivation.json"
+          target/debug/rust-sdk-generator generate             --openapi "$spec" --bindings "$bindings"             --definition "$definition" --output "$sdk" > "$RUNNER_TEMP/fork-inventory.json"
+
+          mkdir -p "$consumer/src/generated" "$consumer/src/sdk"
+          cp "$raw"/*.rs "$consumer/src/generated/"
+          cp "$sdk"/*.rs "$consumer/src/sdk/"
+          cp examples/independent-sdk/consumer/src/sdk/error.rs "$consumer/src/sdk/error.rs"
+          cat > "$consumer/src/lib.rs" <<'RS'
+          pub mod generated;
+          pub mod sdk;
+          RS
+          {
+            echo '[package]'
+            echo 'name = "post-manifest-fork-sdk-proof"'
+            echo 'version = "0.0.0"'
+            echo 'edition = "2024"'
+            echo 'publish = false'
+            echo ''
+            echo '[workspace]'
+            echo ''
+            cat "$raw/REQUIRED_DEPS.toml"
+          } > "$consumer/Cargo.toml"
+          cargo check --manifest-path "$consumer/Cargo.toml" --all-targets
