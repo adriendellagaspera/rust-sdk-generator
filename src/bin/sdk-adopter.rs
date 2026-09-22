@@ -1,6 +1,6 @@
 //! Local-first, own-OpenAPI adopter CLI. The library remains backend-neutral:
 //! driver -> canonical Bindings v3 -> root derive -> root generate/check-generated.
-#[path = "sdk_adopter_driver.rs"]
+#[path = "sdk_adopter/driver.rs"]
 mod driver;
 
 use std::collections::BTreeMap;
