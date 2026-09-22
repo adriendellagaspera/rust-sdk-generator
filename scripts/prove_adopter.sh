@@ -153,6 +153,21 @@ fi
 grep -q recipe.backend_contract "$work/recipe.err"
 cp "$work/recipe.json" "$crate/sdkgen.lock.json"
 
+# A changed backend revision is not a permitted implicit sync migration.
+python3 - "$crate/sdkgen.lock.json" <<'PY'
+import json, sys
+path = sys.argv[1]
+recipe = json.load(open(path))
+recipe["backend"]["revision"] = "0" * 40
+with open(path, "w") as output:
+    json.dump(recipe, output)
+PY
+if cargo run --locked --bin sdk-adopter -- sync --crate "$crate" --offline   > /dev/null 2> "$work/changed-revision.err"; then
+  echo 'changed backend revision was silently accepted' >&2; exit 1
+fi
+grep -q recipe.backend_contract "$work/changed-revision.err"
+cp "$work/recipe.json" "$crate/sdkgen.lock.json"
+
 # A checkout without its compiled binary is an incomplete offline cache, not a
 # reason to fetch/build over the network despite the offline request.
 revision="$(python3 - "$crate/sdkgen.lock.json" <<'PY'
