@@ -37,12 +37,13 @@ Inspect these artifacts inside the printed directory:
 | `second/` | Independent generation used to verify determinism |
 | `consumer/` | Standalone generated crate, handwritten runtime and HTTP tests |
 
-The example is **turnkey for the notebook fixture**, not for an arbitrary new
-API. A reusable Rust-native `init`/`sync` workflow for user-supplied OpenAPI
-is tracked in [#146](https://github.com/adriendellagaspera/rust-sdk-generator/issues/146).
+The example is **turnkey for the notebook fixture**. For your own local OpenAPI
+JSON, use the [Rust-native init/sync adopter workflow](adopter.md), which has
+an independently tested API fixture and an explicit bounded supported envelope.
 The pinned default is unmodified upstream
 `gpu-cli/openapi-to-rust@5a3487edbe27cfd4efb32dda893774e23d7fa195`.
-The historical fork is not used by this quickstart or by production compatibility. `COMPATIBILITY.json` tracks this same upstream boundary; the isolated `LEGACY_COMPATIBILITY.json` oracle is opt-in only. No general own-API `init` or `sync` command is implemented here.
+The historical fork is not used by this quickstart or by production compatibility. `COMPATIBILITY.json` tracks this same upstream boundary; the isolated `LEGACY_COMPATIBILITY.json` oracle is opt-in only. The own-API `sdk-adopter` binary is a separate orchestration layer; it does
+not change the notebook fixture or backend-neutral root CLI.
 
 ## Follow the inputs and output
 
@@ -83,11 +84,11 @@ maintainer's responsibility. See [architecture](architecture.md) and
 
 ## Adapt the workflow to your own OpenAPI document
 
-The example is a reference integration, not a generic initializer. Until
-[#146](https://github.com/adriendellagaspera/rust-sdk-generator/issues/146),
-you must supply a backend configuration for your OpenAPI **JSON** file, run
-the selected pinned raw backend, integrate its Rust sources/dependencies and
-provide a handwritten runtime in your consumer crate. The versioned
+The notebook example is a reference integration. For a new standalone SDK,
+use [sdk-adopter init/sync](adopter.md): it supplies a reviewed starter runtime
+and records backend configuration and consumer ownership in a versioned recipe.
+The explicit lower-level integration path below remains available for
+consumers that need more control. The versioned
 `examples/independent-sdk/upstream.toml` records this fixture's exact
 options. Supply the same **effective** OpenAPI JSON to the adapter and root
 `derive`/`generate`; if a producer applies transformations or overlays,
