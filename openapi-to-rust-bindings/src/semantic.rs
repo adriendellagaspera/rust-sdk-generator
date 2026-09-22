@@ -1036,7 +1036,10 @@ mod bounded_text_tests {
                 };
                 Some((
                     pattern.ident.to_string(),
-                    local.init.as_ref().map(|init| normalized_tokens(&init.expr)),
+                    local
+                        .init
+                        .as_ref()
+                        .map(|init| normalized_tokens(&init.expr)),
                 ))
             })
             .collect::<Vec<_>>();
