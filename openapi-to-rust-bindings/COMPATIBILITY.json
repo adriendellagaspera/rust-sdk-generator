@@ -1,16 +1,26 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "package_name": "openapi-to-rust-bindings",
   "package_version": "0.3.0",
   "bindings_schema_version": 3,
-  "manifest": "binding-manifest.json",
-  "legacy_sidecar": "rust-bindings.json",
   "backend": {
     "name": "openapi-to-rust",
-    "repository": "adriendellagaspera/openapi-to-rust",
+    "repository": "gpu-cli/openapi-to-rust",
     "baseline": {
       "version": "0.17.0",
-      "commit": "d19e5a4cba2589475dc157e50fe624576f129368"
-    }
-  }
+      "commit": "5a3487edbe27cfd4efb32dda893774e23d7fa195"
+    },
+    "candidate_ref": "main"
+  },
+  "boundary": {
+    "adapter_contract": "ordinary_rust_plus_exact_effective_openapi",
+    "producer_manifest_required": false,
+    "effective_openapi": "examples/independent-sdk/openapi.json",
+    "generation_config": "examples/independent-sdk/upstream.toml",
+    "surface": "examples/independent-sdk/surface.json",
+    "overrides": "examples/independent-sdk/overrides.json",
+    "consumer_fixture": "examples/independent-sdk/consumer",
+    "supported_envelope": "openapi-to-rust-bindings/capabilities/v1/matrix.json"
+  },
+  "historical_oracle": "openapi-to-rust-bindings/LEGACY_COMPATIBILITY.json"
 }
