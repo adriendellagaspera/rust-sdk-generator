@@ -143,10 +143,62 @@ jobs:
             python3 -m json.tool "${RUNNER_TEMP}/independent-sdk-proof/first/derivation.json"
           fi
 
+
+  production-compatibility:
+    name: production-compatibility
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Read production backend pin
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          tracker = json.loads(
+              Path("openapi-to-rust-bindings/COMPATIBILITY.json").read_text()
+          )
+          backend = tracker["backend"]
+          with open(os.environ["GITHUB_ENV"], "a") as env:
+              print(f"BACKEND_REPOSITORY={backend['repository']}", file=env)
+              print(f"BACKEND_COMMIT={backend['baseline']['commit']}", file=env)
+          PY
+      - name: Checkout exact production backend
+        run: |
+          python3 openapi-to-rust-bindings/scripts/acquire_backend.py             --repository "$BACKEND_REPOSITORY"             --ref "$BACKEND_COMMIT"             --expected-sha "$BACKEND_COMMIT"             --destination "$RUNNER_TEMP/production-backend"
+      - name: Build production boundary
+        shell: bash
+        run: |
+          cargo build --locked -p openapi-to-rust-bindings --bin openapi-to-rust-bindings
+          cargo build --locked -p rust-sdk-generator --bin rust-sdk-generator
+          CARGO_TARGET_DIR="$RUNNER_TEMP/production-backend-target"             cargo build --locked --release             --manifest-path "$RUNNER_TEMP/production-backend/Cargo.toml"             --bin openapi-to-rust
+      - name: Run fail-closed adapter regressions
+        run: cargo test --locked -p openapi-to-rust-bindings --test semantic
+      - name: Exercise production manifest-free compatibility gate
+        shell: bash
+        run: |
+          python3 openapi-to-rust-bindings/scripts/check_production_compat.py             --repo-root "$PWD"             --baseline-generator "$RUNNER_TEMP/production-backend-target/release/openapi-to-rust"             --candidate-generator "$RUNNER_TEMP/production-backend-target/release/openapi-to-rust"             --baseline-commit "$BACKEND_COMMIT"             --candidate-commit "$BACKEND_COMMIT"             --adapter target/debug/openapi-to-rust-bindings             --root-generator target/debug/rust-sdk-generator             --report-json "$RUNNER_TEMP/ci-production-compatibility.json"             --report-md "$RUNNER_TEMP/ci-production-compatibility.md"
+          cat "$RUNNER_TEMP/ci-production-compatibility.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Publish CI production compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ci-production-compatibility
+          path: |
+            ${{ runner.temp }}/ci-production-compatibility.json
+            ${{ runner.temp }}/ci-production-compatibility.md
+          if-no-files-found: error
+          retention-days: 30
+
   gate:
     name: gate
     if: always()
-    needs: [policy, lint, generator, bindings, integration, independent-sdk]
+    needs: [policy, lint, generator, bindings, integration, independent-sdk, production-compatibility]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -158,7 +210,8 @@ jobs:
           BINDINGS: ${{ needs.bindings.result }}
           INTEGRATION: ${{ needs.integration.result }}
           INDEPENDENT_SDK: ${{ needs.independent-sdk.result }}
+          PRODUCTION_COMPATIBILITY: ${{ needs.production-compatibility.result }}
         run: |
-          for result in "$POLICY" "$LINT" "$GENERATOR" "$BINDINGS" "$INTEGRATION" "$INDEPENDENT_SDK"; do
+          for result in "$POLICY" "$LINT" "$GENERATOR" "$BINDINGS" "$INTEGRATION" "$INDEPENDENT_SDK" "$PRODUCTION_COMPATIBILITY"; do
             test "$result" = success
           done
