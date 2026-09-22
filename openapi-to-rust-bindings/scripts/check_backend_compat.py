@@ -429,7 +429,9 @@ def main() -> None:
             else f"{len(row['raw_changed'])} files (+{row['raw_added_lines']}/-{row['raw_removed_lines']})"
         )
         normalization = (
-            f"error: `{row['candidate_error']}`"
+            f"baseline error: `{row['baseline_error']}`"
+            if row["baseline_error"]
+            else f"candidate error: `{row['candidate_error']}`"
             if row["candidate_error"]
             else "ok"
         )
@@ -470,6 +472,13 @@ def main() -> None:
                 )
         if details:
             lines.extend(["", f"## {row['fixture']} identity drift", "", *details])
+        if row["raw_diff"]:
+            lines.extend(["", f"## {row['fixture']} generated-output differences", ""])
+            for filename, diff in sorted(row["raw_diff"].items()):
+                lines.extend([f"### `{filename}`", "", "```diff",
+                              *diff.splitlines()[:200], "```", ""])
+                if len(diff.splitlines()) > 200:
+                    lines.append("Diff preview truncated at 200 lines; inspect the raw artifacts for the full diff.")
 
     lines.extend(
         [
@@ -488,6 +497,44 @@ def main() -> None:
         ]
     )
     args.report.write_text("\n".join(lines) + "\n")
+    if args.report_json is not None:
+        def digest(path: Path) -> str:
+            return hashlib.sha256(path.read_bytes()).hexdigest()
+
+        report = {
+            "schema_version": 1,
+            "profile": "legacy_manifest_oracle",
+            "backend": {
+                "repository": compatibility["backend"]["repository"],
+                "baseline": {"version": baseline_version, "commit": baseline_commit},
+                "candidate": {"version": candidate_version, "commit": args.candidate_commit},
+            },
+            "bindings_schema_version": compatibility["bindings_schema_version"],
+            "source_api_drift": [
+                {"fixture": row["fixture"], "added": row["source_added"], "removed": row["source_removed"]}
+                for row in rows
+            ],
+            "fixture_results": rows,
+            "rejected_operations": {"status": "not_run_legacy_oracle"},
+            "capability_differences": {
+                "status": "not_evaluated_legacy_oracle",
+                "producer_audit": "openapi-to-rust-bindings/FORK_CAPABILITIES.json",
+            },
+            "effective_openapi_provenance": {
+                row["fixture"]: {
+                    "fixture_sha256": digest(fixture_root / row["fixture"] / "openapi.json"),
+                    "config_sha256": (
+                        digest(fixture_root / row["fixture"] / "compat.toml")
+                        if (fixture_root / row["fixture"] / "compat.toml").is_file()
+                        else None
+                    ),
+                    "effective_openapi_status": "generated_by_legacy_backend",
+                }
+                for row in rows
+            },
+            "compatible": not incompatible,
+        }
+        args.report_json.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
 
     if incompatible:
         raise SystemExit(1)
