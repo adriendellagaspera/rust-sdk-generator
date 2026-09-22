@@ -81,6 +81,9 @@ class CompatibilityStageTests(unittest.TestCase):
                     self.assertEqual(row["stages"]["root_sdk_derivation"], "not_run_legacy_oracle")
                     self.assertEqual(result["rejected_operations"]["status"], "not_run_legacy_oracle")
                     self.assertIn("source_openapi_sha256", row["provenance"]["candidate"])
+                    if failing_stage == "raw_generation":
+                        self.assertEqual(row["provenance"]["candidate"]["effective_openapi_status"], "unavailable_generation_failed")
+                        self.assertIsNone(row["provenance"]["candidate"]["effective_openapi_sha256"])
                     self.assertEqual(result["backend"]["candidate"]["commit"], PIN)
                     self.assertIn("historical manifest oracle", (root / "report.md").read_text())
 
