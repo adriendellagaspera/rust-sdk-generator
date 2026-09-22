@@ -24,8 +24,11 @@ async fn emitted_binary_stream_transfers_non_utf8_bytes_and_handles_errors() {
     assert!(body.is_empty());
 
     let (url, server) = respond("404 Not Found", "application/json", br#"{"code":"absent","message":"missing"}"#);
-    let error = HttpClient::new().with_base_url(url)
-        .download_blob_stream().await.expect_err("non-2xx binary stream is error");
+    let error = match HttpClient::new().with_base_url(url)
+        .download_blob_stream().await {
+        Ok(_) => panic!("non-2xx binary stream is error"),
+        Err(error) => error,
+    };
     match error {
         ApiOpError::Api(api) => {
             assert_eq!(api.status, 404);
