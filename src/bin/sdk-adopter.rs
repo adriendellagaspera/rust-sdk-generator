@@ -67,7 +67,7 @@ fn json_bytes<T: Serialize>(value: &T) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 fn hash(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 fn read(path: &Path, stage: &'static str) -> Result<Vec<u8>> {
     fs::read(path).map_err(|e| err(stage, format!("{}: {e}", path.display())))
