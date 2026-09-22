@@ -144,6 +144,17 @@ jobs:
           fi
 
 
+  own-api-sdk:
+    name: own-api-sdk
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Prove documented local-first own-API init/sync and HTTP
+        run: bash scripts/prove_adopter.sh
+
   production-compatibility:
     name: production-compatibility
     runs-on: ubuntu-24.04
@@ -198,7 +209,7 @@ jobs:
   gate:
     name: gate
     if: always()
-    needs: [policy, lint, generator, bindings, integration, independent-sdk, production-compatibility]
+    needs: [policy, lint, generator, bindings, integration, independent-sdk, own-api-sdk, production-compatibility]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -210,8 +221,9 @@ jobs:
           BINDINGS: ${{ needs.bindings.result }}
           INTEGRATION: ${{ needs.integration.result }}
           INDEPENDENT_SDK: ${{ needs.independent-sdk.result }}
+          OWN_API_SDK: ${{ needs.own-api-sdk.result }}
           PRODUCTION_COMPATIBILITY: ${{ needs.production-compatibility.result }}
         run: |
-          for result in "$POLICY" "$LINT" "$GENERATOR" "$BINDINGS" "$INTEGRATION" "$INDEPENDENT_SDK" "$PRODUCTION_COMPATIBILITY"; do
+          for result in "$POLICY" "$LINT" "$GENERATOR" "$BINDINGS" "$INTEGRATION" "$INDEPENDENT_SDK" "$OWN_API_SDK" "$PRODUCTION_COMPATIBILITY"; do
             test "$result" = success
           done
