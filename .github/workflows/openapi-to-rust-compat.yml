@@ -130,7 +130,7 @@ jobs:
             echo
             echo "## Reproduce this exact legacy oracle comparison"
             echo
-            echo "`gh workflow run openapi-to-rust-compat.yml -f candidate_ref=${CANDIDATE_COMMIT}`"
+            echo "gh workflow run openapi-to-rust-compat.yml -f candidate_ref=${CANDIDATE_COMMIT}"
             echo
             echo "This runner still requires producer manifests. Fork main after #18 is not a manifest-capable candidate; its failure is recorded, not hidden."
           } >> "${GITHUB_STEP_SUMMARY}"
