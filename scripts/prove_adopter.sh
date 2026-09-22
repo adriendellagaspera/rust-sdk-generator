@@ -8,7 +8,7 @@ trap 'rm -rf "$work"' EXIT
 export RUST_SDK_ADOPTER_CACHE="$work/cache"
 crate="$work/field-station-sdk"
 
-cargo build --locked --bin sdk-adopter
+# Time the *full* clean-runner Cargo init, including compiling the adopter CLI.
 /usr/bin/time -p cargo run --locked --bin sdk-adopter -- init \
   --openapi "$fixture/initial.json" --output "$crate" --name field-station-sdk \
   > "$work/init-report.txt" 2> "$work/cold-start.txt"
