@@ -405,19 +405,19 @@ def cargo_manifest(raw: Path) -> str:
         )
     additions: list[str] = []
     for dependency, version in (("futures-util", "0.3"), ("bytes", "1")):
-        if re.search(rf"(?m)^\\s*{re.escape(dependency)}\\s*=", required) is None:
+        if re.search(rf"(?m)^\s*{re.escape(dependency)}\s*=", required) is None:
             additions.append(f'{dependency} = "{version}"')
     if additions:
         required = required.replace(
             "[dependencies]",
-            "[dependencies]\\n" + "\\n".join(additions),
+            "[dependencies]\n" + "\n".join(additions),
             1,
         )
     return (
-        '[package]\\nname = "production-compat-consumer"\\nversion = "0.0.0"\\n'
-        'edition = "2024"\\npublish = false\\n\\n[workspace]\\n\\n'
+        '[package]\nname = "production-compat-consumer"\nversion = "0.0.0"\n'
+        'edition = "2024"\npublish = false\n\n[workspace]\n\n'
         + required
-        + '\\n\\n[dev-dependencies]\\ntokio = { version = "1", features = ["macros", "rt-multi-thread"] }\\n'
+        + '\n\n[dev-dependencies]\ntokio = { version = "1", features = ["macros", "rt-multi-thread"] }\n'
     )
 
 
@@ -631,7 +631,7 @@ def compile_capability_core(
         destination / "src/sdk/error.rs",
     )
     copy_file(fixture_root / "core/http.rs", destination / "tests/http.rs")
-    (destination / "src/lib.rs").write_text("pub mod generated;\\npub mod sdk;\\n")
+    (destination / "src/lib.rs").write_text("pub mod generated;\npub mod sdk;\n")
     (destination / "Cargo.toml").write_text(cargo_manifest(raw))
     run(
         "compiled_http",
@@ -907,7 +907,7 @@ def markdown(report: dict[str, Any]) -> str:
     candidate = backend.get("candidate", {})
     default = report.get("default_boundary", {})
     envelope = report.get("supported_envelope", {})
-    return "\\n".join(
+    return "\n".join(
         [
             "# Production manifest-free compatibility",
             "",
@@ -926,7 +926,7 @@ def markdown(report: dict[str, Any]) -> str:
             "",
             "Any raw, Bindings, derivation, inventory or generated SDK drift is fail-closed and must be reviewed before repinning.",
         ]
-    ) + "\\n"
+    ) + "\n"
 
 
 def main() -> int:
