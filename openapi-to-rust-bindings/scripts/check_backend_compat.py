@@ -606,10 +606,11 @@ def main() -> None:
             "compatible": not incompatible,
             "rerun": {
                 "workflow": ".github/workflows/openapi-to-rust-compat.yml",
+                "workflow_dispatch": {"run_historical_oracle": True},
                 "tracker": str(tracker),
-                "candidate_ref": args.candidate_commit,
                 "required_cli_flags": [
                     "--package-root", str(package_root),
+                    "--tracker", str(tracker),
                     "--bindings-adapter", str(args.bindings_adapter),
                     "--baseline-generator", str(args.baseline_generator),
                     "--candidate-generator", str(args.candidate_generator),
