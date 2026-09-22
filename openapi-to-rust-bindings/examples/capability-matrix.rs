@@ -718,6 +718,7 @@ fn main_inner() -> Result<()> {
         "fixture_version": matrix["fixture_version"],
         "bindings_schema_version": matrix["bindings_schema_version"],
         "pins": matrix["pins"],
+        "target_proofs": matrix["target_proofs"],
         "scenarios": scenario_reports,
         "capabilities": capability_reports,
     });
