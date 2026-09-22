@@ -360,6 +360,59 @@ jobs:
           cargo test --manifest-path "$consumer/Cargo.toml" --all-targets
           echo "Pinned unmodified upstream -> ordinary Rust -> Bindings v3 -> facade -> standalone compile + mock HTTP: verified."
 
+      - name: Compile and HTTP-test fork-only emitted transport variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture_root="$PWD/openapi-to-rust-bindings/tests/fixtures/capability-v1"
+          for scenario in core sse discriminator; do
+            raw="$RUNNER_TEMP/capability-fork/$scenario/raw"
+            spec="$fixture_root/$scenario/openapi.json"
+            bindings="$RUNNER_TEMP/fork-$scenario-bindings.json"
+            definition="$RUNNER_TEMP/fork-$scenario-definition.json"
+            sdk="$RUNNER_TEMP/fork-$scenario-sdk"
+            consumer="$RUNNER_TEMP/fork-$scenario-consumer"
+
+            test -f "$raw/client.rs"
+            test -f "$raw/binding-manifest.json"
+            target/debug/openapi-to-rust-bindings --extract "$raw" "$spec" > "$bindings"
+            target/debug/rust-sdk-generator derive \
+              --openapi "$spec" --bindings "$bindings" \
+              --definition-output "$definition" > "$RUNNER_TEMP/fork-$scenario-derivation.json"
+            target/debug/rust-sdk-generator generate \
+              --openapi "$spec" --bindings "$bindings" \
+              --definition "$definition" --output "$sdk" \
+              > "$RUNNER_TEMP/fork-$scenario-inventory.json"
+
+            mkdir -p "$consumer/src/generated" "$consumer/src/sdk" "$consumer/tests"
+            cp "$raw"/*.rs "$consumer/src/generated/"
+            cp "$sdk"/*.rs "$consumer/src/sdk/"
+            cp examples/independent-sdk/consumer/src/sdk/error.rs "$consumer/src/sdk/error.rs"
+            cp "$fixture_root/$scenario/fork_http.rs" "$consumer/tests/http.rs"
+            cp "$fixture_root/fork_http_support.rs" "$consumer/tests/fork_http_support.rs"
+            if test "$scenario" = core; then
+              cp "$fixture_root/core/http.rs" "$consumer/tests/core_http.rs"
+            fi
+            printf 'pub mod generated;\npub mod sdk;\n' > "$consumer/src/lib.rs"
+            {
+              echo '[package]'
+              echo 'name = "capability-matrix-consumer"'
+              echo 'version = "0.0.0"'
+              echo 'edition = "2024"'
+              echo 'publish = false'
+              echo ''
+              echo '[workspace]'
+              echo ''
+              cat "$raw/REQUIRED_DEPS.toml"
+              echo ''
+              echo '[dev-dependencies]'
+              echo 'futures-util = "0.3"'
+              echo 'tokio = { version = "1", features = ["macros", "rt-multi-thread"] }'
+            } > "$consumer/Cargo.toml"
+            cargo test --manifest-path "$consumer/Cargo.toml" --all-targets
+            echo "Fork-only $scenario: manifest-free Bindings v3, standalone native compilation and actual HTTP calls verified."
+          done
+
   manifest-free-sdk:
     name: manifest-free-sdk
     runs-on: ubuntu-24.04
