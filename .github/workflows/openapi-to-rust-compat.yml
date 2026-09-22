@@ -33,10 +33,10 @@ jobs:
     timeout-minutes: 45
     env:
       PACKAGE_ROOT: openapi-to-rust-bindings
-      # PRs keep the immutable, last manifest-capable fork as the historical
-      # oracle. Scheduled/manual moving-fork checks retain their original
-      # candidate policy until #155/#156 enable the production boundary.
-      CANDIDATE_REF: ${{ github.event_name == 'pull_request' && '9fee7af67c05d896da86e41d326b067312120c53' || (github.event.inputs.candidate_ref || 'main') }}
+      # The historical manifest oracle is immutable; every event also checks
+      # the current fork's ordinary Rust without requiring a producer manifest.
+      HISTORICAL_ORACLE_SHA: 9fee7af67c05d896da86e41d326b067312120c53
+      CANDIDATE_REF: ${{ github.event.inputs.candidate_ref || 'main' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
