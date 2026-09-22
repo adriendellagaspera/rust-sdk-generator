@@ -68,7 +68,7 @@ The extractor fails closed when source coverage is incomplete or required eviden
 cargo run --locked -p openapi-to-rust-bindings -- --legacy-metadata path/to/raw-output > historical-rust-bindings.json
 ```
 
-This explicitly invokes the historical `read_bindings` manifest/sidecar path. The library also exports `parse_binding_manifest(&str)`, `Bindings::from_value(Value)` and `Bindings::as_value()`. `MANIFEST_NAME` and `SIDECAR_NAME` expose the compatibility file names.
+This explicitly invokes the historical `read_legacy_metadata` manifest/sidecar path. The library also exports `parse_binding_manifest(&str)`, `Bindings::from_value(Value)` and `Bindings::as_value()`. `MANIFEST_NAME` and `SIDECAR_NAME` expose the compatibility file names.
 
 The manifest fixtures remain independent historical oracles. The scheduled/manual compatibility workflow and broader documentation audit belong to #157. The root generator, not this adapter, chooses the public SDK surface and applies consumer policy.
 

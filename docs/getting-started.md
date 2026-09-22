@@ -105,15 +105,15 @@ reviewed decision is necessary:
 
 ```sh
 rust-sdk-generator derive \
-  --openapi openapi.json --bindings rust-bindings.json \
+  --openapi effective-openapi.json --bindings rust-bindings.json \
   --definition-output sdk-definition.json > derivation.json
 
 rust-sdk-generator generate \
-  --openapi openapi.json --bindings rust-bindings.json \
+  --openapi effective-openapi.json --bindings rust-bindings.json \
   --definition sdk-definition.json --output src/sdk
 
 rust-sdk-generator check-generated \
-  --openapi openapi.json --bindings rust-bindings.json \
+  --openapi effective-openapi.json --bindings rust-bindings.json \
   --definition sdk-definition.json --output src/sdk
 ```
 

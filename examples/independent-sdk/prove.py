@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pinned backend -> manifest -> Bindings v3 -> derive -> generate -> HTTP consumer."""
+"""Historical fork-manifest oracle proof only; not the supported default path."""
 
 from __future__ import annotations
 
