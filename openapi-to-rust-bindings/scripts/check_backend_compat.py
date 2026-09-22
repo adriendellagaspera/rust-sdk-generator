@@ -313,7 +313,11 @@ def main() -> None:
 
             baseline_snapshot = snapshot(baseline_raw) if baseline_raw_error is None else {}
             candidate_snapshot = snapshot(candidate_raw) if candidate_raw_error is None else {}
-            raw_changed = changed_files(baseline_snapshot, candidate_snapshot)
+            raw_changed = (
+                changed_files(baseline_snapshot, candidate_snapshot)
+                if baseline_raw_error is None and candidate_raw_error is None
+                else []
+            )
             raw_added = raw_removed = 0
             for filename in raw_changed:
                 added, removed = changed_line_counts(
@@ -547,6 +551,18 @@ def main() -> None:
                 row["fixture"]: row["provenance"] for row in rows
             },
             "compatible": not incompatible,
+            "rerun": {
+                "workflow": ".github/workflows/openapi-to-rust-compat.yml",
+                "candidate_ref": args.candidate_commit,
+                "required_cli_flags": [
+                    "--package-root", str(package_root),
+                    "--bindings-adapter", str(args.bindings_adapter),
+                    "--baseline-generator", str(args.baseline_generator),
+                    "--candidate-generator", str(args.candidate_generator),
+                    "--candidate-commit", args.candidate_commit,
+                    "--report", str(args.report),
+                ],
+            },
         }
         args.report_json.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
 
