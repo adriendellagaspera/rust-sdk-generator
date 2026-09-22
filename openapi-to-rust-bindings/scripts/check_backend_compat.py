@@ -377,21 +377,34 @@ def main() -> None:
             if not compatible:
                 incompatible.append(name)
 
-            def provenance(raw: Path) -> dict[str, Any]:
+            def provenance(raw: Path, generation_failed: bool) -> dict[str, Any]:
                 work = raw.parent
-                effective = work / "openapi.overlaid.json"
-                if not effective.is_file():
-                    effective = work / "openapi.json"
                 config = work / "openapi-to-rust.toml"
+                has_overlay = (
+                    config.is_file() and 'overlays = [' in config.read_text()
+                )
+                overlay = work / "openapi.overlaid.json"
+                effective = (
+                    None if generation_failed
+                    else overlay if overlay.is_file()
+                    else None if has_overlay
+                    else work / "openapi.json"
+                )
                 return {
                     "source_openapi_sha256": hashlib.sha256(
                         (fixture / "openapi.json").read_bytes()
                     ).hexdigest(),
                     "effective_openapi_sha256": (
                         hashlib.sha256(effective.read_bytes()).hexdigest()
-                        if effective.is_file() else None
+                        if effective is not None and effective.is_file() else None
                     ),
-                    "effective_openapi_file": effective.name if effective.is_file() else None,
+                    "effective_openapi_file": effective.name if effective is not None and effective.is_file() else None,
+                    "effective_openapi_status": (
+                        "unavailable_generation_failed" if generation_failed
+                        else "unverified_missing_overlay_output" if effective is None
+                        else "recorded" if effective.is_file()
+                        else "unavailable"
+                    ),
                     "generation_config_sha256": (
                         hashlib.sha256(config.read_bytes()).hexdigest()
                         if config.is_file() else None
@@ -403,8 +416,8 @@ def main() -> None:
                 {
                     "fixture": name,
                     "provenance": {
-                        "baseline": provenance(baseline_raw),
-                        "candidate": provenance(candidate_raw),
+                        "baseline": provenance(baseline_raw, baseline_raw_error is not None),
+                        "candidate": provenance(candidate_raw, candidate_raw_error is not None),
                     },
                     "raw_changed": raw_changed,
                     "raw_added_lines": raw_added,
