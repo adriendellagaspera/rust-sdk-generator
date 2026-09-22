@@ -511,6 +511,18 @@ fn main_inner() -> ProofResult<()> {
         &work.join("second"),
     )?;
     assert_equal("two independent complete generations", &second, &first)?;
+    for (label, pass) in [("first", &first), ("second", &second)] {
+        assert_equal(
+            &format!("{label} generation configuration"),
+            &pass.config,
+            &read(&example().join("upstream.toml"))?,
+        )?;
+        assert_equal(
+            &format!("{label} effective OpenAPI"),
+            &pass.effective_openapi,
+            &read(&example().join("openapi.json"))?,
+        )?;
+    }
     println!("[pipeline] pinned unmodified upstream, manifest-free Bindings v3, derivation and byte-level determinism passed");
     consumer(&work)?;
     println!(
