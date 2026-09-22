@@ -397,7 +397,7 @@ def derive_and_generate(
     return derivation, inventory, snapshot(sdk)
 
 
-def cargo_manifest(raw: Path) -> str:
+def cargo_manifest(raw: Path, package_name: str) -> str:
     required = (raw / "REQUIRED_DEPS.toml").read_text()
     if "[dependencies]" not in required:
         raise StageFailure(
@@ -414,7 +414,7 @@ def cargo_manifest(raw: Path) -> str:
             1,
         )
     return (
-        '[package]\nname = "production-compat-consumer"\nversion = "0.0.0"\n'
+        f'[package]\nname = "{package_name}"\nversion = "0.0.0"\n'
         'edition = "2024"\npublish = false\n\n[workspace]\n\n'
         + required
         + '\n\n[dev-dependencies]\ntokio = { version = "1", features = ["macros", "rt-multi-thread"] }\n'
@@ -436,7 +436,7 @@ def compile_default_consumer(
         copy_file(path, generated / path.name)
     for path in sdk.glob("*.rs"):
         copy_file(path, sdk_destination / path.name)
-    (destination / "Cargo.toml").write_text(cargo_manifest(raw))
+    (destination / "Cargo.toml").write_text(\n        cargo_manifest(raw, "independent-notebook-consumer")\n    )
     run(
         "compiled_http",
         "cargo",
@@ -632,7 +632,7 @@ def compile_capability_core(
     )
     copy_file(fixture_root / "core/http.rs", destination / "tests/http.rs")
     (destination / "src/lib.rs").write_text("pub mod generated;\npub mod sdk;\n")
-    (destination / "Cargo.toml").write_text(cargo_manifest(raw))
+    (destination / "Cargo.toml").write_text(\n        cargo_manifest(raw, "capability-matrix-consumer")\n    )
     run(
         "compiled_http",
         "cargo",
