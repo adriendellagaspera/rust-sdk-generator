@@ -205,7 +205,7 @@ fn validate_recipe(recipe: &Recipe) -> Result<()> {
             "generator commit/version or v2 definition/v1 report contract changed; migrate the recipe explicitly rather than silently changing generated public API",
         ));
     }
-    driver::verify_lock(&recipe.backend, &recipe.backend.revision)
+    driver::verify_lock(&recipe.backend, &required_pin()?)
 }
 fn verify_previous_audit(crate_dir: &Path, recipe: &Recipe) -> Result<()> {
     for (path, expected) in [
@@ -675,7 +675,7 @@ fn main_inner() -> Result<()> {
             owned_raw: BTreeMap::new(),
         }
     };
-    driver::verify_lock(&recipe.backend, &recipe.backend.revision)?;
+    driver::verify_lock(&recipe.backend, &required_pin()?)?;
     let source = if let Some(path) = &cli.source {
         read(path, "source.read")?
     } else {
