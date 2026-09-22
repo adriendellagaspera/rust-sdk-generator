@@ -84,11 +84,17 @@ fn root() -> PathBuf {
 fn generator_revision() -> Result<String> {
     let head = run(
         "generator.pin",
-        Command::new("git").arg("-C").arg(root()).args(["rev-parse", "HEAD"]),
+        Command::new("git")
+            .arg("-C")
+            .arg(root())
+            .args(["rev-parse", "HEAD"]),
     )?;
     let revision = String::from_utf8_lossy(&head.stdout).trim().to_owned();
     if revision.len() != 40 || !revision.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err(err("generator.pin", "generator checkout lacks an immutable commit identity"));
+        return Err(err(
+            "generator.pin",
+            "generator checkout lacks an immutable commit identity",
+        ));
     }
     Ok(revision)
 }
@@ -214,9 +220,12 @@ fn verify_previous_audit(crate_dir: &Path, recipe: &Recipe) -> Result<()> {
     ] {
         let actual = read(&crate_dir.join(path), "recipe.audit_drift")?;
         if hash(&actual) != *expected {
-            return Err(err("recipe.audit_drift", format!(
-                "{path} differs from the accepted recipe; restore the audited evidence before sync, or perform an explicit reviewed migration"
-            )));
+            return Err(err(
+                "recipe.audit_drift",
+                format!(
+                    "{path} differs from the accepted recipe; restore the audited evidence before sync, or perform an explicit reviewed migration"
+                ),
+            ));
         }
     }
     Ok(())
@@ -350,19 +359,32 @@ fn optional_source(path: &Path) -> Result<Option<String>> {
     match fs::read_to_string(path) {
         Ok(source) => Ok(Some(source)),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(err("sdk.source_diff", format!("{}: {error}", path.display()))),
+        Err(error) => Err(err(
+            "sdk.source_diff",
+            format!("{}: {error}", path.display()),
+        )),
     }
 }
 
 fn source_changes(previous: &Path, candidate: &Path, diff: &Value) -> Result<Vec<Value>> {
     let mut changes = Vec::new();
     for category in ["missing", "changed", "extra"] {
-        let entries = diff[category].as_array()
-            .ok_or_else(|| err("sdk.source_diff", format!("missing diff category {category}")))?;
+        let entries = diff[category].as_array().ok_or_else(|| {
+            err(
+                "sdk.source_diff",
+                format!("missing diff category {category}"),
+            )
+        })?;
         for entry in entries {
-            let name = entry.as_str()
+            let name = entry
+                .as_str()
                 .filter(|value| safe_relative(value))
-                .ok_or_else(|| err("sdk.source_diff", "non-canonical source path in freshness report"))?;
+                .ok_or_else(|| {
+                    err(
+                        "sdk.source_diff",
+                        "non-canonical source path in freshness report",
+                    )
+                })?;
             let before = optional_source(&previous.join(name))?;
             let after = optional_source(&candidate.join(name))?;
             changes.push(json!({
@@ -768,9 +790,13 @@ fn main_inner() -> Result<()> {
     let decisions = match coverage(&derivation) {
         Ok(decisions) => decisions,
         Err(error) => {
-            println!("{}", serde_json::to_string_pretty(&json!({
-                "derivation": derivation.report
-            })).map_err(|e| err("report.json", e))?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "derivation": derivation.report
+                }))
+                .map_err(|e| err("report.json", e))?
+            );
             return Err(error);
         }
     };
@@ -850,7 +876,10 @@ fn main_inner() -> Result<()> {
     )?;
     let generated_inventory: Value = parse(&candidate.stdout, "sdk.inventory")?;
     if generated_inventory != inventory {
-        return Err(err("sdk.nondeterminism", "root check and staged generate disagree on public API inventory"));
+        return Err(err(
+            "sdk.nondeterminism",
+            "root check and staged generate disagree on public API inventory",
+        ));
     }
     let sources = if old.is_some() {
         source_changes(&output_dir, &candidate_output, &diff)?
@@ -879,7 +908,9 @@ fn main_inner() -> Result<()> {
     }
     publish_raw(
         &stage.0.join(&recipe.raw_output),
-        &old.as_ref().map(|previous| previous.owned_raw.clone()).unwrap_or_default(),
+        &old.as_ref()
+            .map(|previous| previous.owned_raw.clone())
+            .unwrap_or_default(),
         &generated.rust,
     )?;
     write_if_changed(
