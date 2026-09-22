@@ -6,5 +6,6 @@
   "generation_config": "examples/independent-sdk/upstream.toml",
   "supported_envelope": "openapi-to-rust-bindings/capabilities/v1/matrix.json",
   "fork_only_capabilities": "openapi-to-rust-bindings/FORK_CAPABILITIES.json",
-  "legacy_tracker": "openapi-to-rust-bindings/COMPATIBILITY.json"
+  "compatibility_tracker": "openapi-to-rust-bindings/COMPATIBILITY.json",
+  "historical_oracle": "openapi-to-rust-bindings/LEGACY_COMPATIBILITY.json"
 }
