@@ -26,9 +26,7 @@ directory is never consulted or used as a fallback.
 **Historical oracle only:** `--legacy-metadata <generated-directory>`
 explicitly invokes the retained `read_legacy_metadata(directory)` library function.
 It prefers `binding-manifest.json` over `rust-bindings.json`, rejects invalid
-metadata and does not inspect generated Rust. The manifest-specific
-`COMPATIBILITY.json` remains the separate fork tracker pending #157; the
-default upstream pin is [`DEFAULT_BACKEND.json`](DEFAULT_BACKEND.json).
+metadata and does not inspect generated Rust. Production compatibility is tracked in [`COMPATIBILITY.json`](COMPATIBILITY.json) and must match the default upstream pin in [`DEFAULT_BACKEND.json`](DEFAULT_BACKEND.json). The manifest-era fork tracker is isolated in [`LEGACY_COMPATIBILITY.json`](LEGACY_COMPATIBILITY.json) and is never a production fallback.
 
 ## Structural inspection
 
@@ -70,6 +68,6 @@ cargo run --locked -p openapi-to-rust-bindings -- --legacy-metadata path/to/raw-
 
 This explicitly invokes the historical `read_legacy_metadata` manifest/sidecar path. The library also exports `parse_binding_manifest(&str)`, `Bindings::from_value(Value)` and `Bindings::as_value()`. `MANIFEST_NAME` and `SIDECAR_NAME` expose the compatibility file names.
 
-The manifest fixtures remain independent historical oracles. The scheduled/manual compatibility workflow and broader documentation audit belong to #157. The root generator, not this adapter, chooses the public SDK surface and applies consumer policy.
+The manifest fixtures remain independent historical oracles. Scheduled and ordinary compatibility exercise the production upstream boundary; the manifest-era workflow is manual/optional. The root generator, not this adapter, chooses the public SDK surface and applies consumer policy.
 
 See [architecture](../docs/architecture.md) and [contracts](../docs/contracts.md) for the boundary with the root generator.
