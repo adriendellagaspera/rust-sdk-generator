@@ -132,3 +132,88 @@ fn derives_closed_empty_response_view_but_not_an_open_map() {
         DerivationStatus::Rejected
     );
 }
+
+#[test]
+fn disambiguates_public_response_view_from_exact_raw_symbol() {
+    let mut openapi: OpenApi =
+        serde_json::from_str(include_str!("fixtures/derivation-response/openapi.json"))
+            .expect("fixture OpenAPI");
+    let mut bindings: Bindings = serde_json::from_str(include_str!(
+        "fixtures/derivation-response/rust-bindings.json"
+    ))
+    .expect("fixture bindings");
+    let surface: PublicSdkSurface =
+        serde_json::from_str(include_str!("fixtures/derivation-response/surface.json"))
+            .expect("fixture surface");
+    let raw = "GetFleetSensorsResponse";
+
+    let schemas = openapi.0["components"]["schemas"]
+        .as_object_mut()
+        .expect("component schemas");
+    let schema = schemas.remove("SensorResponse").expect("response schema");
+    schemas.insert(raw.into(), schema);
+    openapi.0["paths"]["/sensors/{sensor_id}"]["get"]["responses"]["200"]["content"]["application/json"]
+        ["schema"]["$ref"] = serde_json::json!("#/components/schemas/GetFleetSensorsResponse");
+
+    let fields = bindings
+        .structs
+        .remove("SensorResponse")
+        .expect("raw response fields");
+    bindings.structs.insert(raw.into(), fields);
+    bindings.symbol_paths.remove("SensorResponse");
+    bindings.symbol_paths.insert(
+        raw.into(),
+        "crate::generated::types::GetFleetSensorsResponse".into(),
+    );
+    let operation = bindings
+        .operations
+        .get_mut("opaque_read")
+        .expect("raw read");
+    operation.success_type = raw.into();
+    operation.return_type = format!("Result<{raw}, Error>");
+
+    let derived = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface: surface.clone(),
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive self-colliding raw response");
+    assert_eq!(
+        derived.report.operations["read_sensor"].status,
+        DerivationStatus::Derived
+    );
+    let model = &derived.definition.models["GetFleetSensorsResponseView"];
+    assert_eq!(model.raw.as_deref(), Some(raw));
+    let operation = &derived.definition.resources["fleet_sensors"].operations["get"];
+    assert_eq!(
+        operation.response.as_deref(),
+        Some("GetFleetSensorsResponseView")
+    );
+    generate(GenerateInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        definition: derived.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("generate deterministic renamed response view");
+
+    bindings
+        .aliases
+        .insert("GetFleetSensorsResponseView".into(), "String".into());
+    bindings.symbol_paths.insert(
+        "GetFleetSensorsResponseView".into(),
+        "crate::generated::types::GetFleetSensorsResponseView".into(),
+    );
+    let unavailable = derive(DeriveInput {
+        openapi,
+        bindings,
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("fallback collision remains reportable");
+    assert_eq!(
+        unavailable.report.operations["read_sensor"].reason.code,
+        "capability.public_model_name_collision"
+    );
+}
