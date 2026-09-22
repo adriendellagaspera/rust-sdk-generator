@@ -18,6 +18,25 @@ test -f "$crate/.sdkgen/inventory.json"
 test -f "$crate/src/generated/client.rs"
 test -f "$crate/src/sdk/mod.rs"
 test ! -e "$crate/src/generated/binding-manifest.json"
+# Architectural boundary: the actual pinned driver produces canonical Bindings
+# v3 with preserved source operation identity; root derive/generate consumes only
+# this data, without any backend/adapter dependency in the standalone crate.
+python3 - "$crate" <<'PY'
+import json, pathlib, sys
+crate = pathlib.Path(sys.argv[1])
+bindings = json.loads((crate / ".sdkgen/work/rust-bindings.json").read_text())
+definition = json.loads((crate / ".sdkgen/work/definition.json").read_text())
+inventory = json.loads((crate / ".sdkgen/inventory.json").read_text())
+assert bindings["schema_version"] == 3, bindings
+source = {entry["metadata"]["source_operation"]["operation_id"]
+          for entry in bindings["operations"].values()}
+assert source == {"read_station"}, source
+assert definition["schema_version"] == 2, definition
+assert inventory["resources"], inventory
+manifest = (crate / "Cargo.toml").read_text()
+assert "rust-sdk-generator" not in manifest
+assert "openapi-to-rust-bindings" not in manifest
+PY
 mkdir -p "$crate/tests"
 cp "$fixture/http.rs" "$crate/tests/http.rs"
 cargo test --locked --manifest-path "$crate/Cargo.toml" --all-targets
