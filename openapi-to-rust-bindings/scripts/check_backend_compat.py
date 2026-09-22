@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import tomllib
 from typing import Any
 
 from compat_fixtures import discover_fixtures
@@ -380,10 +381,13 @@ def main() -> None:
             def provenance(raw: Path, generation_failed: bool) -> dict[str, Any]:
                 work = raw.parent
                 config = work / "openapi-to-rust.toml"
-                has_overlay = (
-                    config.is_file() and 'overlays = [' in config.read_text()
+                settings = (
+                    tomllib.loads(config.read_text()).get("generator", {})
+                    if config.is_file() else {}
                 )
-                overlay = work / "openapi.overlaid.json"
+                has_overlay = bool(settings.get("overlays"))
+                overlay_name = settings.get("overlay_output", "openapi.overlaid.json")
+                overlay = work / overlay_name
                 effective = (
                     None if generation_failed
                     else overlay if overlay.is_file()
