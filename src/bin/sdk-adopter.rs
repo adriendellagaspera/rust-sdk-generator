@@ -81,6 +81,17 @@ fn parse<T: serde::de::DeserializeOwned>(bytes: &[u8], stage: &'static str) -> R
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
+fn generator_revision() -> Result<String> {
+    let head = run(
+        "generator.pin",
+        Command::new("git").arg("-C").arg(root()).args(["rev-parse", "HEAD"]),
+    )?;
+    let revision = String::from_utf8_lossy(&head.stdout).trim().to_owned();
+    if revision.len() != 40 || !revision.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(err("generator.pin", "generator checkout lacks an immutable commit identity"));
+    }
+    Ok(revision)
+}
 fn required_pin() -> Result<String> {
     let pin: Value = parse(
         &read(
@@ -133,6 +144,10 @@ struct Recipe {
     schema_version: u32,
     source: Evidence,
     backend: BackendLock,
+    generator_version: String,
+    generator_revision: String,
+    sdk_definition_version: u32,
+    derivation_report_version: u32,
     template_version: u32,
     crate_name: String,
     raw_output: String,
@@ -174,6 +189,16 @@ fn validate_recipe(recipe: &Recipe) -> Result<()> {
         return Err(err(
             "recipe.invalid",
             "missing or invalid generation evidence digest",
+        ));
+    }
+    if recipe.generator_version != env!("CARGO_PKG_VERSION")
+        || recipe.generator_revision != generator_revision()?
+        || recipe.sdk_definition_version != 2
+        || recipe.derivation_report_version != 1
+    {
+        return Err(err(
+            "recipe.generator_contract",
+            "generator commit/version or v2 definition/v1 report contract changed; migrate the recipe explicitly rather than silently changing generated public API",
         ));
     }
     driver::verify_lock(&recipe.backend, &recipe.backend.revision)
@@ -613,6 +638,10 @@ fn main_inner() -> Result<()> {
                 sha256: String::new(),
             },
             backend: driver::default_lock(&required_pin()?),
+            generator_version: env!("CARGO_PKG_VERSION").into(),
+            generator_revision: generator_revision()?,
+            sdk_definition_version: 2,
+            derivation_report_version: 1,
             template_version: driver::TEMPLATE_VERSION,
             crate_name: cli.name.clone().expect("init crate name"),
             raw_output: "src/generated".into(),
