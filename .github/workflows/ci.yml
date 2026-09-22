@@ -57,6 +57,10 @@ jobs:
           enable-cache: true
       - name: Check Python proof syntax
         run: python3 -m py_compile examples/independent-sdk/prove.py
+      - name: Check compatibility fixture and pin helpers
+        run: |
+          python3 -m unittest discover -s openapi-to-rust-bindings/scripts -p "test_*.py"
+          python3 -m py_compile openapi-to-rust-bindings/scripts/*.py
       - name: Reject high-confidence Python defects
         run: >-
           uvx --from ruff==0.16.8 ruff check
