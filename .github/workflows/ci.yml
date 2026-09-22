@@ -109,7 +109,7 @@ jobs:
           persist-credentials: false
       - run: cargo build --locked -p rust-sdk-generator --bin rust-sdk-generator
       - run: cargo build --locked -p openapi-to-rust-bindings --bin openapi-to-rust-bindings
-      - name: Prove adapter sidecar drives the Rust CLI
+      - name: Prove historical manifest-oracle adapter drives the Rust CLI
         env:
           RUST_SDK_GENERATOR_BIN: target/debug/rust-sdk-generator
           OPENAPI_TO_RUST_BINDINGS_BIN: target/debug/openapi-to-rust-bindings
