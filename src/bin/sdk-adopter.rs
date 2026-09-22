@@ -804,18 +804,9 @@ fn main_inner() -> Result<()> {
             return Err(error);
         }
     };
-    if old
+    let coverage_changed = old
         .as_ref()
-        .is_some_and(|previous| previous.coverage != decisions)
-        && !cli.check
-        && !cli.accept_coverage
-    {
-        println!("{}", serde_json::to_string_pretty(&json!({"coverage_before":old.as_ref().map(|v| &v.coverage),"coverage_after":decisions,"derivation":derivation.report})).map_err(|e| err("report.json", e))?);
-        return Err(err(
-            "sync.coverage_drift",
-            "coverage changed; inspect 'sync --check', then rerun with --accept-coverage only after reviewing the new operations and public surface",
-        ));
-    }
+        .is_some_and(|previous| previous.coverage != decisions);
     recipe.source.sha256 = hash(&source);
     recipe.coverage = decisions;
     let deps_digest = hash(generated.dependencies.as_bytes());
@@ -871,6 +862,17 @@ fn main_inner() -> Result<()> {
         &mut root_command(&generator, "check", &work, None),
     )?;
     let inventory: Value = parse(&preview.stdout, "sdk.inventory")?;
+    let previous_inventory: Option<Value> = if old.is_some() {
+        Some(parse(
+            &read(&output.join(".sdkgen/inventory.json"), "recipe.audit_drift")?,
+            "recipe.audit_drift",
+        )?)
+    } else {
+        None
+    };
+    let inventory_changed = previous_inventory
+        .as_ref()
+        .is_some_and(|previous| previous != &inventory);
     // Generate into a disposable clone first, retaining root marker/publication
     // rules. A read-only sync --check never modifies the consumer crate.
     let candidate_output = stage.0.join(&recipe.sdk_output);
@@ -894,7 +896,10 @@ fn main_inner() -> Result<()> {
         "{}",
         serde_json::to_string_pretty(&json!({
             "derivation":derivation.report,
+            "coverage_before": old.as_ref().map(|value| &value.coverage),
+            "coverage_after": recipe.coverage,
             "public_api_inventory":inventory,
+            "public_api_inventory_changed":inventory_changed,
             "generated_source_diff":diff,
             "generated_source_changes":sources,
             "raw_source_sha256":recipe.owned_raw,
@@ -904,6 +909,18 @@ fn main_inner() -> Result<()> {
     );
     if cli.check {
         return Ok(());
+    }
+    if coverage_changed && !cli.accept_coverage {
+        return Err(err(
+            "sync.coverage_drift",
+            "operation coverage changed; review the emitted complete report and diff, then rerun with --accept-coverage",
+        ));
+    }
+    if inventory_changed && !cli.accept_coverage {
+        return Err(err(
+            "sync.public_api_drift",
+            "public API inventory changed; review the emitted report and diff, then rerun with --accept-coverage",
+        ));
     }
     recipe.derivation_sha256 = hash(&json_bytes(&derivation)?);
     recipe.inventory_sha256 = hash(&json_bytes(&inventory)?);
