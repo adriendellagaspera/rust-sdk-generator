@@ -14,9 +14,9 @@ The adapter is a producer of data, not a dependency of the root generator. Appli
 From the generator checkout with Rust 1.88+, Cargo, Git and first-run network access:
 
 ```sh
-cargo run --locked --bin sdk-adopter -- init \
+cargo run --locked --bin rust-sdk -- init \
   --openapi /path/to/your-api.json --output /path/to/your-sdk --name your-sdk
-cargo run --locked --bin sdk-adopter -- sync --crate /path/to/your-sdk --check
+cargo run --locked --bin rust-sdk -- sync --crate /path/to/your-sdk --check
 ```
 
 The Rust-native adopter pins the unmodified upstream backend and effective source,
