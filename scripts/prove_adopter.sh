@@ -87,6 +87,19 @@ find "$crate" -type f ! -path '*/target/*' ! -path '*/.sdkgen/work/*' \
   -print0 | sort -z | xargs -0 sha256sum > "$work/after.sha256"
 diff -u "$work/before.sha256" "$work/after.sha256"
 
+# Unchanged source/recipe must never silently republish even a still-marked
+# generated facade. Preserve the byte-level difference for explicit review.
+cp "$crate/src/sdk/stations.rs" "$work/accepted-stations.rs"
+printf '\n// unexpected still-marked generated drift\n' >> "$crate/src/sdk/stations.rs"
+if cargo run --locked --bin sdk-adopter -- sync --crate "$crate" --offline \
+    > "$work/nondeterminism.out" 2> "$work/nondeterminism.err"; then
+  echo 'unmodified-input generated source drift was silently replaced' >&2; exit 1
+fi
+grep -q sync.nondeterminism "$work/nondeterminism.err"
+grep -q generated_source_changes "$work/nondeterminism.out"
+grep -q 'unexpected still-marked generated drift' "$crate/src/sdk/stations.rs"
+cp "$work/accepted-stations.rs" "$crate/src/sdk/stations.rs"
+
 # Invalid source, no implicit JSON/YAML/URL fallback.
 printf 'not JSON\n' > "$work/invalid.json"
 if cargo run --locked --bin sdk-adopter -- init --openapi "$work/invalid.json" \
