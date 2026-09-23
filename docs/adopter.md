@@ -9,7 +9,7 @@ Requirements: Rust 1.88+ (Cargo), Git, a working native toolchain, and first-run
 ```sh
 git clone https://github.com/adriendellagaspera/rust-sdk-generator.git
 cd rust-sdk-generator
-cargo run --locked --bin sdk-adopter -- init \
+cargo run --locked --bin rust-sdk -- init \
   --openapi /absolute/path/to/your-openapi.json \
   --output /absolute/path/to/your-new-sdk --name your-new-sdk
 cargo test --locked --manifest-path /absolute/path/to/your-new-sdk/Cargo.toml --all-targets
@@ -21,8 +21,8 @@ The Cargo init invocation acquires/builds the exact pinned unmodified upstream b
 
 ```sh
 # After modifying your-new-sdk/openapi.json:
-cargo run --locked --bin sdk-adopter -- sync --crate /absolute/path/to/your-new-sdk --check
-cargo run --locked --bin sdk-adopter -- sync --crate /absolute/path/to/your-new-sdk --accept-coverage
+cargo run --locked --bin rust-sdk -- sync --crate /absolute/path/to/your-new-sdk --check
+cargo run --locked --bin rust-sdk -- sync --crate /absolute/path/to/your-new-sdk --accept-coverage
 cargo test --locked --manifest-path /absolute/path/to/your-new-sdk/Cargo.toml --all-targets
 ```
 
