@@ -289,14 +289,14 @@ fn source_validation(source: &[u8]) -> Result<OpenApi> {
     Ok(OpenApi(value))
 }
 fn cache_dir() -> Result<PathBuf> {
-    if let Some(path) = env::var_os("RUST_SDK_ADOPTER_CACHE") {
+    if let Some(path) = env::var_os("RUST_SDK_CACHE") {
         return Ok(PathBuf::from(path));
     }
     Ok(PathBuf::from(
         env::var_os("HOME")
-            .ok_or_else(|| err("cache.path", "set HOME or RUST_SDK_ADOPTER_CACHE"))?,
+            .ok_or_else(|| err("cache.path", "set HOME or RUST_SDK_CACHE"))?,
     )
-    .join(".cache/rust-sdk-adopter/v1"))
+    .join(".cache/rust-sdk/v1"))
 }
 fn tools(offline: bool) -> Result<(PathBuf, PathBuf)> {
     let root = root();
