@@ -912,13 +912,14 @@ fn main_inner() -> Result<()> {
     // hand-edited, or a producer may have become nondeterministic.
     if let Some(previous) = &old
         && previous.source.sha256 == recipe.source.sha256
-        && ["missing", "changed", "extra"].iter().any(|key| {
-            diff[key].as_array().is_some_and(|entries| !entries.is_empty())
-        })
+        && (previous.owned_raw != recipe.owned_raw
+            || ["missing", "changed", "extra"].iter().any(|key| {
+                diff[key].as_array().is_some_and(|entries| !entries.is_empty())
+            }))
     {
         return Err(err(
             "sync.nondeterminism",
-            "generated facade differs despite unchanged source/recipe; inspect the exhaustive report and source diff above, restore the accepted generated output or explicitly migrate the recipe; refusing to overwrite generated/consumer code",
+            "generated raw or facade differs despite unchanged source/recipe; inspect the exhaustive report and source digests above, restore the accepted generated output or explicitly migrate the recipe; refusing to overwrite generated/consumer code",
         ));
     }
     if cli.check {
