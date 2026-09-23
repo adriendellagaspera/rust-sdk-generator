@@ -42,7 +42,7 @@ JSON, use the [Rust-native init/sync adopter workflow](adopter.md), which has
 an independently tested API fixture and an explicit bounded supported envelope.
 The pinned default is unmodified upstream
 `gpu-cli/openapi-to-rust@5a3487edbe27cfd4efb32dda893774e23d7fa195`.
-The historical fork is not used by this quickstart or by production compatibility. `COMPATIBILITY.json` tracks this same upstream boundary; the isolated `LEGACY_COMPATIBILITY.json` oracle is opt-in only. The own-API `sdk-adopter` binary is a separate orchestration layer; it does
+The historical fork is not used by this quickstart or by production compatibility. `COMPATIBILITY.json` tracks this same upstream boundary; the isolated `LEGACY_COMPATIBILITY.json` oracle is opt-in only. The own-API `rust-sdk` binary is a separate orchestration layer; it does
 not change the notebook fixture or backend-neutral root CLI.
 
 ## Follow the inputs and output
@@ -85,7 +85,7 @@ maintainer's responsibility. See [architecture](architecture.md) and
 ## Adapt the workflow to your own OpenAPI document
 
 The notebook example is a reference integration. For a new standalone SDK,
-use [sdk-adopter init/sync](adopter.md): it supplies a reviewed starter runtime
+use [rust-sdk init/sync](adopter.md): it supplies a reviewed starter runtime
 and records backend configuration and consumer ownership in a versioned recipe.
 The explicit lower-level integration path below remains available for
 consumers that need more control. The versioned
