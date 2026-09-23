@@ -914,7 +914,9 @@ fn main_inner() -> Result<()> {
         && previous.source.sha256 == recipe.source.sha256
         && (previous.owned_raw != recipe.owned_raw
             || ["missing", "changed", "extra"].iter().any(|key| {
-                diff[key].as_array().is_some_and(|entries| !entries.is_empty())
+                diff[key]
+                    .as_array()
+                    .is_some_and(|entries| !entries.is_empty())
             }))
     {
         return Err(err(
