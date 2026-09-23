@@ -5,7 +5,7 @@ repo="$PWD"
 fixture="$repo/tests/fixtures/adopter-stations"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-export RUST_SDK_ADOPTER_CACHE="$work/cache"
+export RUST_SDK_CACHE="$work/cache"
 crate="$work/field-station-sdk"
 
 # Time the *full* clean-runner Cargo init, including compiling the adopter CLI.
@@ -124,7 +124,7 @@ fi
 grep -q adapter.extract "$work/missing-evidence.err"
 
 # An offline installation may not silently fetch a different backend.
-RUST_SDK_ADOPTER_CACHE="$work/empty-cache" \
+RUST_SDK_CACHE="$work/empty-cache" \
   cargo run --locked --bin rust-sdk -- init --offline \
   --openapi "$fixture/initial.json" --output "$work/offline-sdk" --name offline-sdk \
   > /dev/null 2> "$work/offline.err" && { echo 'incomplete cache accepted' >&2; exit 1; }
@@ -207,7 +207,7 @@ import json, sys
 print(json.load(open(sys.argv[1]))["backend"]["revision"])
 PY
 )"
-backend_bin="$RUST_SDK_ADOPTER_CACHE/backend-target/$revision/release/openapi-to-rust"
+backend_bin="$RUST_SDK_CACHE/backend-target/$revision/release/openapi-to-rust"
 test -f "$backend_bin"
 mv "$backend_bin" "$work/backend-bin"
 if cargo run --locked --bin rust-sdk -- sync --crate "$crate" --offline   > /dev/null 2> "$work/incomplete-cache.err"; then
