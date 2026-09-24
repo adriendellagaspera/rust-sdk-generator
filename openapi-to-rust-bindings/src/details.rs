@@ -1745,6 +1745,83 @@ mod parameter_wire_evidence_tests {
     }
 
     #[test]
+    fn proves_complete_parameter_wire_mapping_only_for_exact_source_identity() {
+        let generated: syn::ImplItemFn = syn::parse_quote! {
+            pub async fn list(&self, sort_direction: Option<&str>, sort_direction_2: Option<&str>,
+                last_event_id_2: Option<&str>) {
+                let mut query_params: Vec<(String, String)> = Vec::new();
+                if let Some(v) = sort_direction {
+                    query_params.push(("sort.direction".to_string(), v.to_string()));
+                }
+                if let Some(v) = sort_direction_2 {
+                    query_params.push(("sort_direction".to_string(), v.to_string()));
+                }
+                if let Some(v) = last_event_id_2 {
+                    req = req.header("Last-Event-ID", v.as_ref());
+                }
+            }
+        };
+        let signature = crate::structural::MethodEvidence {
+            name: "list".into(),
+            parameters: ["sort_direction", "sort_direction_2", "last_event_id_2"]
+                .into_iter()
+                .map(|name| crate::structural::ParameterEvidence {
+                    name: name.into(),
+                    rust_type: "Option<&str>".into(),
+                })
+                .collect(),
+            return_type: "Result<(), Error>".into(),
+            success_type: Some("()".into()),
+            location: crate::structural::EvidenceLocation {
+                file: "client.rs".into(),
+                line: 1,
+                module: "client".into(),
+            },
+        };
+        let source = serde_json::json!({
+            "paths": {"/list": {"get": {
+                "parameters": [
+                    {"in": "query", "name": "sort.direction"},
+                    {"in": "query", "name": "sort_direction"},
+                    {"in": "header", "name": "Last-Event-ID"}
+                ]
+            }}}
+        });
+        assert_eq!(
+            parameter_wires(&generated, &signature, &source, "GET", "/list"),
+            vec![
+                ParameterWireEvidence {
+                    rust_name: "last_event_id_2".into(),
+                    location: "header".into(),
+                    wire_name: "Last-Event-ID".into(),
+                },
+                ParameterWireEvidence {
+                    rust_name: "sort_direction".into(),
+                    location: "query".into(),
+                    wire_name: "sort.direction".into(),
+                },
+                ParameterWireEvidence {
+                    rust_name: "sort_direction_2".into(),
+                    location: "query".into(),
+                    wire_name: "sort_direction".into(),
+                },
+            ]
+        );
+        let mut drift = source.clone();
+        drift["paths"]["/list"]["get"]["parameters"][0]["name"] =
+            serde_json::json!("sort-direction");
+        assert!(parameter_wires(&generated, &signature, &drift, "GET", "/list").is_empty());
+        let mut drift = source.clone();
+        drift["paths"]["/list"]["get"]["parameters"][2]["in"] =
+            serde_json::json!("query");
+        assert!(parameter_wires(&generated, &signature, &drift, "GET", "/list").is_empty());
+        let mut drift = source;
+        drift["paths"]["/list"]["get"]["parameters"][1]["name"] =
+            serde_json::json!("sort.direction");
+        assert!(parameter_wires(&generated, &signature, &drift, "GET", "/list").is_empty());
+    }
+
+    #[test]
     fn rejects_nonliteral_wires_nonparameter_guesses_and_multiple_effects() {
         let dynamic: syn::ExprIf = syn::parse_quote! {
             if let Some(v) = last_event_id_2 {
