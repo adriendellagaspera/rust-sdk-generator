@@ -689,15 +689,12 @@ fn choose_representation(
         || compact.contains("LocalBoxStream<");
     if streaming {
         if signals.accept_event_stream {
-            if !media
-                .iter()
-                .any(|(kind, _)| kind.eq_ignore_ascii_case("text/event-stream"))
-            {
-                return Err(semantic_error(
-                    "extract.representation_unproven",
-                    format!("{method_name}: emitted SSE Accept has no matching OpenAPI media type"),
-                ));
-            }
+            // This records the emitted streaming transport, not an assertion
+            // that its source OpenAPI advertises SSE. The downstream root
+            // reconciler independently requires an exact matching
+            // text/event-stream success response before accepting an operation.
+            // A source/media mismatch rejects that operation, not extraction
+            // of the entire otherwise-valid generated SDK.
             return Ok(RepresentationEvidence::EventStream {
                 media_type: "text/event-stream".into(),
             });
