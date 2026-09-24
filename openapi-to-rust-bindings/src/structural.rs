@@ -265,10 +265,16 @@ fn reject_unproved_container_serde(
     Ok(())
 }
 
-fn untagged_payload_union(attrs: &[Attribute], variants: &syn::punctuated::Punctuated<syn::Variant, syn::token::Comma>) -> bool {
+fn untagged_payload_union(
+    attrs: &[Attribute],
+    variants: &syn::punctuated::Punctuated<syn::Variant, syn::token::Comma>,
+) -> bool {
     if !variants.iter().all(|variant| {
         matches!(&variant.fields, Fields::Unnamed(fields) if fields.unnamed.len() == 1)
-            && variant.attrs.iter().all(|attr| !attr.path().is_ident("serde"))
+            && variant
+                .attrs
+                .iter()
+                .all(|attr| !attr.path().is_ident("serde"))
     }) {
         return false;
     }
