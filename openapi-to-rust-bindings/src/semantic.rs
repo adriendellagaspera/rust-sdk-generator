@@ -1180,7 +1180,7 @@ mod inline_json_response_tests {
         assert_eq!(docs.len(), 4);
         let source = route_skeleton("/v1/connectors/{connector_id}#id").expect("source route");
         assert!(docs.iter().all(|(verb, path)| {
-            verb == "DELETE" && route_skeleton(path).as_deref() == Ok(source.as_str())
+            verb == "DELETE" && route_skeleton(path).is_ok_and(|route| route == source)
         }));
         let mut contradictory = attrs;
         contradictory.push(syn::parse_quote!(#[doc = " PATCH /v1/connectors/{id} "]));
