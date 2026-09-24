@@ -323,11 +323,18 @@ fn validate_parameter_wires(value: &Value, context: &str) -> Result<(), Error> {
     for (index, mapping) in array(value, context)?.iter().enumerate() {
         let context = format!("{context}[{index}]");
         let mapping = object(mapping, &context)?;
-        exact_keys(mapping, &["rust_name", "location", "wire_name"], &[], &context)?;
+        exact_keys(
+            mapping,
+            &["rust_name", "location", "wire_name"],
+            &[],
+            &context,
+        )?
         let rust_name = nonempty_string(&mapping["rust_name"], &format!("{context}.rust_name"))?;
         let location = string(&mapping["location"], &format!("{context}.location"))?;
         if !matches!(location, "query" | "header") {
-            return Err(invalid(format!("{context}.location must be query or header")));
+            return Err(invalid(format!(
+                "{context}.location must be query or header"
+            )));
         }
         let wire_name = nonempty_string(&mapping["wire_name"], &format!("{context}.wire_name"))?;
         let identity = if location == "header" {
@@ -336,7 +343,9 @@ fn validate_parameter_wires(value: &Value, context: &str) -> Result<(), Error> {
             wire_name.to_owned()
         };
         if !names.insert(rust_name.to_owned()) || !keys.insert((location.to_owned(), identity)) {
-            return Err(invalid(format!("{context} duplicates a Rust parameter or HTTP wire key")));
+            return Err(invalid(format!(
+                "{context} duplicates a Rust parameter or HTTP wire key"
+            )));
         }
     }
     Ok(())
