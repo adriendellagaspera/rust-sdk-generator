@@ -317,7 +317,11 @@ fn untagged_single_payload_enum_is_proven_as_payload_union() {
     assert_eq!(item.variants.len(), 2);
     assert_eq!(item.variants[0].payload, vec!["String"]);
     assert_eq!(item.variants[1].payload, vec!["u64"]);
-    assert!(item.variants.iter().all(|variant| variant.wire_name == variant.name));
+    assert!(
+        item.variants
+            .iter()
+            .all(|variant| variant.wire_name == variant.name)
+    );
 }
 
 #[test]
