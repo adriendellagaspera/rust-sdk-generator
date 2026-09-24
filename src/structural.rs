@@ -2110,7 +2110,7 @@ mod legacy_nullable_request_tests {
 
         let (index, bindings, _) = fixture();
         schema["properties"]["description"]["anyOf"] =
-            serde_json::json!([{"type": "string"}, {"type": "null"}]);
+            serde_json::json!([{"type": "string"}, {"type": "integer"}]);
         assert!(legacy_nullable_request_property(
             &schema["properties"]["description"]
         ).is_none());
