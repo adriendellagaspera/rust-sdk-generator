@@ -297,7 +297,10 @@ fn emitted_operation_id(
         .expect("one emitted operation id"))
 }
 
-fn operation_doc(attrs: &[Attribute]) -> Result<Option<(String, String)>, Error> {
+fn operation_doc(attrs: &[Attribute]) -> Vec<(String, String)> {
+    // A generated method may document multiple source aliases for the same
+    // physical route. Keep *all* of them: each must match the independently
+    // observed HTTP verb and route skeleton before the method is certified.
     let mut matches = Vec::new();
     for attr in attrs.iter().filter(|attr| attr.path().is_ident("doc")) {
         let Meta::NameValue(meta) = &attr.meta else {
@@ -326,14 +329,7 @@ fn operation_doc(attrs: &[Attribute]) -> Result<Option<(String, String)>, Error>
             matches.push((method, path.to_owned()));
         }
     }
-    match matches.len() {
-        0 => Ok(None),
-        1 => Ok(matches.pop()),
-        count => Err(semantic_error(
-            "extract.source_identity_ambiguous",
-            format!("multiple HTTP route doc attributes found: {count}"),
-        )),
-    }
+    matches
 }
 
 fn route_skeleton(path: &str) -> Result<String, Error> {
@@ -694,6 +690,9 @@ fn is_binary_media(media_type: &str, media: &Value) -> bool {
     media_type.eq_ignore_ascii_case("application/octet-stream")
         || media_type.eq_ignore_ascii_case("application/*")
         || media_type.eq_ignore_ascii_case("*/*")
+        // Audio media (including audio/wav) is a byte response even when an
+        // OpenAPI producer omits the optional format: binary schema hint.
+        || media_type.to_ascii_lowercase().starts_with("audio/")
         || media
             .get("schema")
             .and_then(|schema| schema.get("format"))
@@ -900,7 +899,7 @@ pub fn inspect_semantics(
                 format!("{rust_method_name}: no structural signature"),
             ));
         };
-        let documented = operation_doc(&method.attrs)?;
+        let documented = operation_doc(&method.attrs);
         let mut signals = MethodSignals::default();
         signals.visit_block(&method.block);
         signals.bounded_text = proves_bounded_text(&method.block);
@@ -949,17 +948,21 @@ pub fn inspect_semantics(
             ));
         }
         let source_operation = candidates.remove(0);
-        if let Some((doc_verb, doc_path)) = documented
-            && (doc_verb != source_operation.identity.method
-                || route_skeleton(&doc_path)? != route_skeleton(&source_operation.identity.path)?)
-        {
-            return Err(semantic_error(
-                "extract.source_identity_ambiguous",
-                format!(
-                    "{rust_method_name}: rustdoc {doc_verb} {doc_path} disagrees with body/OpenAPI identity {} {}",
-                    source_operation.identity.method, source_operation.identity.path
-                ),
-            ));
+        // Multiple rustdoc aliases are admissible only when every one
+        // identifies this exact observable method and physical route. Do not
+        // choose a convenient annotation while ignoring a contradictory one.
+        for (doc_verb, doc_path) in documented {
+            if doc_verb != source_operation.identity.method
+                || route_skeleton(&doc_path)? != route_skeleton(&source_operation.identity.path)?
+            {
+                return Err(semantic_error(
+                    "extract.source_identity_ambiguous",
+                    format!(
+                        "{rust_method_name}: rustdoc {doc_verb} {doc_path} disagrees with body/OpenAPI identity {} {}",
+                        source_operation.identity.method, source_operation.identity.path
+                    ),
+                ));
+            }
         }
         matched_sources.insert((
             source_operation.identity.method.clone(),
@@ -1163,6 +1166,80 @@ mod inline_json_response_tests {
             &["200".into()],
             &MethodSignals::default(),
         )
+    }
+
+    #[test]
+    fn multiple_rustdoc_aliases_must_all_agree_with_observed_route() {
+        let attrs: Vec<Attribute> = vec![
+            syn::parse_quote!(#[doc = " DELETE /v1/connectors/{connector_id}#id "]),
+            syn::parse_quote!(#[doc = " DELETE /v1/connectors/{connector_id_or_name}#idOrName "]),
+            syn::parse_quote!(#[doc = " DELETE /v1/connectors/{id} "]),
+            syn::parse_quote!(#[doc = " DELETE /v1/connectors/{name} "]),
+        ];
+        let docs = operation_doc(&attrs);
+        assert_eq!(docs.len(), 4);
+        let source = route_skeleton("/v1/connectors/{connector_id}#id").expect("source route");
+        assert!(docs.iter().all(|(verb, path)| {
+            verb == "DELETE" && route_skeleton(path).as_deref() == Ok(source.as_str())
+        }));
+        let mut contradictory = attrs;
+        contradictory.push(syn::parse_quote!(#[doc = " PATCH /v1/connectors/{id} "]));
+        assert!(operation_doc(&contradictory).iter().any(|(verb, _)| verb != "DELETE"));
+        contradictory.push(syn::parse_quote!(#[doc = " DELETE /v1/other/{id} "]));
+        assert!(operation_doc(&contradictory).iter().any(|(_, path)| {
+            route_skeleton(path).expect("doc route") != source
+        }));
+    }
+
+    #[test]
+    fn emitted_audio_bytes_accept_audio_wav_without_schema_format_hint() {
+        let audio = OpenApiOperation {
+            identity: SourceOperationEvidence {
+                operation_id: "audio_sample".into(),
+                method: "GET".into(),
+                path: "/voice/sample".into(),
+            },
+            value: serde_json::json!({
+                "responses": {"200": {"content": {"audio/wav": {"schema": {"type": "string"}}}}}
+            }),
+        };
+        assert_eq!(
+            choose_representation(
+                &audio,
+                "audio_sample_wav",
+                "bytes::Bytes",
+                &["200".into()],
+                &MethodSignals {
+                    bytes: true,
+                    ..MethodSignals::default()
+                },
+            )
+            .expect("observed audio bytes are media-proven"),
+            RepresentationEvidence::BinaryBuffered {
+                media_type: "audio/wav".into(),
+                wildcard: false,
+            }
+        );
+        let ambiguous = OpenApiOperation {
+            value: serde_json::json!({
+                "responses": {"200": {"content": {
+                    "audio/wav": {"schema": {"type": "string"}},
+                    "audio/mpeg": {"schema": {"type": "string"}}
+                }}}
+            }),
+            ..audio
+        };
+        assert!(choose_representation(
+            &ambiguous,
+            "audio_sample_wav",
+            "bytes::Bytes",
+            &["200".into()],
+            &MethodSignals {
+                bytes: true,
+                ..MethodSignals::default()
+            },
+        )
+        .is_err());
     }
 
     #[test]
