@@ -1004,10 +1004,7 @@ mod tests {
             Some("raw_update_metrics")
         );
         assert_eq!(result["pause"].binding, None);
-        assert_eq!(
-            result["pause"].reason,
-            Some("request.inline_or_unresolved")
-        );
+        assert_eq!(result["pause"].reason, Some("request.inline_or_unresolved"));
     }
 
     #[test]
