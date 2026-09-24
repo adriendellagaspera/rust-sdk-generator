@@ -1404,17 +1404,26 @@ fn literal_wire(expr: &Expr) -> Option<String> {
 }
 
 fn if_let_optional_parameter(node: &syn::ExprIf) -> Option<(String, String)> {
-    let Expr::Let(condition) = &*node.cond else { return None };
-    let Pat::TupleStruct(some) = &*condition.pat else { return None };
+    let Expr::Let(condition) = &*node.cond else {
+        return None;
+    };
+    let Pat::TupleStruct(some) = &*condition.pat else {
+        return None;
+    };
     if !some.path.is_ident("Some") || some.elems.len() != 1 {
         return None;
     }
-    let Pat::Ident(bound) = some.elems.first()? else { return None };
+    let Pat::Ident(bound) = some.elems.first()? else {
+        return None;
+    };
     Some((param_path(&condition.expr)?, bound.ident.to_string()))
 }
 
 fn uses_only_bound_value(expr: &Expr, bound: &str) -> bool {
-    struct BindingUse<'a> { name: &'a str, found: bool }
+    struct BindingUse<'a> {
+        name: &'a str,
+        found: bool,
+    }
     impl<'ast> Visit<'ast> for BindingUse<'_> {
         fn visit_expr_path(&mut self, value: &'ast syn::ExprPath) {
             if value.path.segments.len() == 1
@@ -1426,7 +1435,10 @@ fn uses_only_bound_value(expr: &Expr, bound: &str) -> bool {
             visit::visit_expr_path(self, value);
         }
     }
-    let mut visitor = BindingUse { name: bound, found: false };
+    let mut visitor = BindingUse {
+        name: bound,
+        found: false,
+    };
     visitor.visit_expr(expr);
     visitor.found
 }
@@ -1436,7 +1448,9 @@ fn optional_wire_assignment(node: &syn::ExprIf) -> Option<ParameterWireEvidence>
     if node.else_branch.is_some() || node.then_branch.stmts.len() != 1 {
         return None;
     }
-    let Stmt::Expr(statement, _) = &node.then_branch.stmts[0] else { return None };
+    let Stmt::Expr(statement, _) = &node.then_branch.stmts[0] else {
+        return None;
+    };
     // query_params.push(("wire-name".to_string(), v.to_string()))
     if let Expr::MethodCall(push) = statement
         && push.method == "push"
@@ -1460,12 +1474,17 @@ fn optional_wire_assignment(node: &syn::ExprIf) -> Option<ParameterWireEvidence>
         });
     }
     // req = req.header("wire-name", v.as_ref())
-    let Expr::Assign(assign) = statement else { return None };
+    let Expr::Assign(assign) = statement else {
+        return None;
+    };
     if param_path(&assign.left).as_deref() != Some("req") {
         return None;
     }
-    let Expr::MethodCall(header) = &*assign.right else { return None };
-    if header.method != "header" || header.args.len() != 2
+    let Expr::MethodCall(header) = &*assign.right else {
+        return None;
+    };
+    if header.method != "header"
+        || header.args.len() != 2
         || param_path(&header.receiver).as_deref() != Some("req")
     {
         return None;
@@ -1498,14 +1517,27 @@ fn parameter_wires(
     };
     let mut source = BTreeSet::new();
     for parameter in path_item
-        .get("parameters").and_then(Value::as_array).into_iter().flatten()
-        .chain(operation.get("parameters").and_then(Value::as_array).into_iter().flatten())
+        .get("parameters")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .chain(
+            operation
+                .get("parameters")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten(),
+        )
     {
         let (Some(location), Some(name)) = (
             parameter.get("in").and_then(Value::as_str),
             parameter.get("name").and_then(Value::as_str),
-        ) else { return Vec::new() };
-        if !matches!(location, "query" | "header") { continue; }
+        ) else {
+            return Vec::new();
+        };
+        if !matches!(location, "query" | "header") {
+            continue;
+        }
         let unique = if location == "header" {
             name.to_ascii_lowercase()
         } else {
@@ -1515,8 +1547,12 @@ fn parameter_wires(
             return Vec::new();
         }
     }
-    if source.is_empty() { return Vec::new(); }
-    struct WireVisitor { candidates: Vec<ParameterWireEvidence> }
+    if source.is_empty() {
+        return Vec::new();
+    }
+    struct WireVisitor {
+        candidates: Vec<ParameterWireEvidence>,
+    }
     impl<'ast> Visit<'ast> for WireVisitor {
         fn visit_expr_if(&mut self, node: &'ast syn::ExprIf) {
             if let Some(evidence) = optional_wire_assignment(node) {
@@ -1525,10 +1561,15 @@ fn parameter_wires(
             visit::visit_expr_if(self, node);
         }
     }
-    let mut visitor = WireVisitor { candidates: Vec::new() };
+    let mut visitor = WireVisitor {
+        candidates: Vec::new(),
+    };
     visitor.visit_block(&method.block);
-    let valid_parameters: BTreeSet<_> = signature.parameters.iter()
-        .map(|parameter| parameter.name.as_str()).collect();
+    let valid_parameters: BTreeSet<_> = signature
+        .parameters
+        .iter()
+        .map(|parameter| parameter.name.as_str())
+        .collect();
     let mut mapped_names = BTreeSet::new();
     let mut mapped_wires = BTreeSet::new();
     let mut output = Vec::new();
@@ -1539,7 +1580,9 @@ fn parameter_wires(
             evidence.wire_name.clone()
         };
         let identity = (evidence.location.clone(), canonical_wire);
-        if !source.contains(&identity) { continue; } // authorization/Accept headers aren't source parameters
+        if !source.contains(&identity) {
+            continue;
+        } // authorization/Accept headers aren't source parameters
         if !valid_parameters.contains(evidence.rust_name.as_str())
             || !mapped_names.insert(evidence.rust_name.clone())
             || !mapped_wires.insert(identity)
@@ -1548,7 +1591,9 @@ fn parameter_wires(
         }
         output.push(evidence);
     }
-    if mapped_wires != source { return Vec::new(); }
+    if mapped_wires != source {
+        return Vec::new();
+    }
     output.sort_by(|a, b| a.rust_name.cmp(&b.rust_name));
     output
 }
