@@ -32,6 +32,7 @@ struct RequestShape {
 enum RequestBodyShape {
     Model(RequestMediaDefinition, String),
     InlineModel(RequestMediaDefinition, Value),
+    Schema(RequestMediaDefinition, Value),
     Raw(RequestMediaDefinition, String),
 }
 
@@ -159,6 +160,8 @@ fn request_shape(operation: &Value) -> std::result::Result<RequestShape, &'stati
                         Some(RequestBodyShape::Model(media, schema.to_owned()))
                     } else if schema.get("type").and_then(Value::as_str) == Some("object") {
                         Some(RequestBodyShape::InlineModel(media, schema.clone()))
+                    } else if media == RequestMediaDefinition::Json && required {
+                        Some(RequestBodyShape::Schema(media, schema.clone()))
                     } else {
                         return Err("request.inline_or_unresolved");
                     }
@@ -568,6 +571,9 @@ fn binding_matches(
                 }
                 RequestBodyShape::InlineModel(_, schema) => {
                     object_value_matches(openapi, schema, &parameter.type_name, bindings)
+                }
+                RequestBodyShape::Schema(_, schema) => {
+                    rust_type_matches_schema(schema, &parameter.type_name, bindings)
                 }
                 RequestBodyShape::Raw(_, type_name) => parameter.type_name == *type_name,
             })
