@@ -1123,6 +1123,27 @@ mod inline_json_response_tests {
     }
 
     #[test]
+    fn emitted_sse_transport_does_not_claim_source_media_compatibility() {
+        let operation = source(serde_json::json!({"type": "object"}));
+        let mut signals = MethodSignals::default();
+        signals.bytes_stream = true;
+        signals.accept_event_stream = true;
+        assert_eq!(
+            choose_representation(
+                &operation,
+                "list",
+                "HttpResponseByteStream",
+                &["200".into()],
+                &signals,
+            )
+            .expect("observed SSE transport is carried to strict root reconciliation"),
+            RepresentationEvidence::EventStream {
+                media_type: "text/event-stream".into(),
+            }
+        );
+    }
+
+    #[test]
     fn retains_emitted_success_type_for_inline_json_array_subject_to_root_proof() {
         let list = source(serde_json::json!({
             "type": "array",
