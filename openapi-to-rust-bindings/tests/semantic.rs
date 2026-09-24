@@ -1141,13 +1141,18 @@ fn owned_native_and_wasm_stream_aliases_are_proved_exactly() {
 }
 
 #[test]
-fn emitted_stream_representation_must_exist_in_the_selected_source_response() {
+fn emitted_stream_transport_is_preserved_when_source_media_disagrees() {
     let root = stream_alias_fixture(NATIVE_STREAM, Some(WASM_STREAM));
     root.file(
         "openapi.json",
         &STREAM_ALIAS_OPENAPI.replace("text/event-stream", "application/json"),
     );
-    assert_extract_error(&root, "extract.representation_unproven", "events");
+    let bindings = extract_bindings(root.path(), root.path().join("openapi.json"))
+        .expect("unique HTTP route can be identified independently of response media");
+    assert_eq!(
+        bindings.as_value()["operations"]["events"]["metadata"]["representation"]["media_type"],
+        "text/event-stream"
+    );
 }
 
 #[test]
