@@ -723,6 +723,26 @@ pub(crate) fn legacy_nullable_request_property(schema: &Value) -> Option<Value> 
     {
         return None;
     }
+    if object.contains_key("$ref")
+        && (object.contains_key("type")
+            || object.keys().any(|key| {
+                !matches!(
+                    key.as_str(),
+                    "$ref"
+                        | "nullable"
+                        | "title"
+                        | "description"
+                        | "deprecated"
+                        | "example"
+                        | "examples"
+                        | "default"
+                        | "$comment"
+                )
+            }))
+    {
+        // Constraints alongside a reference must not be lost by ref_name().
+        return None;
+    }
     let mut non_null = object.clone();
     non_null.remove("nullable");
     Some(Value::Object(non_null))
@@ -2106,6 +2126,13 @@ mod legacy_nullable_request_tests {
         let (index, mut bindings, mut schema) = fixture();
         bindings.structs.get_mut("RawPatch").expect("raw patch")[0].type_name =
             "Option<String>".into();
+        assert!(!object_value_matches(
+            &index, &schema, "RawPatch", &bindings
+        ));
+
+        let (index, bindings, _) = fixture();
+        schema["properties"]["sharingScope"]["maxLength"] = serde_json::json!(3);
+        assert!(legacy_nullable_request_property(&schema["properties"]["sharingScope"]).is_none());
         assert!(!object_value_matches(
             &index, &schema, "RawPatch", &bindings
         ));
