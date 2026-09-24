@@ -337,10 +337,22 @@ fn operation_doc(attrs: &[Attribute]) -> Result<Option<(String, String)>, Error>
 }
 
 fn route_skeleton(path: &str) -> Result<String, Error> {
-    // The overlaid source may expose a separate #stream representation for
-    // the same wire URL. That suffix is a source identity discriminator,
-    // never part of the HTTP request target.
-    let wire_path = path.strip_suffix("#stream").unwrap_or(path);
+    // An overlaid source may distinguish several OpenAPI operation paths by
+    // a synthetic "#variant" fragment even when their HTTP route is identical.
+    // A fragment never reaches the server; the actual request URL, HTTP method
+    // and Rustdoc route still have to agree with the source before identity is
+    // accepted. Reject malformed/empty fragments rather than guessing a route.
+    let wire_path = if let Some((wire, variant)) = path.split_once('#') {
+        if wire.is_empty()
+            || variant.is_empty()
+            || !variant.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+        {
+            return Err(semantic_error("extract.source_path_invalid", path));
+        }
+        wire
+    } else {
+        path
+    };
     let mut output = String::new();
     let mut chars = wire_path.chars().peekable();
     while let Some(ch) = chars.next() {
@@ -1153,6 +1165,31 @@ mod inline_json_response_tests {
             &["200".into()],
             &MethodSignals::default(),
         )
+    }
+
+    #[test]
+    fn synthetic_source_fragments_are_not_part_of_the_http_route() {
+        assert_eq!(
+            route_skeleton("/v1/connectors/{connector_id}#id").expect("id route"),
+            "/v1/connectors/{}"
+        );
+        assert_eq!(
+            route_skeleton("/v1/connectors/{connector_id_or_name}#idOrName")
+                .expect("alternate identity route"),
+            "/v1/connectors/{}"
+        );
+        assert_eq!(
+            route_skeleton("/v1/conversations/{conversation_id}#stream")
+                .expect("stream variant route"),
+            "/v1/conversations/{}"
+        );
+        assert_eq!(
+            route_skeleton("/v1/connectors/{connector_id}").expect("ordinary route"),
+            "/v1/connectors/{}"
+        );
+        assert!(route_skeleton("/v1/connectors/{connector_id}#").is_err());
+        assert!(route_skeleton("/v1/connectors/{connector_id}#id/other").is_err());
+        assert!(route_skeleton("/v1/connectors/{connector_id}#id#other").is_err());
     }
 
     #[test]
