@@ -1,6 +1,6 @@
-//! Local-first, own-OpenAPI adopter CLI. The library remains backend-neutral:
+//! Local-first, own-OpenAPI `rust-sdk` CLI. The library remains backend-neutral:
 //! driver -> canonical Bindings v3 -> root derive -> root generate/check-generated.
-#[path = "sdk_adopter/driver.rs"]
+#[path = "rust_sdk/driver.rs"]
 mod driver;
 
 use std::collections::BTreeMap;
@@ -424,12 +424,12 @@ fn create_starter(dir: &Path, recipe: &Recipe, fragment: &str) -> Result<()> {
     )?;
     write_if_changed(
         &dir.join("src/lib.rs"),
-        include_bytes!("../../templates/adopter-v1/src/lib.rs"),
+        include_bytes!("../../templates/standalone-v1/src/lib.rs"),
         "template.lib",
     )?;
     write_if_changed(
         &dir.join("src/sdk/error.rs"),
-        include_bytes!("../../templates/adopter-v1/src/sdk/error.rs"),
+        include_bytes!("../../templates/standalone-v1/src/sdk/error.rs"),
         "template.runtime",
     )?;
     Ok(())
