@@ -431,7 +431,8 @@ fn inspect_items(
                                 failure(&f_at, "extract.field_unidentified", &path)
                             })?;
                             let f_name = name(ident);
-                            let (wire_name, serde_skip) = serde_name(&field.attrs, &f_name, Some(&field.ty), &f_at)?;
+                            let (wire_name, serde_skip) =
+                                serde_name(&field.attrs, &f_name, Some(&field.ty), &f_at)?;
                             fields.push(FieldEvidence {
                                 name: f_name,
                                 rust_type: tokens(&field.ty),
