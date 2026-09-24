@@ -344,13 +344,13 @@ fn documented_route_matches(doc_path: &str, source_path: &str) -> Result<bool, E
     if doc_segments.len() != source_segments.len() {
         return Ok(false);
     }
-    Ok(source_segments.iter().zip(doc_segments).all(|(expected, actual)| {
-        expected == &actual
-            || (expected == &"{}"
-                && !actual.is_empty()
-                && actual != "."
-                && actual != "..")
-    }))
+    Ok(source_segments
+        .iter()
+        .zip(doc_segments)
+        .all(|(expected, actual)| {
+            expected == &actual
+                || (expected == &"{}" && !actual.is_empty() && actual != "." && actual != "..")
+        }))
 }
 
 fn route_skeleton(path: &str) -> Result<String, Error> {
@@ -1203,18 +1203,27 @@ mod inline_json_response_tests {
         assert!(docs.iter().all(|(verb, path)| {
             verb == "DELETE" && documented_route_matches(path, source).expect("doc route")
         }));
-        assert!(documented_route_matches(
-            "/v1/workflows/MyWorkflow/metrics",
-            "/v1/workflows/{workflow_name}/metrics"
-        ).expect("concrete rustdoc example"));
-        assert!(!documented_route_matches(
-            "/v1/workflows/MyWorkflow/logs",
-            "/v1/workflows/{workflow_name}/metrics"
-        ).expect("static mismatch"));
-        assert!(!documented_route_matches(
-            "/v1/workflows/MyWorkflow/metrics/extra",
-            "/v1/workflows/{workflow_name}/metrics"
-        ).expect("arity mismatch"));
+        assert!(
+            documented_route_matches(
+                "/v1/workflows/MyWorkflow/metrics",
+                "/v1/workflows/{workflow_name}/metrics"
+            )
+            .expect("concrete rustdoc example")
+        );
+        assert!(
+            !documented_route_matches(
+                "/v1/workflows/MyWorkflow/logs",
+                "/v1/workflows/{workflow_name}/metrics"
+            )
+            .expect("static mismatch")
+        );
+        assert!(
+            !documented_route_matches(
+                "/v1/workflows/MyWorkflow/metrics/extra",
+                "/v1/workflows/{workflow_name}/metrics"
+            )
+            .expect("arity mismatch")
+        );
         let mut contradictory = attrs;
         contradictory.push(syn::parse_quote!(#[doc = " PATCH /v1/connectors/{id} "]));
         assert!(
