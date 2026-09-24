@@ -317,6 +317,31 @@ fn validate_stream_abi(value: &Value, context: &str) -> Result<(), Error> {
     Ok(())
 }
 
+fn validate_parameter_wires(value: &Value, context: &str) -> Result<(), Error> {
+    let mut names = BTreeSet::new();
+    let mut keys = BTreeSet::new();
+    for (index, mapping) in array(value, context)?.iter().enumerate() {
+        let context = format!("{context}[{index}]");
+        let mapping = object(mapping, &context)?;
+        exact_keys(mapping, &["rust_name", "location", "wire_name"], &[], &context)?;
+        let rust_name = nonempty_string(&mapping["rust_name"], &format!("{context}.rust_name"))?;
+        let location = string(&mapping["location"], &format!("{context}.location"))?;
+        if !matches!(location, "query" | "header") {
+            return Err(invalid(format!("{context}.location must be query or header")));
+        }
+        let wire_name = nonempty_string(&mapping["wire_name"], &format!("{context}.wire_name"))?;
+        let identity = if location == "header" {
+            wire_name.to_ascii_lowercase()
+        } else {
+            wire_name.to_owned()
+        };
+        if !names.insert(rust_name.to_owned()) || !keys.insert((location.to_owned(), identity)) {
+            return Err(invalid(format!("{context} duplicates a Rust parameter or HTTP wire key")));
+        }
+    }
+    Ok(())
+}
+
 fn validate_metadata(
     value: &Value,
     context: &str,
@@ -332,11 +357,15 @@ fn validate_metadata(
             "representation",
             "success_statuses",
             "request_discriminators",
+            "parameter_wires",
             "stream_abi",
         ],
         &[],
         context,
     )?;
+    if let Some(wires) = metadata.get("parameter_wires") {
+        validate_parameter_wires(wires, &format!("{context}.parameter_wires"))?;
+    }
 
     let kind = string(&metadata["kind"], &format!("{context}.kind"))?;
     if !matches!(kind, "call_shape" | "multipart_filenames") {
