@@ -265,6 +265,32 @@ fn reject_unproved_container_serde(
     Ok(())
 }
 
+fn untagged_payload_union(attrs: &[Attribute], variants: &syn::punctuated::Punctuated<syn::Variant, syn::token::Comma>) -> bool {
+    if !variants.iter().all(|variant| {
+        matches!(&variant.fields, Fields::Unnamed(fields) if fields.unnamed.len() == 1)
+            && variant.attrs.iter().all(|attr| !attr.path().is_ident("serde"))
+    }) {
+        return false;
+    }
+    let mut saw_untagged = false;
+    for attr in attrs.iter().filter(|attr| attr.path().is_ident("serde")) {
+        let parsed = attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("untagged") {
+                if meta.input.is_empty() && !saw_untagged {
+                    saw_untagged = true;
+                    return Ok(());
+                }
+                return Err(meta.error("duplicate or parameterized untagged serde container"));
+            }
+            Err(meta.error("untagged payload union has unsupported serde container option"))
+        });
+        if parsed.is_err() {
+            return false;
+        }
+    }
+    saw_untagged
+}
+
 fn public(vis: &Visibility) -> bool {
     matches!(vis, Visibility::Public(_))
 }
@@ -372,7 +398,9 @@ fn inspect_items(
             Item::Enum(e) if public(&e.vis) => {
                 let path = format!("{module}::{}", name(&e.ident));
                 let at = location(root, file, module, e.ident.span().start().line);
-                reject_unproved_container_serde(&e.attrs, &at)?;
+                if !untagged_payload_union(&e.attrs, &e.variants) {
+                    reject_unproved_container_serde(&e.attrs, &at)?;
+                }
                 let mut variants = Vec::new();
                 for variant in &e.variants {
                     let v_at = location(root, file, module, variant.span().start().line);
