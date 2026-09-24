@@ -1184,11 +1184,17 @@ mod inline_json_response_tests {
         }));
         let mut contradictory = attrs;
         contradictory.push(syn::parse_quote!(#[doc = " PATCH /v1/connectors/{id} "]));
-        assert!(operation_doc(&contradictory).iter().any(|(verb, _)| verb != "DELETE"));
+        assert!(
+            operation_doc(&contradictory)
+                .iter()
+                .any(|(verb, _)| verb != "DELETE")
+        );
         contradictory.push(syn::parse_quote!(#[doc = " DELETE /v1/other/{id} "]));
-        assert!(operation_doc(&contradictory).iter().any(|(_, path)| {
-            route_skeleton(path).expect("doc route") != source
-        }));
+        assert!(
+            operation_doc(&contradictory)
+                .iter()
+                .any(|(_, path)| { route_skeleton(path).expect("doc route") != source })
+        );
     }
 
     #[test]
@@ -1229,17 +1235,19 @@ mod inline_json_response_tests {
             }),
             ..audio
         };
-        assert!(choose_representation(
-            &ambiguous,
-            "audio_sample_wav",
-            "bytes::Bytes",
-            &["200".into()],
-            &MethodSignals {
-                bytes: true,
-                ..MethodSignals::default()
-            },
-        )
-        .is_err());
+        assert!(
+            choose_representation(
+                &ambiguous,
+                "audio_sample_wav",
+                "bytes::Bytes",
+                &["200".into()],
+                &MethodSignals {
+                    bytes: true,
+                    ..MethodSignals::default()
+                },
+            )
+            .is_err()
+        );
     }
 
     #[test]
