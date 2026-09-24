@@ -586,9 +586,77 @@ fn binding_matches(
         .filter(|(index, _)| Some(*index) != body_index)
         .map(|(_, parameter)| raw_parameter_name(&parameter.name).to_owned())
         .collect();
-    let raw_set: BTreeSet<_> = raw_names.iter().cloned().collect();
-    if raw_names.len() != raw_set.len() || raw_set != request.parameters {
-        return false;
+    if let Some(metadata) = &binding.metadata
+        && !metadata.parameter_wires.is_empty()
+    {
+        // Every non-path source parameter must have a unique *observed*
+        // HTTP location and wire key. A normalized Rust spelling alone cannot
+        // distinguish dotted query names, casing or query/header collisions.
+        let mut expected = BTreeSet::new();
+        let mut path_names = BTreeSet::new();
+        for parameter in operation
+            .get("parameters")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let (Some(location), Some(name)) = (
+                parameter.get("in").and_then(Value::as_str),
+                parameter.get("name").and_then(Value::as_str),
+            ) else {
+                return false;
+            };
+            match location {
+                "path" => {
+                    if !path_names.insert(normalized_parameter_name(name)) {
+                        return false;
+                    }
+                }
+                "query" | "header" => {
+                    let wire = if location == "header" {
+                        name.to_ascii_lowercase()
+                    } else {
+                        name.to_owned()
+                    };
+                    if !expected.insert((location.to_owned(), wire)) {
+                        return false;
+                    }
+                }
+                _ => return false,
+            }
+        }
+        let mut matched = BTreeSet::new();
+        let mut mapped_rust = BTreeSet::new();
+        for wire in &metadata.parameter_wires {
+            let name = raw_parameter_name(&wire.rust_name);
+            if !raw_names.iter().any(|raw| raw == name) || !mapped_rust.insert(name.to_owned()) {
+                return false;
+            }
+            let key = if wire.location == "header" {
+                wire.wire_name.to_ascii_lowercase()
+            } else {
+                wire.wire_name.clone()
+            };
+            if !matched.insert((wire.location.clone(), key)) {
+                return false;
+            }
+        }
+        if matched != expected {
+            return false;
+        }
+        let path_raw: Vec<_> = raw_names.iter()
+            .filter(|name| !mapped_rust.contains(name.as_str()))
+            .cloned()
+            .collect();
+        let actual_path: BTreeSet<_> = path_raw.iter().cloned().collect();
+        if actual_path.len() != path_raw.len() || actual_path != path_names {
+            return false;
+        }
+    } else {
+        let raw_set: BTreeSet<_> = raw_names.iter().cloned().collect();
+        if raw_names.len() != raw_set.len() || raw_set != request.parameters {
+            return false;
+        }
     }
     if let Some(metadata) = &binding.metadata {
         metadata_response_matches(openapi, operation, binding, metadata, bindings)
