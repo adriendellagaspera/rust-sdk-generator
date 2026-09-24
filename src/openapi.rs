@@ -955,6 +955,75 @@ mod tests {
     }
 
     #[test]
+    fn exposes_only_required_non_object_json_root_request_schemas() {
+        let value = serde_json::json!({
+            "openapi": "3.1.0",
+            "paths": {
+                "/members": {"post": {
+                    "operationId": "create_members",
+                    "requestBody": {
+                        "required": true,
+                        "content": {"application/json": {"schema": {
+                            "type": "array",
+                            "items": {"$ref": "#/components/schemas/Member"}
+                        }}}
+                    }
+                }},
+                "/metrics": {"put": {
+                    "operationId": "update_metrics",
+                    "requestBody": {
+                        "required": true,
+                        "content": {"application/json": {"schema": {
+                            "anyOf": [
+                                {"$ref": "#/components/schemas/Online"},
+                                {"$ref": "#/components/schemas/Offline"}
+                            ]
+                        }}}
+                    }
+                }},
+                "/pause": {"post": {
+                    "operationId": "pause",
+                    "requestBody": {
+                        "content": {"application/json": {"schema": {
+                            "anyOf": [
+                                {"$ref": "#/components/schemas/Pause"},
+                                {"type": "null"}
+                            ]
+                        }}}
+                    }
+                }}
+            },
+            "components": {"schemas": {
+                "Member": {"type": "object"},
+                "Online": {"type": "object"},
+                "Offline": {"type": "object"},
+                "Pause": {"type": "object"}
+            }}
+        });
+        let index = OpenApiIndex::new(&OpenApi(value)).expect("valid index");
+        let members = index
+            .required_json_schema_request_body("create_members")
+            .expect("request lookup")
+            .expect("required array root");
+        assert_eq!(members.media, RequestMediaDefinition::Json);
+        assert_eq!(members.schema["type"], "array");
+
+        let metrics = index
+            .required_json_schema_request_body("update_metrics")
+            .expect("request lookup")
+            .expect("required union root");
+        assert_eq!(metrics.schema["anyOf"].as_array().map(Vec::len), Some(2));
+
+        assert!(
+            index
+                .required_json_schema_request_body("pause")
+                .expect("request lookup")
+                .is_none(),
+            "optional nullable roots require an independent tri-state proof"
+        );
+    }
+
+    #[test]
     fn ignores_trace_operations_to_match_existing_contract() {
         let value = serde_json::json!({
             "paths": {"/trace": {"trace": {"operationId": "trace_only"}}}
