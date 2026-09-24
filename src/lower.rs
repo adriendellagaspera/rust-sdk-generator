@@ -2744,6 +2744,7 @@ mod stream_abi_tests {
                 },
                 success_statuses: vec!["200".into()],
                 request_discriminators: Vec::new(),
+                parameter_wires: Vec::new(),
                 stream_abi: Some(StreamAbiBinding {
                     alias: "HttpResponseByteStream".into(),
                     item_type: "bytes::Bytes".into(),

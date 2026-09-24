@@ -592,9 +592,78 @@ fn binding_matches(
         .filter(|(index, _)| Some(*index) != body_index)
         .map(|(_, parameter)| raw_parameter_name(&parameter.name).to_owned())
         .collect();
-    let raw_set: BTreeSet<_> = raw_names.iter().cloned().collect();
-    if raw_names.len() != raw_set.len() || raw_set != request.parameters {
-        return false;
+    if let Some(metadata) = &binding.metadata
+        && !metadata.parameter_wires.is_empty()
+    {
+        // Every non-path source parameter must have a unique *observed*
+        // HTTP location and wire key. A normalized Rust spelling alone cannot
+        // distinguish dotted query names, casing or query/header collisions.
+        let mut expected = BTreeSet::new();
+        let mut path_names = BTreeSet::new();
+        for parameter in operation
+            .get("parameters")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let (Some(location), Some(name)) = (
+                parameter.get("in").and_then(Value::as_str),
+                parameter.get("name").and_then(Value::as_str),
+            ) else {
+                return false;
+            };
+            match location {
+                "path" => {
+                    if !path_names.insert(normalized_parameter_name(name)) {
+                        return false;
+                    }
+                }
+                "query" | "header" => {
+                    let wire = if location == "header" {
+                        name.to_ascii_lowercase()
+                    } else {
+                        name.to_owned()
+                    };
+                    if !expected.insert((location.to_owned(), wire)) {
+                        return false;
+                    }
+                }
+                _ => return false,
+            }
+        }
+        let mut matched = BTreeSet::new();
+        let mut mapped_rust = BTreeSet::new();
+        for wire in &metadata.parameter_wires {
+            let name = raw_parameter_name(&wire.rust_name);
+            if !raw_names.iter().any(|raw| raw == name) || !mapped_rust.insert(name.to_owned()) {
+                return false;
+            }
+            let key = if wire.location == "header" {
+                wire.wire_name.to_ascii_lowercase()
+            } else {
+                wire.wire_name.clone()
+            };
+            if !matched.insert((wire.location.clone(), key)) {
+                return false;
+            }
+        }
+        if matched != expected {
+            return false;
+        }
+        let path_raw: Vec<_> = raw_names
+            .iter()
+            .filter(|name| !mapped_rust.contains(name.as_str()))
+            .cloned()
+            .collect();
+        let actual_path: BTreeSet<_> = path_raw.iter().cloned().collect();
+        if actual_path.len() != path_raw.len() || actual_path != path_names {
+            return false;
+        }
+    } else {
+        let raw_set: BTreeSet<_> = raw_names.iter().cloned().collect();
+        if raw_names.len() != raw_set.len() || raw_set != request.parameters {
+            return false;
+        }
     }
     if let Some(metadata) = &binding.metadata {
         metadata_response_matches(openapi, operation, binding, metadata, bindings)
@@ -725,7 +794,8 @@ mod tests {
     use super::*;
     use crate::contracts::{
         BindingLayout, ClientBinding, OperationBindingKind, OperationMetadataBinding,
-        ParameterBinding, ResponseRepresentationBinding, SourceOperationBinding, StreamBinding,
+        ParameterBinding, ParameterWireBinding, ResponseRepresentationBinding,
+        SourceOperationBinding, StreamBinding,
     };
 
     fn bindings(operations: BTreeMap<String, OperationBinding>) -> Bindings {
@@ -810,6 +880,7 @@ mod tests {
                 representation,
                 success_statuses: success_statuses.into_iter().map(str::to_owned).collect(),
                 request_discriminators: Vec::new(),
+                parameter_wires: Vec::new(),
                 stream_abi: None,
             }),
         }
@@ -835,6 +906,91 @@ mod tests {
                 None,
             ),
         )
+    }
+
+    #[test]
+    fn canonical_wire_map_distinguishes_query_and_header_cursors() {
+        let openapi = OpenApi(serde_json::json!({
+            "openapi": "3.1.0",
+            "paths": {
+                "/events/{event_id}": {
+                    "get": {
+                        "operationId": "read_events",
+                        "parameters": [
+                            {"name": "event_id", "in": "path", "required": true,
+                             "schema": {"type": "string"}},
+                            {"name": "last_event_id", "in": "query", "required": false,
+                             "schema": {"type": "string"}},
+                            {"name": "Last-Event-ID", "in": "header", "required": false,
+                             "schema": {"type": "string"}}
+                        ],
+                        "responses": {"204": {"description": "done"}}
+                    }
+                }
+            }
+        }));
+        let mut raw = v3_operation(
+            "opaque_events",
+            "read_events",
+            "GET",
+            "/events/{event_id}",
+            OperationBindingKind::CallShape,
+        );
+        raw.parameters = vec![
+            ParameterBinding {
+                name: "last_event_id".into(),
+                type_name: "Option<impl AsRef<str>>".into(),
+            },
+            ParameterBinding {
+                name: "event_id".into(),
+                type_name: "impl AsRef<str>".into(),
+            },
+            ParameterBinding {
+                name: "last_event_id_2".into(),
+                type_name: "Option<impl AsRef<str>>".into(),
+            },
+        ];
+        let proven = vec![
+            ParameterWireBinding {
+                rust_name: "last_event_id".into(),
+                location: "query".into(),
+                wire_name: "last_event_id".into(),
+            },
+            ParameterWireBinding {
+                rust_name: "last_event_id_2".into(),
+                location: "header".into(),
+                wire_name: "Last-Event-ID".into(),
+            },
+        ];
+        let mut check = |wires: Vec<ParameterWireBinding>, accepted: bool| {
+            raw.metadata.as_mut().expect("v3 metadata").parameter_wires = wires;
+            let result = reconcile(
+                &openapi,
+                &v3_bindings(BTreeMap::from([("opaque_events".into(), raw.clone())])),
+            )
+            .expect("candidate reconciliation");
+            assert_eq!(
+                result["read_events"].binding.as_deref() == Some("opaque_events"),
+                accepted
+            );
+        };
+        check(proven.clone(), true);
+        let mut swapped = proven.clone();
+        swapped[0].rust_name = "last_event_id_2".into();
+        swapped[1].rust_name = "last_event_id".into();
+        // A swapped Rust-to-wire map cannot be independently disproved by
+        // signature names alone; the producer must derive it from emitted AST.
+        // The consumer checks exact source wire keys and bijectivity.
+        check(swapped, true);
+        let mut wrong_wire = proven.clone();
+        wrong_wire[0].wire_name = "last-event-id".into();
+        check(wrong_wire, false);
+        let mut wrong_location = proven.clone();
+        wrong_location[1].location = "query".into();
+        check(wrong_location, false);
+        check(proven[..1].to_vec(), false);
+        check(vec![proven[0].clone(), proven[0].clone()], false);
+        check(Vec::new(), false);
     }
 
     #[test]
