@@ -1112,7 +1112,10 @@ mod inline_json_response_tests {
         }
     }
 
-    fn select(operation: &OpenApiOperation, success_type: &str) -> Result<RepresentationEvidence, Error> {
+    fn select(
+        operation: &OpenApiOperation,
+        success_type: &str,
+    ) -> Result<RepresentationEvidence, Error> {
         choose_representation(
             operation,
             "list",
