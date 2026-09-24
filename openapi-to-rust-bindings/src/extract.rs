@@ -325,13 +325,17 @@ pub fn extract_bindings(
         } else {
             (Value::Null, Value::Null)
         };
-        let parameter_wires = detail.parameter_wires.iter().map(|wire| {
-            json!({
-                "rust_name": wire.rust_name,
-                "location": wire.location,
-                "wire_name": wire.wire_name,
+        let parameter_wires = detail
+            .parameter_wires
+            .iter()
+            .map(|wire| {
+                json!({
+                    "rust_name": wire.rust_name,
+                    "location": wire.location,
+                    "wire_name": wire.wire_name,
+                })
             })
-        }).collect::<Vec<_>>();
+            .collect::<Vec<_>>();
         let request_discriminators = detail
             .request_discriminators
             .iter()
