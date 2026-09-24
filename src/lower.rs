@@ -2169,6 +2169,16 @@ pub(crate) fn lower(
                         ));
                     }
                     object_value_matches(&index, &body.schema, &model.raw, bindings)
+                } else if let Some(body) =
+                    index.required_json_schema_request_body(operation_id)?
+                {
+                    if body.media != configured_media {
+                        return Err(error(
+                            "lower.request_media_drift",
+                            format!("required JSON request media drift for {operation_id}"),
+                        ));
+                    }
+                    rust_type_matches_schema(&body.schema, &model.raw, bindings)
                 } else {
                     let body = index
                         .structured_request_body(operation_id)?
