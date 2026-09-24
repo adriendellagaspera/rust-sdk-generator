@@ -709,6 +709,45 @@ pub(crate) fn nullable_request_union(schema: &Value) -> Option<Value> {
     Some(serde_json::json!({"anyOf": non_null}))
 }
 
+/// Normalize a typed request property using the legacy OpenAPI nullable flag.
+/// The flag is not JSON Schema 2020-12 syntax, but some OpenAPI 3.1 producers
+/// retain it and the pinned raw generator emits two Option layers for an
+/// optional nullable field. Never discard composition/union constraints.
+pub(crate) fn legacy_nullable_request_property(schema: &Value) -> Option<Value> {
+    let object = schema.as_object()?;
+    if object.get("nullable") != Some(&Value::Bool(true))
+        || (!object.contains_key("type") && !object.contains_key("$ref"))
+        || ["oneOf", "anyOf", "allOf"]
+            .iter()
+            .any(|key| object.contains_key(*key))
+    {
+        return None;
+    }
+    if object.contains_key("$ref")
+        && (object.contains_key("type")
+            || object.keys().any(|key| {
+                !matches!(
+                    key.as_str(),
+                    "$ref"
+                        | "nullable"
+                        | "title"
+                        | "description"
+                        | "deprecated"
+                        | "example"
+                        | "examples"
+                        | "default"
+                        | "$comment"
+                )
+            }))
+    {
+        // Constraints alongside a reference must not be lost by ref_name().
+        return None;
+    }
+    let mut non_null = object.clone();
+    non_null.remove("nullable");
+    Some(Value::Object(non_null))
+}
+
 fn canonical_unconstrained_map_branch(schema: &Value, raw: &str, bindings: &Bindings) -> bool {
     let Some(shape) = schema.as_object() else {
         return false;
@@ -1026,7 +1065,9 @@ fn request_object_value_matches(
         let nullable_wire = nullable_request_union(property)
             .or_else(|| referenced.and_then(nullable_request_union))
             .or_else(|| nullable_schema(property).cloned())
-            .or_else(|| referenced.and_then(nullable_schema).cloned());
+            .or_else(|| referenced.and_then(nullable_schema).cloned())
+            .or_else(|| legacy_nullable_request_property(property))
+            .or_else(|| referenced.and_then(legacy_nullable_request_property));
         let (wire, nullable) = nullable_wire
             .as_ref()
             .map(|schema| (schema, true))
@@ -2010,6 +2051,98 @@ mod referenced_array_union_tests {
             &schema,
             "OpaqueUnion",
             &bindings
+        ));
+    }
+}
+
+#[cfg(test)]
+mod legacy_nullable_request_tests {
+    use super::*;
+    use crate::contracts::OpenApi;
+
+    fn fixture() -> (OpenApiIndex, Bindings, Value) {
+        let source = OpenApi(serde_json::json!({
+            "openapi": "3.1.0",
+            "components": {
+                "schemas": {
+                    "Scope": {
+                        "type": "string",
+                        "enum": ["private", "workspace"]
+                    }
+                }
+            }
+        }));
+        let index = OpenApiIndex::new(&source).expect("OpenAPI index");
+        let bindings = serde_json::from_value(serde_json::json!({
+            "schema_version": 3,
+            "structs": {
+                "RawPatch": [
+                    {"name": "description", "type": "Option<Option<String>>", "wire_name": "description"},
+                    {"name": "sharing_scope", "type": "Option<Option<Scope>>", "wire_name": "sharingScope"}
+                ]
+            },
+            "enums": {
+                "Scope": [
+                    {"name": "Private", "wire_name": "private"},
+                    {"name": "Workspace", "wire_name": "workspace"}
+                ]
+            },
+            "aliases": {},
+            "operations": {},
+            "symbol_paths": {},
+            "binding": {
+                "client": {
+                    "type_path": "crate::raw::Client",
+                    "constructor": "new",
+                    "api_key_builder": "with_api_key",
+                    "base_url_builder": "with_base_url"
+                },
+                "type_preludes": []
+            }
+        }))
+        .expect("canonical bindings");
+        let schema = serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "description": {"type": "string", "nullable": true},
+                "sharingScope": {
+                    "$ref": "#/components/schemas/Scope",
+                    "nullable": true
+                }
+            }
+        });
+        (index, bindings, schema)
+    }
+
+    #[test]
+    fn proves_optional_legacy_nullable_scalar_and_renamed_reference_fields() {
+        let (index, bindings, schema) = fixture();
+        assert!(object_value_matches(&index, &schema, "RawPatch", &bindings));
+    }
+
+    #[test]
+    fn rejects_wrong_option_depth_and_unsupported_nullable_union() {
+        let (index, mut bindings, mut schema) = fixture();
+        bindings.structs.get_mut("RawPatch").expect("raw patch")[0].type_name =
+            "Option<String>".into();
+        assert!(!object_value_matches(
+            &index, &schema, "RawPatch", &bindings
+        ));
+
+        let (index, bindings, _) = fixture();
+        schema["properties"]["sharingScope"]["maxLength"] = serde_json::json!(3);
+        assert!(legacy_nullable_request_property(&schema["properties"]["sharingScope"]).is_none());
+        assert!(!object_value_matches(
+            &index, &schema, "RawPatch", &bindings
+        ));
+
+        let (index, bindings, _) = fixture();
+        schema["properties"]["description"]["anyOf"] =
+            serde_json::json!([{"type": "string"}, {"type": "integer"}]);
+        assert!(legacy_nullable_request_property(&schema["properties"]["description"]).is_none());
+        assert!(!object_value_matches(
+            &index, &schema, "RawPatch", &bindings
         ));
     }
 }

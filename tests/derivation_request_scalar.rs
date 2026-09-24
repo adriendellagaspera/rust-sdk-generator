@@ -87,6 +87,56 @@ fn preserves_optional_nullable_request_depth() {
 }
 
 #[test]
+fn legacy_nullable_optional_request_preserves_omission_and_explicit_null() {
+    let (mut openapi, mut bindings, surface) = fixture();
+    *openapi
+        .0
+        .pointer_mut("/components/schemas/UpdateJobRequest/properties/priority")
+        .expect("priority schema") = serde_json::json!({
+        "type": "integer",
+        "nullable": true
+    });
+    *request_field_mut(&mut bindings, "priority") = "Option<Option<i64>>".into();
+
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface: surface.clone(),
+        overrides: SdkOverrides::default(),
+    })
+    .expect("legacy nullable request derives");
+    assert_eq!(
+        derivation.report.operations["revise_job"].status,
+        DerivationStatus::Derived
+    );
+    let generated = generate(GenerateInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        definition: derivation.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("legacy nullable request generates");
+    let types = &generated.files["facade_types.rs"];
+    assert!(types.contains("pub fn priority(mut self, priority: i64) -> Self"));
+    assert!(types.contains("self.raw.priority = Some(Some(priority));"));
+    assert!(types.contains("pub fn priority_null(mut self) -> Self"));
+    assert!(types.contains("self.raw.priority = Some(None);"));
+
+    *request_field_mut(&mut bindings, "priority") = "Option<i64>".into();
+    let rejected = derive(DeriveInput {
+        openapi,
+        bindings,
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("shallow raw field is classified");
+    assert_eq!(
+        rejected.report.operations["revise_job"].status,
+        DerivationStatus::Rejected
+    );
+}
+
+#[test]
 fn rejects_optional_nullable_request_with_shallow_raw_option() {
     let (mut openapi, bindings, surface) = fixture();
     *openapi
