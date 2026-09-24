@@ -161,15 +161,48 @@ fn attr_cfg(attrs: &[Attribute]) -> Vec<String> {
 
 /// Extract only a proved serde wire name. Unknown serializer-specific rules
 /// are NOT replaced with OpenAPI or presumed Rust naming conventions.
+fn flattened_additional_properties_type(ty: &Type) -> bool {
+    let Type::Path(path) = ty else {
+        return false;
+    };
+    if path.qself.is_some()
+        || path
+            .path
+            .segments
+            .iter()
+            .map(|segment| segment.ident.to_string())
+            .collect::<Vec<_>>()
+            != ["std", "collections", "BTreeMap"]
+    {
+        return false;
+    }
+    let Some(segment) = path.path.segments.last() else {
+        return false;
+    };
+    let syn::PathArguments::AngleBracketed(args) = &segment.arguments else {
+        return false;
+    };
+    let mut arguments = args.args.iter();
+    let Some(syn::GenericArgument::Type(Type::Path(key))) = arguments.next() else {
+        return false;
+    };
+    key.qself.is_none()
+        && key.path.is_ident("String")
+        && matches!(arguments.next(), Some(syn::GenericArgument::Type(_)))
+        && arguments.next().is_none()
+}
+
 fn serde_name(
     attrs: &[Attribute],
     rust_name: &str,
+    field_type: Option<&Type>,
     loc: &EvidenceLocation,
 ) -> Result<(Option<String>, bool), Error> {
     let mut renamed: Option<String> = None;
     let mut serialize_rename: Option<String> = None;
     let mut deserialize_rename: Option<String> = None;
     let mut skipped = false;
+    let mut flattened = false;
     for attr in attrs.iter().filter(|a| a.path().is_ident("serde")) {
         attr.parse_nested_meta(|meta| {
             if meta.path.is_ident("rename") {
@@ -189,8 +222,19 @@ fn serde_name(
                         Ok(())
                     })?;
                 }
-            } else if meta.path.is_ident("rename_all") || meta.path.is_ident("flatten") {
-                return Err(meta.error("serde rename_all/flatten requires dedicated proof"));
+            } else if meta.path.is_ident("flatten") {
+                if rust_name != "additional_properties"
+                    || !field_type.is_some_and(flattened_additional_properties_type)
+                    || flattened
+                    || !meta.input.is_empty()
+                {
+                    return Err(meta.error(
+                        "serde flatten requires an additional_properties BTreeMap<String, T> field",
+                    ));
+                }
+                flattened = true;
+            } else if meta.path.is_ident("rename_all") {
+                return Err(meta.error("serde rename_all requires dedicated proof"));
             } else if meta.path.is_ident("skip") {
                 skipped = true;
             } else if meta.path.is_ident("skip_serializing")
@@ -210,6 +254,23 @@ fn serde_name(
             Ok(())
         })
         .map_err(|e| failure(loc, "extract.serde_unsupported", e))?;
+    }
+    if flattened {
+        // A flattened map contributes arbitrary JSON members, not a property
+        // named additional_properties. The canonical null wire name is
+        // understood by the generator's existing flattened-map proof.
+        if skipped
+            || renamed.is_some()
+            || serialize_rename.is_some()
+            || deserialize_rename.is_some()
+        {
+            return Err(failure(
+                loc,
+                "extract.serde_flatten_ambiguous",
+                "flatten cannot be combined with skip or rename",
+            ));
+        }
+        return Ok((None, false));
     }
     let default =
         renamed.unwrap_or_else(|| rust_name.strip_prefix("r#").unwrap_or(rust_name).to_owned());
@@ -370,7 +431,7 @@ fn inspect_items(
                                 failure(&f_at, "extract.field_unidentified", &path)
                             })?;
                             let f_name = name(ident);
-                            let (wire_name, serde_skip) = serde_name(&field.attrs, &f_name, &f_at)?;
+                            let (wire_name, serde_skip) = serde_name(&field.attrs, &f_name, Some(&field.ty), &f_at)?;
                             fields.push(FieldEvidence {
                                 name: f_name,
                                 rust_type: tokens(&field.ty),
@@ -411,7 +472,7 @@ fn inspect_items(
                 for variant in &e.variants {
                     let v_at = location(root, file, module, variant.span().start().line);
                     let v_name = name(&variant.ident);
-                    let (wire, skipped) = serde_name(&variant.attrs, &v_name, &v_at)?;
+                    let (wire, skipped) = serde_name(&variant.attrs, &v_name, None, &v_at)?;
                     if skipped {
                         return Err(failure(&v_at, "extract.enum_variant_skipped", v_name));
                     }
@@ -431,7 +492,7 @@ fn inspect_items(
                                 };
                                 let field_name = name(ident);
                                 let (wire_name, serde_skip) =
-                                    serde_name(&field.attrs, &field_name, &at)?;
+                                    serde_name(&field.attrs, &field_name, Some(&field.ty), &at)?;
                                 named_payload.push(FieldEvidence {
                                     name: field_name,
                                     rust_type: tokens(&field.ty),
