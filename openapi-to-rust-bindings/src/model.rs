@@ -328,7 +328,7 @@ fn validate_parameter_wires(value: &Value, context: &str) -> Result<(), Error> {
             &["rust_name", "location", "wire_name"],
             &[],
             &context,
-        )?
+        )?;
         let rust_name = nonempty_string(&mapping["rust_name"], &format!("{context}.rust_name"))?;
         let location = string(&mapping["location"], &format!("{context}.location"))?;
         if !matches!(location, "query" | "header") {
