@@ -271,19 +271,8 @@ fn request_object_models_value(
         .ok_or(REQUEST_MODEL_UNPROVEN)?;
     let by_name: BTreeMap<_, _> = fields
         .iter()
-        .map(|field| {
-            (
-                field
-                    .wire_name
-                    .as_deref()
-                    .unwrap_or_else(|| field.name.strip_prefix("r#").unwrap_or(&field.name)),
-                field,
-            )
-        })
+        .map(|field| (field.name.strip_prefix("r#").unwrap_or(&field.name), field))
         .collect();
-    if by_name.len() != fields.len() {
-        return Err(REQUEST_MODEL_UNPROVEN);
-    }
     let required: Vec<String> = schema
         .get("required")
         .and_then(Value::as_array)
