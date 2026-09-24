@@ -325,6 +325,13 @@ pub fn extract_bindings(
         } else {
             (Value::Null, Value::Null)
         };
+        let parameter_wires = detail.parameter_wires.iter().map(|wire| {
+            json!({
+                "rust_name": wire.rust_name,
+                "location": wire.location,
+                "wire_name": wire.wire_name,
+            })
+        }).collect::<Vec<_>>();
         let request_discriminators = detail
             .request_discriminators
             .iter()
@@ -359,6 +366,7 @@ pub fn extract_bindings(
                     "representation": representation_json(&semantics.representation)?,
                     "success_statuses": semantics.success_statuses,
                     "request_discriminators": request_discriminators,
+                    "parameter_wires": parameter_wires,
                     "stream_abi": stream_abi,
                 }
             }),
