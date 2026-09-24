@@ -38,7 +38,7 @@ Inspect these artifacts inside the printed directory:
 | `consumer/` | Standalone generated crate, handwritten runtime and HTTP tests |
 
 The example is **turnkey for the notebook fixture**. For your own local OpenAPI
-JSON, use the [Rust-native init/sync adopter workflow](adopter.md), which has
+JSON, use the [Rust-native init/sync workflow](own-api-sdk.md), which has
 an independently tested API fixture and an explicit bounded supported envelope.
 The pinned default is unmodified upstream
 `gpu-cli/openapi-to-rust@5a3487edbe27cfd4efb32dda893774e23d7fa195`.
@@ -85,7 +85,7 @@ maintainer's responsibility. See [architecture](architecture.md) and
 ## Adapt the workflow to your own OpenAPI document
 
 The notebook example is a reference integration. For a new standalone SDK,
-use [rust-sdk init/sync](adopter.md): it supplies a reviewed starter runtime
+use [rust-sdk init/sync](own-api-sdk.md): it supplies a reviewed starter runtime
 and records backend configuration and consumer ownership in a versioned recipe.
 The explicit lower-level integration path below remains available for
 consumers that need more control. The versioned
