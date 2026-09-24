@@ -838,6 +838,179 @@ mod tests {
     }
 
     #[test]
+    fn reconciles_required_array_and_union_roots_but_not_optional_nullable_root() {
+        let openapi = OpenApi(serde_json::json!({
+            "openapi": "3.1.0",
+            "paths": {
+                "/members": {"post": {
+                    "operationId": "create_members",
+                    "requestBody": {
+                        "required": true,
+                        "content": {"application/json": {"schema": {
+                            "type": "array",
+                            "items": {"$ref": "#/components/schemas/Member"}
+                        }}}
+                    },
+                    "responses": {"204": {"description": "done"}}
+                }},
+                "/metrics": {"put": {
+                    "operationId": "update_metrics",
+                    "requestBody": {
+                        "required": true,
+                        "content": {"application/json": {"schema": {
+                            "anyOf": [
+                                {"$ref": "#/components/schemas/Online"},
+                                {"$ref": "#/components/schemas/Offline"}
+                            ]
+                        }}}
+                    },
+                    "responses": {"204": {"description": "done"}}
+                }},
+                "/pause": {"post": {
+                    "operationId": "pause",
+                    "requestBody": {
+                        "content": {"application/json": {"schema": {
+                            "anyOf": [
+                                {"$ref": "#/components/schemas/PauseRequest"},
+                                {"type": "null"}
+                            ]
+                        }}}
+                    },
+                    "responses": {"204": {"description": "done"}}
+                }}
+            },
+            "components": {"schemas": {
+                "Member": {
+                    "type": "object",
+                    "required": ["name"],
+                    "properties": {"name": {"type": "string"}}
+                },
+                "Online": {
+                    "type": "object",
+                    "required": ["online"],
+                    "properties": {"online": {"type": "boolean"}}
+                },
+                "Offline": {
+                    "type": "object",
+                    "required": ["batch"],
+                    "properties": {"batch": {"type": "string"}}
+                },
+                "PauseRequest": {
+                    "type": "object",
+                    "properties": {"reason": {"type": "string"}}
+                }
+            }}
+        }));
+        let bindings: Bindings = serde_json::from_value(serde_json::json!({
+            "schema_version": 3,
+            "structs": {
+                "Member": [{"name": "name", "wire_name": "name", "type": "String"}],
+                "Online": [{"name": "online", "wire_name": "online", "type": "bool"}],
+                "Offline": [{"name": "batch", "wire_name": "batch", "type": "String"}],
+                "PauseRequest": [{"name": "reason", "wire_name": "reason", "type": "Option<String>"}]
+            },
+            "enums": {
+                "MetricsRequest": [
+                    {"name": "Online", "payload": "Online", "wire_name": "online"},
+                    {"name": "Offline", "payload": "Offline", "wire_name": "offline"}
+                ]
+            },
+            "aliases": {
+                "UsersRequest": "Vec<Member>",
+                "PauseAlias": "PauseRequest"
+            },
+            "operations": {
+                "raw_create_members": {
+                    "name": "raw_create_members",
+                    "parameters": [{"name": "request", "type": "UsersRequest"}],
+                    "return_type": "Result<(), Error>",
+                    "success_type": "()",
+                    "stream": null,
+                    "metadata": {
+                        "kind": "call_shape",
+                        "source_operation": {
+                            "operation_id": "create_members",
+                            "method": "POST",
+                            "path": "/members"
+                        },
+                        "emitted_operation_id": "create_members",
+                        "representation": {"kind": "empty"},
+                        "success_statuses": ["204"],
+                        "request_discriminators": [],
+                        "stream_abi": null
+                    }
+                },
+                "raw_update_metrics": {
+                    "name": "raw_update_metrics",
+                    "parameters": [{"name": "request", "type": "MetricsRequest"}],
+                    "return_type": "Result<(), Error>",
+                    "success_type": "()",
+                    "stream": null,
+                    "metadata": {
+                        "kind": "call_shape",
+                        "source_operation": {
+                            "operation_id": "update_metrics",
+                            "method": "PUT",
+                            "path": "/metrics"
+                        },
+                        "emitted_operation_id": "update_metrics",
+                        "representation": {"kind": "empty"},
+                        "success_statuses": ["204"],
+                        "request_discriminators": [],
+                        "stream_abi": null
+                    }
+                },
+                "raw_pause": {
+                    "name": "raw_pause",
+                    "parameters": [{"name": "request", "type": "Option<PauseAlias>"}],
+                    "return_type": "Result<(), Error>",
+                    "success_type": "()",
+                    "stream": null,
+                    "metadata": {
+                        "kind": "call_shape",
+                        "source_operation": {
+                            "operation_id": "pause",
+                            "method": "POST",
+                            "path": "/pause"
+                        },
+                        "emitted_operation_id": "pause",
+                        "representation": {"kind": "empty"},
+                        "success_statuses": ["204"],
+                        "request_discriminators": [],
+                        "stream_abi": null
+                    }
+                }
+            },
+            "symbol_paths": {},
+            "binding": {
+                "client": {
+                    "type_path": "crate::raw::Client",
+                    "constructor": "new",
+                    "api_key_builder": "with_api_key",
+                    "base_url_builder": "with_base_url"
+                },
+                "type_preludes": []
+            }
+        }))
+        .expect("canonical bindings");
+
+        let result = reconcile(&openapi, &bindings).expect("reconcile");
+        assert_eq!(
+            result["create_members"].binding.as_deref(),
+            Some("raw_create_members")
+        );
+        assert_eq!(
+            result["update_metrics"].binding.as_deref(),
+            Some("raw_update_metrics")
+        );
+        assert_eq!(result["pause"].binding, None);
+        assert_eq!(
+            result["pause"].reason,
+            Some("request.inline_or_unresolved")
+        );
+    }
+
+    #[test]
     fn reconciles_unrelated_binding_name_and_argument_order() {
         let openapi = OpenApi(serde_json::json!({
             "openapi": "3.1.0",
