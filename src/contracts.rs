@@ -128,6 +128,14 @@ pub struct StreamAbiBinding {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct ParameterWireBinding {
+    pub rust_name: String,
+    pub location: String,
+    pub wire_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OperationMetadataBinding {
     pub kind: OperationBindingKind,
     pub source_operation: SourceOperationBinding,
@@ -136,6 +144,8 @@ pub struct OperationMetadataBinding {
     pub success_statuses: Vec<String>,
     #[serde(default)]
     pub request_discriminators: Vec<RequestDiscriminatorBinding>,
+    #[serde(default)]
+    pub parameter_wires: Vec<ParameterWireBinding>,
     #[serde(default)]
     pub stream_abi: Option<StreamAbiBinding>,
 }
