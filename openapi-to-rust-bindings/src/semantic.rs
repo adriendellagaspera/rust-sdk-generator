@@ -345,7 +345,9 @@ fn route_skeleton(path: &str) -> Result<String, Error> {
     let wire_path = if let Some((wire, variant)) = path.split_once('#') {
         if wire.is_empty()
             || variant.is_empty()
-            || !variant.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+            || !variant
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
         {
             return Err(semantic_error("extract.source_path_invalid", path));
         }
@@ -780,7 +782,7 @@ fn choose_representation(
                 format!("{method_name}: JSON media is ambiguous"),
             ));
         }
-        let Some(schema) = json[0].1.get("schema").and_then(Value::as_object) else {
+        let Some(_schema) = json[0].1.get("schema").and_then(Value::as_object) else {
             return Err(semantic_error(
                 "extract.response_schema_unproven",
                 format!("{method_name}: JSON success media has no object schema"),
@@ -924,17 +926,18 @@ pub fn inspect_semantics(
             }
             let skeleton = route_skeleton(candidate_path)?;
             if signals.string_literals.contains(&skeleton)
-                && if signals.accept_event_stream {
-                    // A stream method may use the same physical URL as a
-                    // buffered variant. The emitted SSE Accept must match
-                    // a uniquely selected source success representation.
-                    source_has_sse_success(operation)
-                } else {
-                    !candidate_path.ends_with("#stream")
-                }
+                && (signals.accept_event_stream || !candidate_path.ends_with("#stream"))
             {
                 candidates.push(operation);
             }
+        }
+        if signals.accept_event_stream && candidates.len() > 1 {
+            // On shared physical routes, source SSE media disambiguates the
+            // emitted streaming variant. A unique route remains identifiable
+            // even when its source media disagrees with emitted transport:
+            // the root reconciler will then reject that operation, rather
+            // than aborting the entire canonical Bindings extraction.
+            candidates.retain(|operation| source_has_sse_success(operation));
         }
         if candidates.len() != 1 {
             return Err(semantic_error(
