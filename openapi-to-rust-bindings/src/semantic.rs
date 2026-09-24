@@ -332,6 +332,27 @@ fn operation_doc(attrs: &[Attribute]) -> Vec<(String, String)> {
     matches
 }
 
+// Rustdoc includes concrete example URLs alongside templates. An example
+// may substitute one segment for a source path variable, but may never
+// change static segments, method or route arity. The actual HTTP request
+// verb/URL and the unique source identity are proved independently.
+fn documented_route_matches(doc_path: &str, source_path: &str) -> Result<bool, Error> {
+    let doc = route_skeleton(doc_path)?;
+    let source = route_skeleton(source_path)?;
+    let doc_segments: Vec<_> = doc.split('/').collect();
+    let source_segments: Vec<_> = source.split('/').collect();
+    if doc_segments.len() != source_segments.len() {
+        return Ok(false);
+    }
+    Ok(source_segments.iter().zip(doc_segments).all(|(expected, actual)| {
+        expected == &actual
+            || (expected == &"{}"
+                && !actual.is_empty()
+                && actual != "."
+                && actual != "..")
+    }))
+}
+
 fn route_skeleton(path: &str) -> Result<String, Error> {
     // An overlaid source may distinguish several OpenAPI operation paths by
     // a synthetic "#variant" fragment even when their HTTP route is identical.
@@ -953,7 +974,7 @@ pub fn inspect_semantics(
         // choose a convenient annotation while ignoring a contradictory one.
         for (doc_verb, doc_path) in documented {
             if doc_verb != source_operation.identity.method
-                || route_skeleton(&doc_path)? != route_skeleton(&source_operation.identity.path)?
+                || !documented_route_matches(&doc_path, &source_operation.identity.path)?
             {
                 return Err(semantic_error(
                     "extract.source_identity_ambiguous",
@@ -1178,10 +1199,22 @@ mod inline_json_response_tests {
         ];
         let docs = operation_doc(&attrs);
         assert_eq!(docs.len(), 4);
-        let source = route_skeleton("/v1/connectors/{connector_id}#id").expect("source route");
+        let source = "/v1/connectors/{connector_id}#id";
         assert!(docs.iter().all(|(verb, path)| {
-            verb == "DELETE" && route_skeleton(path).is_ok_and(|route| route == source)
+            verb == "DELETE" && documented_route_matches(path, source).expect("doc route")
         }));
+        assert!(documented_route_matches(
+            "/v1/workflows/MyWorkflow/metrics",
+            "/v1/workflows/{workflow_name}/metrics"
+        ).expect("concrete rustdoc example"));
+        assert!(!documented_route_matches(
+            "/v1/workflows/MyWorkflow/logs",
+            "/v1/workflows/{workflow_name}/metrics"
+        ).expect("static mismatch"));
+        assert!(!documented_route_matches(
+            "/v1/workflows/MyWorkflow/metrics/extra",
+            "/v1/workflows/{workflow_name}/metrics"
+        ).expect("arity mismatch"));
         let mut contradictory = attrs;
         contradictory.push(syn::parse_quote!(#[doc = " PATCH /v1/connectors/{id} "]));
         assert!(
@@ -1193,7 +1226,7 @@ mod inline_json_response_tests {
         assert!(
             operation_doc(&contradictory)
                 .iter()
-                .any(|(_, path)| { route_skeleton(path).expect("doc route") != source })
+                .any(|(_, path)| { !documented_route_matches(path, source).expect("doc route") })
         );
     }
 
