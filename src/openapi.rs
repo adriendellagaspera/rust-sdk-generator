@@ -450,6 +450,47 @@ impl OpenApiIndex {
         }))
     }
 
+    /// Return an exact required application/json request schema when the body
+    /// is not represented by the narrower named/inline-object helpers.
+    ///
+    /// Restrict this to required bodies: an optional nullable root has three
+    /// wire states (absent/null/value) and must not be collapsed into a raw
+    /// two-state Option without independent serializer evidence.
+    pub fn required_json_schema_request_body(
+        &self,
+        operation_id: &str,
+    ) -> Result<Option<InlineStructuredRequestBody>> {
+        let operation = self.operation(operation_id)?;
+        let Some(request_body) = operation.get("requestBody") else {
+            return Ok(None);
+        };
+        if request_body.get("required").and_then(Value::as_bool) != Some(true) {
+            return Ok(None);
+        }
+        let Some(content) = request_body
+            .get("content")
+            .and_then(Value::as_object)
+            .filter(|content| content.len() == 1)
+        else {
+            return Ok(None);
+        };
+        let Some(payload) = content.get("application/json") else {
+            return Ok(None);
+        };
+        let Some(schema) = payload.get("schema") else {
+            return Ok(None);
+        };
+        if ref_name(schema).is_some()
+            || schema.get("type").and_then(Value::as_str) == Some("object")
+        {
+            return Ok(None);
+        }
+        Ok(Some(InlineStructuredRequestBody {
+            media: RequestMediaDefinition::Json,
+            schema: schema.clone(),
+        }))
+    }
+
     pub fn raw_request_body(&self, operation_id: &str) -> Result<Option<RawRequestBody>> {
         let operation = self.operation(operation_id)?;
         let Some(request_body) = operation.get("requestBody") else {
@@ -911,6 +952,75 @@ mod tests {
         assert_eq!(property, "kind");
         assert_eq!(mapping["cat"], "Cat");
         assert_eq!(mapping["dog"], "Dog");
+    }
+
+    #[test]
+    fn exposes_only_required_non_object_json_root_request_schemas() {
+        let value = serde_json::json!({
+            "openapi": "3.1.0",
+            "paths": {
+                "/members": {"post": {
+                    "operationId": "create_members",
+                    "requestBody": {
+                        "required": true,
+                        "content": {"application/json": {"schema": {
+                            "type": "array",
+                            "items": {"$ref": "#/components/schemas/Member"}
+                        }}}
+                    }
+                }},
+                "/metrics": {"put": {
+                    "operationId": "update_metrics",
+                    "requestBody": {
+                        "required": true,
+                        "content": {"application/json": {"schema": {
+                            "anyOf": [
+                                {"$ref": "#/components/schemas/Online"},
+                                {"$ref": "#/components/schemas/Offline"}
+                            ]
+                        }}}
+                    }
+                }},
+                "/pause": {"post": {
+                    "operationId": "pause",
+                    "requestBody": {
+                        "content": {"application/json": {"schema": {
+                            "anyOf": [
+                                {"$ref": "#/components/schemas/Pause"},
+                                {"type": "null"}
+                            ]
+                        }}}
+                    }
+                }}
+            },
+            "components": {"schemas": {
+                "Member": {"type": "object"},
+                "Online": {"type": "object"},
+                "Offline": {"type": "object"},
+                "Pause": {"type": "object"}
+            }}
+        });
+        let index = OpenApiIndex::new(&OpenApi(value)).expect("valid index");
+        let members = index
+            .required_json_schema_request_body("create_members")
+            .expect("request lookup")
+            .expect("required array root");
+        assert_eq!(members.media, RequestMediaDefinition::Json);
+        assert_eq!(members.schema["type"], "array");
+
+        let metrics = index
+            .required_json_schema_request_body("update_metrics")
+            .expect("request lookup")
+            .expect("required union root");
+        assert_eq!(metrics.schema["anyOf"].as_array().map(Vec::len), Some(2));
+
+        assert!(
+            index
+                .required_json_schema_request_body("pause")
+                .expect("request lookup")
+                .is_none(),
+            "optional nullable roots require an independent tri-state proof"
+        );
     }
 
     #[test]
