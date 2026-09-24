@@ -357,10 +357,9 @@ fn validate_metadata(
             "representation",
             "success_statuses",
             "request_discriminators",
-            "parameter_wires",
             "stream_abi",
         ],
-        &[],
+        &["parameter_wires"],
         context,
     )?;
     if let Some(wires) = metadata.get("parameter_wires") {
