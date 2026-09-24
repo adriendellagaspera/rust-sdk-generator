@@ -590,9 +590,7 @@ fn required_json_schema_request_model(
     let matching: Vec<_> = raw_binding
         .parameters
         .iter()
-        .filter(|parameter| {
-            rust_type_matches_schema(&body.schema, &parameter.type_name, bindings)
-        })
+        .filter(|parameter| rust_type_matches_schema(&body.schema, &parameter.type_name, bindings))
         .collect();
     if matching.len() != 1 {
         return Err(REQUEST_MODEL_UNPROVEN);
