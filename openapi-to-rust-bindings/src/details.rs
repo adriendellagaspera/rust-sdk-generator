@@ -41,8 +41,16 @@ pub(crate) enum OperationKindEvidence {
     MultipartFilenames,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ParameterWireEvidence {
+    pub rust_name: String,
+    pub location: String,
+    pub wire_name: String,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct OperationDetails {
+    pub parameter_wires: Vec<ParameterWireEvidence>,
     pub kind: OperationKindEvidence,
     pub stream: Option<StreamAbiEvidence>,
     pub request_discriminators: Vec<RequestDiscriminatorEvidence>,
@@ -1372,6 +1380,176 @@ fn request_discriminators(
     Ok(output)
 }
 
+// Only claim wire identity when the emitted method visibly takes a Rust
+// parameter into a literal query key or HTTP header. Do not derive names by
+// mangling the Rust identifier (suffixes and punctuation are ambiguous).
+fn param_path(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Path(path) if path.path.segments.len() == 1 => {
+            Some(path.path.segments.first()?.ident.to_string())
+        }
+        Expr::Reference(reference) => param_path(&reference.expr),
+        Expr::Paren(paren) => param_path(&paren.expr),
+        _ => None,
+    }
+}
+
+fn literal_wire(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::MethodCall(call) if call.method == "to_string" && call.args.is_empty() => {
+            literal_string(&call.receiver)
+        }
+        _ => literal_string(expr),
+    }
+}
+
+fn if_let_optional_parameter(node: &syn::ExprIf) -> Option<(String, String)> {
+    let Expr::Let(condition) = &*node.cond else { return None };
+    let Pat::TupleStruct(some) = &*condition.pat else { return None };
+    if !some.path.is_ident("Some") || some.elems.len() != 1 {
+        return None;
+    }
+    let Pat::Ident(bound) = some.elems.first()? else { return None };
+    Some((param_path(&condition.expr)?, bound.ident.to_string()))
+}
+
+fn uses_only_bound_value(expr: &Expr, bound: &str) -> bool {
+    struct BindingUse<'a> { name: &'a str, found: bool, other: bool }
+    impl<'ast> Visit<'ast> for BindingUse<'_> {
+        fn visit_expr_path(&mut self, value: &'ast syn::ExprPath) {
+            if value.path.segments.len() == 1 {
+                if let Some(ident) = value.path.get_ident() {
+                    if ident == self.name {
+                        self.found = true;
+                    }
+                }
+            }
+            visit::visit_expr_path(self, value);
+        }
+    }
+    let mut visitor = BindingUse { name: bound, found: false, other: false };
+    visitor.visit_expr(expr);
+    visitor.found && !visitor.other
+}
+
+fn optional_wire_assignment(node: &syn::ExprIf) -> Option<ParameterWireEvidence> {
+    let (rust_name, bound) = if_let_optional_parameter(node)?;
+    if node.else_branch.is_some() || node.then_branch.stmts.len() != 1 {
+        return None;
+    }
+    let Stmt::Expr(statement, _) = &node.then_branch.stmts[0] else { return None };
+    // query_params.push(("wire-name".to_string(), v.to_string()))
+    if let Expr::MethodCall(push) = statement {
+        if push.method == "push" && push.args.len() == 1
+            && param_path(&push.receiver).as_deref() == Some("query_params")
+        {
+            let Expr::Tuple(pair) = push.args.first()? else { return None };
+            if pair.elems.len() != 2 { return None; }
+            let wire_name = literal_wire(pair.elems.first()?)?;
+            if wire_name.is_empty() || !uses_only_bound_value(pair.elems.last()?, &bound) {
+                return None;
+            }
+            return Some(ParameterWireEvidence {
+                rust_name,
+                location: "query".into(),
+                wire_name,
+            });
+        }
+    }
+    // req = req.header("wire-name", v.as_ref())
+    let Expr::Assign(assign) = statement else { return None };
+    if param_path(&assign.left).as_deref() != Some("req") {
+        return None;
+    }
+    let Expr::MethodCall(header) = &*assign.right else { return None };
+    if header.method != "header" || header.args.len() != 2
+        || param_path(&header.receiver).as_deref() != Some("req")
+    {
+        return None;
+    }
+    let wire_name = literal_wire(header.args.first()?)?;
+    if wire_name.is_empty() || !uses_only_bound_value(header.args.last()?, &bound) {
+        return None;
+    }
+    Some(ParameterWireEvidence {
+        rust_name,
+        location: "header".into(),
+        wire_name,
+    })
+}
+
+fn parameter_wires(
+    method: &syn::ImplItemFn,
+    signature: &crate::structural::MethodEvidence,
+    openapi: &Value,
+    verb: &str,
+    path: &str,
+) -> Vec<ParameterWireEvidence> {
+    // Missing or ambiguous evidence is an empty mapping, never a guessed
+    // partial mapping. Old exact-name reconciliation remains available.
+    let Some(path_item) = openapi.get("paths").and_then(|paths| paths.get(path)) else {
+        return Vec::new();
+    };
+    let Ok(operation) = operation_value(openapi, verb, path) else {
+        return Vec::new();
+    };
+    let mut source = BTreeSet::new();
+    for parameter in path_item
+        .get("parameters").and_then(Value::as_array).into_iter().flatten()
+        .chain(operation.get("parameters").and_then(Value::as_array).into_iter().flatten())
+    {
+        let (Some(location), Some(name)) = (
+            parameter.get("in").and_then(Value::as_str),
+            parameter.get("name").and_then(Value::as_str),
+        ) else { return Vec::new() };
+        if !matches!(location, "query" | "header") { continue; }
+        let unique = if location == "header" {
+            name.to_ascii_lowercase()
+        } else {
+            name.to_owned()
+        };
+        if !source.insert((location.to_owned(), unique)) {
+            return Vec::new();
+        }
+    }
+    if source.is_empty() { return Vec::new(); }
+    struct WireVisitor { candidates: Vec<ParameterWireEvidence> }
+    impl<'ast> Visit<'ast> for WireVisitor {
+        fn visit_expr_if(&mut self, node: &'ast syn::ExprIf) {
+            if let Some(evidence) = optional_wire_assignment(node) {
+                self.candidates.push(evidence);
+            }
+            visit::visit_expr_if(self, node);
+        }
+    }
+    let mut visitor = WireVisitor { candidates: Vec::new() };
+    visitor.visit_block(&method.block);
+    let valid_parameters: BTreeSet<_> = signature.parameters.iter()
+        .map(|parameter| parameter.name.as_str()).collect();
+    let mut mapped_names = BTreeSet::new();
+    let mut mapped_wires = BTreeSet::new();
+    let mut output = Vec::new();
+    for evidence in visitor.candidates {
+        let canonical_wire = if evidence.location == "header" {
+            evidence.wire_name.to_ascii_lowercase()
+        } else {
+            evidence.wire_name.clone()
+        };
+        let identity = (evidence.location.clone(), canonical_wire);
+        if !source.contains(&identity) { continue; } // authorization/Accept headers aren't source parameters
+        if !valid_parameters.contains(evidence.rust_name.as_str())
+            || !mapped_names.insert(evidence.rust_name.clone())
+            || !mapped_wires.insert(identity)
+        {
+            return Vec::new();
+        }
+        output.push(evidence);
+    }
+    if mapped_wires != source { return Vec::new(); }
+    output.sort_by(|a, b| a.rust_name.cmp(&b.rust_name));
+    output
+}
+
 fn client_methods<'a>(
     client: &'a syn::File,
     client_type: &str,
@@ -1455,6 +1633,13 @@ pub(crate) fn inspect_details(
         output.insert(
             name.clone(),
             OperationDetails {
+                parameter_wires: parameter_wires(
+                    method,
+                    signature,
+                    &openapi,
+                    &operation.source_operation.method,
+                    &operation.source_operation.path,
+                ),
                 kind: multipart_kind(
                     method,
                     signature,
