@@ -2106,14 +2106,16 @@ mod legacy_nullable_request_tests {
         let (index, mut bindings, mut schema) = fixture();
         bindings.structs.get_mut("RawPatch").expect("raw patch")[0].type_name =
             "Option<String>".into();
-        assert!(!object_value_matches(&index, &schema, "RawPatch", &bindings));
+        assert!(!object_value_matches(
+            &index, &schema, "RawPatch", &bindings
+        ));
 
         let (index, bindings, _) = fixture();
         schema["properties"]["description"]["anyOf"] =
             serde_json::json!([{"type": "string"}, {"type": "integer"}]);
-        assert!(legacy_nullable_request_property(
-            &schema["properties"]["description"]
-        ).is_none());
-        assert!(!object_value_matches(&index, &schema, "RawPatch", &bindings));
+        assert!(legacy_nullable_request_property(&schema["properties"]["description"]).is_none());
+        assert!(!object_value_matches(
+            &index, &schema, "RawPatch", &bindings
+        ));
     }
 }
