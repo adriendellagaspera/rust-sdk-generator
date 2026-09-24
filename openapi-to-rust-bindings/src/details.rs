@@ -1414,12 +1414,12 @@ fn if_let_optional_parameter(node: &syn::ExprIf) -> Option<(String, String)> {
 }
 
 fn uses_only_bound_value(expr: &Expr, bound: &str) -> bool {
-    struct BindingUse<'a> { name: &'a str, found: bool, other: bool }
+    struct BindingUse<'a> { name: &'a str, found: bool }
     impl<'ast> Visit<'ast> for BindingUse<'_> {
         fn visit_expr_path(&mut self, value: &'ast syn::ExprPath) {
             if value.path.segments.len() == 1 {
                 if let Some(ident) = value.path.get_ident() {
-                    if ident == self.name {
+                    if ident.to_string() == self.name {
                         self.found = true;
                     }
                 }
@@ -1427,9 +1427,9 @@ fn uses_only_bound_value(expr: &Expr, bound: &str) -> bool {
             visit::visit_expr_path(self, value);
         }
     }
-    let mut visitor = BindingUse { name: bound, found: false, other: false };
+    let mut visitor = BindingUse { name: bound, found: false };
     visitor.visit_expr(expr);
-    visitor.found && !visitor.other
+    visitor.found
 }
 
 fn optional_wire_assignment(node: &syn::ExprIf) -> Option<ParameterWireEvidence> {
@@ -1548,6 +1548,64 @@ fn parameter_wires(
     if mapped_wires != source { return Vec::new(); }
     output.sort_by(|a, b| a.rust_name.cmp(&b.rust_name));
     output
+}
+
+#[cfg(test)]
+mod parameter_wire_evidence_tests {
+    use super::*;
+
+    #[test]
+    fn extracts_literal_query_and_header_wires_without_guessing_names() {
+        let query: syn::ExprIf = syn::parse_quote! {
+            if let Some(v) = sort_direction_2 {
+                query_params.push(("sort_direction".to_string(), v.to_string()));
+            }
+        };
+        assert_eq!(
+            optional_wire_assignment(&query),
+            Some(ParameterWireEvidence {
+                rust_name: "sort_direction_2".into(),
+                location: "query".into(),
+                wire_name: "sort_direction".into(),
+            })
+        );
+        let header: syn::ExprIf = syn::parse_quote! {
+            if let Some(v) = last_event_id_2 {
+                req = req.header("Last-Event-ID", v.as_ref());
+            }
+        };
+        assert_eq!(
+            optional_wire_assignment(&header),
+            Some(ParameterWireEvidence {
+                rust_name: "last_event_id_2".into(),
+                location: "header".into(),
+                wire_name: "Last-Event-ID".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_nonliteral_wires_nonparameter_guesses_and_multiple_effects() {
+        let dynamic: syn::ExprIf = syn::parse_quote! {
+            if let Some(v) = last_event_id_2 {
+                req = req.header(header_name, v.as_ref());
+            }
+        };
+        assert!(optional_wire_assignment(&dynamic).is_none());
+        let indirect: syn::ExprIf = syn::parse_quote! {
+            if let Some(v) = last_event_id_2 {
+                req = wrapper.header("Last-Event-ID", v.as_ref());
+            }
+        };
+        assert!(optional_wire_assignment(&indirect).is_none());
+        let multiple: syn::ExprIf = syn::parse_quote! {
+            if let Some(v) = last_event_id_2 {
+                query_params.push(("last_event_id".to_string(), v.to_string()));
+                req = req.header("Last-Event-ID", v.as_ref());
+            }
+        };
+        assert!(optional_wire_assignment(&multiple).is_none());
+    }
 }
 
 fn client_methods<'a>(
