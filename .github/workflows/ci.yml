@@ -153,7 +153,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Prove documented local-first own-API init/sync and HTTP
-        run: bash scripts/prove_adopter.sh
+        run: bash scripts/prove_own_api_sdk.sh
 
   production-compatibility:
     name: production-compatibility
