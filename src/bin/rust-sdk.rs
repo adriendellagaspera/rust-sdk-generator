@@ -293,8 +293,7 @@ fn cache_dir() -> Result<PathBuf> {
         return Ok(PathBuf::from(path));
     }
     Ok(PathBuf::from(
-        env::var_os("HOME")
-            .ok_or_else(|| err("cache.path", "set HOME or RUST_SDK_CACHE"))?,
+        env::var_os("HOME").ok_or_else(|| err("cache.path", "set HOME or RUST_SDK_CACHE"))?,
     )
     .join(".cache/rust-sdk/v1"))
 }
