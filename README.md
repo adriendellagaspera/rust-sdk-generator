@@ -19,14 +19,14 @@ cargo run --locked --bin rust-sdk -- init \
 cargo run --locked --bin rust-sdk -- sync --crate /path/to/your-sdk --check
 ```
 
-The Rust-native adopter pins the unmodified upstream backend and effective source,
+The Rust-native `rust-sdk` CLI pins the unmodified upstream backend and effective source,
 emits canonical Bindings v3, derives an exhaustive report, and assembles a
 standalone compilable SDK crate with an explicit versioned recipe. After changing
 the copied source at `/path/to/your-sdk/openapi.json`, inspect sync's full
 coverage report and file-level freshness diff; use `--accept-coverage` to
 reviewably accept a changed operation inventory. The minimal runtime is **not**
 a production auth/error policy, and the supported envelope is deliberately
-bounded. See [own-API onboarding and ownership](docs/adopter.md).
+bounded. See [own-API onboarding and ownership](docs/own-api-sdk.md).
 
 ## Quickstart: fixed independent notebook proof
 
@@ -43,7 +43,7 @@ SDK. It prints the output directory. No Python or downstream consumer checkout
 is needed. [Follow the quickstart and adapt your own API](docs/getting-started.md).
 
 The example is turnkey for its **fixed notebook fixture**; the independent
-own-API adopter CLI above is the separately tested general onboarding path
+own-API `rust-sdk` CLI above is the separately tested general onboarding path
 within the declared supported OpenAPI envelope.
 
 ## Start here
