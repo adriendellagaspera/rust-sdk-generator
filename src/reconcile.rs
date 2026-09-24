@@ -787,7 +787,8 @@ mod tests {
     use super::*;
     use crate::contracts::{
         BindingLayout, ClientBinding, OperationBindingKind, OperationMetadataBinding,
-        ParameterBinding, ResponseRepresentationBinding, SourceOperationBinding, StreamBinding,
+        ParameterBinding, ParameterWireBinding, ResponseRepresentationBinding,
+        SourceOperationBinding, StreamBinding,
     };
 
     fn bindings(operations: BTreeMap<String, OperationBinding>) -> Bindings {
@@ -872,6 +873,7 @@ mod tests {
                 representation,
                 success_statuses: success_statuses.into_iter().map(str::to_owned).collect(),
                 request_discriminators: Vec::new(),
+                parameter_wires: Vec::new(),
                 stream_abi: None,
             }),
         }
@@ -897,6 +899,91 @@ mod tests {
                 None,
             ),
         )
+    }
+
+    #[test]
+    fn canonical_wire_map_distinguishes_query_and_header_cursors() {
+        let openapi = OpenApi(serde_json::json!({
+            "openapi": "3.1.0",
+            "paths": {
+                "/events/{event_id}": {
+                    "get": {
+                        "operationId": "read_events",
+                        "parameters": [
+                            {"name": "event_id", "in": "path", "required": true,
+                             "schema": {"type": "string"}},
+                            {"name": "last_event_id", "in": "query", "required": false,
+                             "schema": {"type": "string"}},
+                            {"name": "Last-Event-ID", "in": "header", "required": false,
+                             "schema": {"type": "string"}}
+                        ],
+                        "responses": {"204": {"description": "done"}}
+                    }
+                }
+            }
+        }));
+        let mut raw = v3_operation(
+            "opaque_events",
+            "read_events",
+            "GET",
+            "/events/{event_id}",
+            OperationBindingKind::CallShape,
+        );
+        raw.parameters = vec![
+            ParameterBinding {
+                name: "last_event_id".into(),
+                type_name: "Option<impl AsRef<str>>".into(),
+            },
+            ParameterBinding {
+                name: "event_id".into(),
+                type_name: "impl AsRef<str>".into(),
+            },
+            ParameterBinding {
+                name: "last_event_id_2".into(),
+                type_name: "Option<impl AsRef<str>>".into(),
+            },
+        ];
+        let proven = vec![
+            ParameterWireBinding {
+                rust_name: "last_event_id".into(),
+                location: "query".into(),
+                wire_name: "last_event_id".into(),
+            },
+            ParameterWireBinding {
+                rust_name: "last_event_id_2".into(),
+                location: "header".into(),
+                wire_name: "Last-Event-ID".into(),
+            },
+        ];
+        let mut check = |wires: Vec<ParameterWireBinding>, accepted: bool| {
+            raw.metadata.as_mut().expect("v3 metadata").parameter_wires = wires;
+            let result = reconcile(
+                &openapi,
+                &v3_bindings(BTreeMap::from([("opaque_events".into(), raw.clone())])),
+            )
+            .expect("candidate reconciliation");
+            assert_eq!(
+                result["read_events"].binding.as_deref() == Some("opaque_events"),
+                accepted
+            );
+        };
+        check(proven.clone(), true);
+        let mut swapped = proven.clone();
+        swapped[0].rust_name = "last_event_id_2".into();
+        swapped[1].rust_name = "last_event_id".into();
+        // A swapped Rust-to-wire map cannot be independently disproved by
+        // signature names alone; the producer must derive it from emitted AST.
+        // The consumer checks exact source wire keys and bijectivity.
+        check(swapped, true);
+        let mut wrong_wire = proven.clone();
+        wrong_wire[0].wire_name = "last-event-id".into();
+        check(wrong_wire, false);
+        let mut wrong_location = proven.clone();
+        wrong_location[1].location = "query".into();
+        check(wrong_location, false);
+        check(proven[..1].to_vec(), false);
+        check(vec![proven[0].clone(), proven[0].clone()], false);
+        check(Vec::new(), false);
     }
 
     #[test]
