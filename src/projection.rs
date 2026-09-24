@@ -569,6 +569,57 @@ fn inline_request_model(
     Ok(Some((name.clone(), vec![(name, model)], body.media)))
 }
 
+fn required_json_schema_request_model(
+    openapi: &OpenApiIndex,
+    bindings: &Bindings,
+    operation_id: &str,
+    binding: &str,
+    resource_path: &[String],
+    public_name: &str,
+) -> Result<Option<(String, ProjectedModels, RequestMediaDefinition)>, &'static str> {
+    let Some(body) = openapi
+        .required_json_schema_request_body(operation_id)
+        .map_err(|_| REQUEST_MODEL_UNPROVEN)?
+    else {
+        return Ok(None);
+    };
+    let raw_binding = bindings
+        .operations
+        .get(binding)
+        .ok_or("bindings.no_structural_match")?;
+    let matching: Vec<_> = raw_binding
+        .parameters
+        .iter()
+        .filter(|parameter| {
+            rust_type_matches_schema(&body.schema, &parameter.type_name, bindings)
+        })
+        .collect();
+    if matching.len() != 1 {
+        return Err(REQUEST_MODEL_UNPROVEN);
+    }
+    let name = request_model_name(resource_path, public_name);
+    if !public_model_name_available(&name, bindings) {
+        return Err("capability.public_model_name_collision");
+    }
+    let model = ModelDefinition {
+        schema: None,
+        schema_path: None,
+        raw: Some(matching[0].type_name.clone()),
+        constructor: None,
+        exclude: None,
+        adapters: None,
+        union: None,
+        simple_union: None,
+        type_alias: None,
+        map: None,
+        scalar_enum: None,
+        union_factory: None,
+        borrowed: Some(false),
+        accessors: Some(IndexMap::new()),
+    };
+    Ok(Some((name.clone(), vec![(name, model)], body.media)))
+}
+
 fn request_model(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
@@ -578,6 +629,16 @@ fn request_model(
     public_name: &str,
 ) -> Result<Option<(String, ProjectedModels, RequestMediaDefinition)>, &'static str> {
     if let Some(projected) = inline_request_model(
+        openapi,
+        bindings,
+        operation_id,
+        binding,
+        resource_path,
+        public_name,
+    )? {
+        return Ok(Some(projected));
+    }
+    if let Some(projected) = required_json_schema_request_model(
         openapi,
         bindings,
         operation_id,
