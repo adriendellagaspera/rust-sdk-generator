@@ -797,16 +797,11 @@ fn choose_representation(
             }
             reference
         } else {
-            // An inline JSON response may be an array, object or union.
-            // Preserve the exact emitted Rust success type as canonical evidence;
-            // the root reconciler must independently prove this type against the
-            // entire source schema before deriving any operation.
-            if schema.is_empty() {
-                return Err(semantic_error(
-                    "extract.response_schema_unproven",
-                    format!("{method_name}: empty inline JSON response schema"),
-                ));
-            }
+            // An inline JSON response may be an array, object, union, or
+            // the unconstrained OpenAPI schema {}. Preserve the exact emitted
+            // Rust type as provisional evidence; the root independently proves
+            // the entire source schema (for {}, only serde_json::Value or a
+            // canonical alias is acceptable) before deriving an operation.
             compact.to_owned()
         };
         return Ok(RepresentationEvidence::Json {
@@ -1237,6 +1232,13 @@ mod inline_json_response_tests {
             }
         );
         assert!(select(&named, "Vec<Agent>").is_err());
-        assert!(select(&source(serde_json::json!({})), "Agent").is_err());
+        assert_eq!(
+            select(&source(serde_json::json!({})), "UnconstrainedResponse")
+                .expect("an explicit empty source schema is unconstrained JSON"),
+            RepresentationEvidence::Json {
+                schema_name: "UnconstrainedResponse".into(),
+                media_type: "application/json".into(),
+            }
+        );
     }
 }
