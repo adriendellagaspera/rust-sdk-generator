@@ -159,12 +159,18 @@ fn derives_required_array_and_union_root_requests_as_owned_raw_views() {
     assert!(derivation.definition.models.values().any(|model| {
         model.raw.as_deref() == Some("MembersRequest")
             && model.constructor.is_none()
-            && model.accessors.as_ref().is_some_and(indexmap::IndexMap::is_empty)
+            && model
+                .accessors
+                .as_ref()
+                .is_some_and(indexmap::IndexMap::is_empty)
     }));
     assert!(derivation.definition.models.values().any(|model| {
         model.raw.as_deref() == Some("MetricsRequest")
             && model.constructor.is_none()
-            && model.accessors.as_ref().is_some_and(indexmap::IndexMap::is_empty)
+            && model
+                .accessors
+                .as_ref()
+                .is_some_and(indexmap::IndexMap::is_empty)
     }));
 
     let generated = generate(GenerateInput {
