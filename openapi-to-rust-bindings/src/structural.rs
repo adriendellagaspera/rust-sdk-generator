@@ -775,3 +775,71 @@ pub fn inspect_generated(path: impl AsRef<Path>) -> Result<StructuralEvidence, E
         semantics: "UNPROVEN: source operation identities, emitted operation IDs, media/transport representations, success statuses and request discriminators require #150",
     })
 }
+
+#[cfg(test)]
+mod flattened_map_serde_tests {
+    use super::*;
+
+    fn fixture(
+        attrs: Vec<Attribute>,
+        name: &str,
+        ty: Option<&Type>,
+    ) -> Result<(Option<String>, bool), Error> {
+        serde_name(
+            &attrs,
+            name,
+            ty,
+            &EvidenceLocation {
+                file: "types.rs".into(),
+                line: 1,
+                module: "crate::generated::types".into(),
+            },
+        )
+    }
+
+    #[test]
+    fn proves_flattened_additional_properties_map_without_inventing_a_wire_property() {
+        let attrs = vec![syn::parse_quote!(#[serde(flatten)])];
+        let ty: Type = syn::parse_quote!(std::collections::BTreeMap<String, serde_json::Value>);
+        assert_eq!(
+            fixture(attrs, "additional_properties", Some(&ty)).expect("proven map"),
+            (None, false)
+        );
+        let typed: Type = syn::parse_quote!(std::collections::BTreeMap<String, Option<f64>>);
+        assert!(flattened_additional_properties_type(&typed));
+    }
+
+    #[test]
+    fn rejects_ambiguous_flattened_fields_and_preserves_explicit_wire_renames() {
+        let attrs = vec![syn::parse_quote!(#[serde(flatten)])];
+        let invalid: Type = syn::parse_quote!(Vec<serde_json::Value>);
+        assert!(fixture(attrs.clone(), "additional_properties", Some(&invalid)).is_err());
+        assert!(fixture(attrs, "metadata", None).is_err());
+        let ty: Type = syn::parse_quote!(std::collections::BTreeMap<String, serde_json::Value>);
+        assert!(
+            fixture(
+                vec![syn::parse_quote!(#[serde(flatten, rename = "bad")])],
+                "additional_properties",
+                Some(&ty)
+            )
+            .is_err()
+        );
+        assert!(
+            fixture(
+                vec![syn::parse_quote!(#[serde(rename_all = "camelCase")])],
+                "ordinary",
+                Some(&ty)
+            )
+            .is_err()
+        );
+        assert_eq!(
+            fixture(
+                vec![syn::parse_quote!(#[serde(rename = "camelCase")])],
+                "snake_case",
+                Some(&ty)
+            )
+            .expect("explicit field rename"),
+            (Some("camelCase".into()), false)
+        );
+    }
+}
