@@ -752,13 +752,27 @@ fn canonical_unconstrained_map_branch(schema: &Value, raw: &str, bindings: &Bind
     let Some(shape) = schema.as_object() else {
         return false;
     };
+    let empty_properties = shape
+        .get("properties")
+        .is_none_or(|properties| properties.as_object().is_some_and(Map::is_empty));
+    let additional_properties = shape
+        .get("additionalProperties")
+        .is_none_or(|value| value == &Value::Bool(true));
     if shape.get("type").and_then(Value::as_str) != Some("object")
-        || shape.get("additionalProperties") != Some(&Value::Bool(true))
-        || shape.contains_key("properties")
+        || !empty_properties
+        || !additional_properties
         || shape.keys().any(|key| {
             !matches!(
                 key.as_str(),
-                "type" | "additionalProperties" | "title" | "description" | "deprecated"
+                "type"
+                    | "properties"
+                    | "additionalProperties"
+                    | "title"
+                    | "description"
+                    | "deprecated"
+                    | "example"
+                    | "examples"
+                    | "$comment"
             )
         })
     {
