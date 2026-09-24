@@ -337,8 +337,12 @@ fn operation_doc(attrs: &[Attribute]) -> Result<Option<(String, String)>, Error>
 }
 
 fn route_skeleton(path: &str) -> Result<String, Error> {
+    // The overlaid source may expose a separate #stream representation for
+    // the same wire URL. That suffix is a source identity discriminator,
+    // never part of the HTTP request target.
+    let wire_path = path.strip_suffix("#stream").unwrap_or(path);
     let mut output = String::new();
-    let mut chars = path.chars().peekable();
+    let mut chars = wire_path.chars().peekable();
     while let Some(ch) = chars.next() {
         if ch != '{' {
             output.push(ch);
@@ -409,6 +413,26 @@ fn index_openapi(value: &Value) -> Result<BTreeMap<(String, String), OpenApiOper
         }
     }
     Ok(operations)
+}
+
+fn source_has_sse_success(operation: &OpenApiOperation) -> bool {
+    operation
+        .value
+        .get("responses")
+        .and_then(Value::as_object)
+        .is_some_and(|responses| {
+            responses.iter().any(|(status, response)| {
+                success_status(status)
+                    && response
+                        .get("content")
+                        .and_then(Value::as_object)
+                        .is_some_and(|content| {
+                            content
+                                .keys()
+                                .any(|media| media.eq_ignore_ascii_case("text/event-stream"))
+                        })
+            })
+        })
 }
 
 #[derive(Default)]
@@ -892,7 +916,16 @@ pub fn inspect_semantics(
                 continue;
             }
             let skeleton = route_skeleton(candidate_path)?;
-            if signals.string_literals.contains(&skeleton) {
+            if signals.string_literals.contains(&skeleton)
+                && if signals.accept_event_stream {
+                    // A stream method may use the same physical URL as a
+                    // buffered variant. The emitted SSE Accept must match
+                    // a uniquely selected source success representation.
+                    source_has_sse_success(operation)
+                } else {
+                    !candidate_path.ends_with("#stream")
+                }
+            {
                 candidates.push(operation);
             }
         }
