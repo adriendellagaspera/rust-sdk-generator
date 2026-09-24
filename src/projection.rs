@@ -15,7 +15,8 @@ use crate::rust_type::{Type, parse_type};
 use crate::structural::{
     ScalarFieldShape, ScalarKind as StructuralScalarKind, constant_enum_response_object_matches,
     flattened_json_response_object_matches, inline_array_object_item, inline_object_union_mapping,
-    multipart_filenames_binding, nullable_request_union, object_field_names_match,
+    legacy_nullable_request_property, multipart_filenames_binding, nullable_request_union,
+    object_field_names_match,
     object_value_matches, plain_string_json_alias_matches, raw_scalar_struct_shape,
     redundant_any_of_alternative, referenced_request_object, request_object_matches,
     request_object_matches_with_discriminators, request_optional_boolean_field,
@@ -271,8 +272,19 @@ fn request_object_models_value(
         .ok_or(REQUEST_MODEL_UNPROVEN)?;
     let by_name: BTreeMap<_, _> = fields
         .iter()
-        .map(|field| (field.name.strip_prefix("r#").unwrap_or(&field.name), field))
+        .map(|field| {
+            (
+                field
+                    .wire_name
+                    .as_deref()
+                    .unwrap_or_else(|| field.name.strip_prefix("r#").unwrap_or(&field.name)),
+                field,
+            )
+        })
         .collect();
+    if by_name.len() != fields.len() {
+        return Err(REQUEST_MODEL_UNPROVEN);
+    }
     let required: Vec<String> = schema
         .get("required")
         .and_then(Value::as_array)
@@ -286,8 +298,9 @@ fn request_object_models_value(
     let mut models = Vec::new();
     let mut adapters = IndexMap::new();
     for (field_name, property) in properties {
-        let normalized_nullable_union = nullable_request_union(property);
-        let (wire, nullable) = normalized_nullable_union
+        let normalized_nullable = nullable_request_union(property)
+            .or_else(|| legacy_nullable_request_property(property));
+        let (wire, nullable) = normalized_nullable
             .as_ref()
             .map(|schema| (schema, true))
             .unwrap_or_else(|| request_non_null_schema(property));
