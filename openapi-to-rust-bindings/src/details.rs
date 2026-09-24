@@ -1812,8 +1812,7 @@ mod parameter_wire_evidence_tests {
             serde_json::json!("sort-direction");
         assert!(parameter_wires(&generated, &signature, &drift, "GET", "/list").is_empty());
         let mut drift = source.clone();
-        drift["paths"]["/list"]["get"]["parameters"][2]["in"] =
-            serde_json::json!("query");
+        drift["paths"]["/list"]["get"]["parameters"][2]["in"] = serde_json::json!("query");
         assert!(parameter_wires(&generated, &signature, &drift, "GET", "/list").is_empty());
         let mut drift = source;
         drift["paths"]["/list"]["get"]["parameters"][1]["name"] =
