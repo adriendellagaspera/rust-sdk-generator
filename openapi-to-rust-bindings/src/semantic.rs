@@ -747,20 +747,35 @@ fn choose_representation(
                 format!("{method_name}: JSON media is ambiguous"),
             ));
         }
-        let schema_name = schema_ref_name(&json[0].1).ok_or_else(|| {
-            semantic_error(
-                "extract.response_schema_unproven",
-                format!("{method_name}: JSON success schema is not a named ref"),
-            )
-        })?;
-        if compact != schema_name.replace(' ', "") {
+        let Some(schema) = json[0].1.get("schema").and_then(Value::as_object) else {
             return Err(semantic_error(
                 "extract.response_schema_unproven",
-                format!(
-                    "{method_name}: generated success type {success_type:?} does not match schema {schema_name:?}"
-                ),
+                format!("{method_name}: JSON success media has no object schema"),
             ));
-        }
+        };
+        let schema_name = if let Some(reference) = schema_ref_name(&json[0].1) {
+            if compact != reference.replace(' ', "") {
+                return Err(semantic_error(
+                    "extract.response_schema_unproven",
+                    format!(
+                        "{method_name}: generated success type {success_type:?} does not match schema {reference:?}"
+                    ),
+                ));
+            }
+            reference
+        } else {
+            // An inline JSON response may be an array, object or union.
+            // Preserve the exact emitted Rust success type as canonical evidence;
+            // the root reconciler must independently prove this type against the
+            // entire source schema before deriving any operation.
+            if schema.is_empty() {
+                return Err(semantic_error(
+                    "extract.response_schema_unproven",
+                    format!("{method_name}: empty inline JSON response schema"),
+                ));
+            }
+            compact.to_owned()
+        };
         return Ok(RepresentationEvidence::Json {
             schema_name,
             media_type: json[0].0.clone(),
@@ -1071,5 +1086,64 @@ mod bounded_text_tests {
                 "unproved bounded text was accepted: {changed}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod inline_json_response_tests {
+    use super::*;
+
+    fn source(schema: Value) -> OpenApiOperation {
+        OpenApiOperation {
+            identity: SourceOperationEvidence {
+                operation_id: "list".into(),
+                method: "GET".into(),
+                path: "/list".into(),
+            },
+            value: serde_json::json!({
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {"schema": schema}
+                        }
+                    }
+                }
+            }),
+        }
+    }
+
+    fn select(operation: &OpenApiOperation, success_type: &str) -> Result<RepresentationEvidence, Error> {
+        choose_representation(
+            operation,
+            "list",
+            success_type,
+            &["200".into()],
+            &MethodSignals::default(),
+        )
+    }
+
+    #[test]
+    fn retains_emitted_success_type_for_inline_json_array_subject_to_root_proof() {
+        let list = source(serde_json::json!({
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/Agent"}
+        }));
+        assert_eq!(
+            select(&list, "Vec<Agent>").expect("provisionally typed JSON"),
+            RepresentationEvidence::Json {
+                schema_name: "Vec<Agent>".into(),
+                media_type: "application/json".into(),
+            }
+        );
+        let named = source(serde_json::json!({"$ref": "#/components/schemas/Agent"}));
+        assert_eq!(
+            select(&named, "Agent").expect("named ref"),
+            RepresentationEvidence::Json {
+                schema_name: "Agent".into(),
+                media_type: "application/json".into(),
+            }
+        );
+        assert!(select(&named, "Vec<Agent>").is_err());
+        assert!(select(&source(serde_json::json!({})), "Agent").is_err());
     }
 }
