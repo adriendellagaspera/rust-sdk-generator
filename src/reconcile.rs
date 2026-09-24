@@ -644,7 +644,8 @@ fn binding_matches(
         if matched != expected {
             return false;
         }
-        let path_raw: Vec<_> = raw_names.iter()
+        let path_raw: Vec<_> = raw_names
+            .iter()
             .filter(|name| !mapped_rust.contains(name.as_str()))
             .cloned()
             .collect();
