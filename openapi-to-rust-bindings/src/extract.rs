@@ -325,6 +325,17 @@ pub fn extract_bindings(
         } else {
             (Value::Null, Value::Null)
         };
+        let parameter_wires = detail
+            .parameter_wires
+            .iter()
+            .map(|wire| {
+                json!({
+                    "rust_name": wire.rust_name,
+                    "location": wire.location,
+                    "wire_name": wire.wire_name,
+                })
+            })
+            .collect::<Vec<_>>();
         let request_discriminators = detail
             .request_discriminators
             .iter()
@@ -340,6 +351,22 @@ pub fn extract_bindings(
                 })
             })
             .collect::<Vec<_>>();
+        let mut metadata = json!({
+            "kind": kind,
+            "source_operation": {
+                "operation_id": semantics.source_operation.operation_id,
+                "method": semantics.source_operation.method,
+                "path": semantics.source_operation.path,
+            },
+            "emitted_operation_id": semantics.emitted_operation_id,
+            "representation": representation_json(&semantics.representation)?,
+            "success_statuses": semantics.success_statuses,
+            "request_discriminators": request_discriminators,
+            "stream_abi": stream_abi,
+        });
+        if !parameter_wires.is_empty() {
+            metadata["parameter_wires"] = json!(parameter_wires);
+        }
         operations.insert(
             name.clone(),
             json!({
@@ -348,19 +375,7 @@ pub fn extract_bindings(
                 "return_type": canonical_rust_type(&signature.return_type)?,
                 "success_type": canonical_rust_type(success_type)?,
                 "stream": stream,
-                "metadata": {
-                    "kind": kind,
-                    "source_operation": {
-                        "operation_id": semantics.source_operation.operation_id,
-                        "method": semantics.source_operation.method,
-                        "path": semantics.source_operation.path,
-                    },
-                    "emitted_operation_id": semantics.emitted_operation_id,
-                    "representation": representation_json(&semantics.representation)?,
-                    "success_statuses": semantics.success_statuses,
-                    "request_discriminators": request_discriminators,
-                    "stream_abi": stream_abi,
-                }
+                "metadata": metadata,
             }),
         );
     }

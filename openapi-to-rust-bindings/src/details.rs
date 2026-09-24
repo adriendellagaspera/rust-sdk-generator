@@ -41,8 +41,16 @@ pub(crate) enum OperationKindEvidence {
     MultipartFilenames,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ParameterWireEvidence {
+    pub rust_name: String,
+    pub location: String,
+    pub wire_name: String,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct OperationDetails {
+    pub parameter_wires: Vec<ParameterWireEvidence>,
     pub kind: OperationKindEvidence,
     pub stream: Option<StreamAbiEvidence>,
     pub request_discriminators: Vec<RequestDiscriminatorEvidence>,
@@ -1372,6 +1380,224 @@ fn request_discriminators(
     Ok(output)
 }
 
+// Only claim wire identity when the emitted method visibly takes a Rust
+// parameter into a literal query key or HTTP header. Do not derive names by
+// mangling the Rust identifier (suffixes and punctuation are ambiguous).
+fn param_path(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Path(path) if path.path.segments.len() == 1 => {
+            Some(path.path.segments.first()?.ident.to_string())
+        }
+        Expr::Reference(reference) => param_path(&reference.expr),
+        Expr::Paren(paren) => param_path(&paren.expr),
+        _ => None,
+    }
+}
+
+fn literal_wire(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::MethodCall(call) if call.method == "to_string" && call.args.is_empty() => {
+            literal_string(&call.receiver)
+        }
+        _ => literal_string(expr),
+    }
+}
+
+fn if_let_optional_parameter(node: &syn::ExprIf) -> Option<(String, String)> {
+    let Expr::Let(condition) = &*node.cond else {
+        return None;
+    };
+    let Pat::TupleStruct(some) = &*condition.pat else {
+        return None;
+    };
+    if !some.path.is_ident("Some") || some.elems.len() != 1 {
+        return None;
+    }
+    let Pat::Ident(bound) = some.elems.first()? else {
+        return None;
+    };
+    Some((param_path(&condition.expr)?, bound.ident.to_string()))
+}
+
+fn uses_only_bound_value(expr: &Expr, bound: &str) -> bool {
+    struct BindingUse<'a> {
+        name: &'a str,
+        found: bool,
+    }
+    impl<'ast> Visit<'ast> for BindingUse<'_> {
+        fn visit_expr_path(&mut self, value: &'ast syn::ExprPath) {
+            if value.path.segments.len() == 1
+                && let Some(ident) = value.path.get_ident()
+                && ident == self.name
+            {
+                self.found = true;
+            }
+            visit::visit_expr_path(self, value);
+        }
+    }
+    let mut visitor = BindingUse {
+        name: bound,
+        found: false,
+    };
+    visitor.visit_expr(expr);
+    visitor.found
+}
+
+fn optional_wire_assignment(node: &syn::ExprIf) -> Option<ParameterWireEvidence> {
+    let (rust_name, bound) = if_let_optional_parameter(node)?;
+    if node.else_branch.is_some() || node.then_branch.stmts.len() != 1 {
+        return None;
+    }
+    let Stmt::Expr(statement, _) = &node.then_branch.stmts[0] else {
+        return None;
+    };
+    // query_params.push(("wire-name".to_string(), v.to_string()))
+    if let Expr::MethodCall(push) = statement
+        && push.method == "push"
+        && push.args.len() == 1
+        && param_path(&push.receiver).as_deref() == Some("query_params")
+    {
+        let Expr::Tuple(pair) = push.args.first()? else {
+            return None;
+        };
+        if pair.elems.len() != 2 {
+            return None;
+        }
+        let wire_name = literal_wire(pair.elems.first()?)?;
+        if wire_name.is_empty() || !uses_only_bound_value(pair.elems.last()?, &bound) {
+            return None;
+        }
+        return Some(ParameterWireEvidence {
+            rust_name,
+            location: "query".into(),
+            wire_name,
+        });
+    }
+    // req = req.header("wire-name", v.as_ref())
+    let Expr::Assign(assign) = statement else {
+        return None;
+    };
+    if param_path(&assign.left).as_deref() != Some("req") {
+        return None;
+    }
+    let Expr::MethodCall(header) = &*assign.right else {
+        return None;
+    };
+    if header.method != "header"
+        || header.args.len() != 2
+        || param_path(&header.receiver).as_deref() != Some("req")
+    {
+        return None;
+    }
+    let wire_name = literal_wire(header.args.first()?)?;
+    if wire_name.is_empty() || !uses_only_bound_value(header.args.last()?, &bound) {
+        return None;
+    }
+    Some(ParameterWireEvidence {
+        rust_name,
+        location: "header".into(),
+        wire_name,
+    })
+}
+
+fn parameter_wires(
+    method: &syn::ImplItemFn,
+    signature: &crate::structural::MethodEvidence,
+    openapi: &Value,
+    verb: &str,
+    path: &str,
+) -> Vec<ParameterWireEvidence> {
+    // Missing or ambiguous evidence is an empty mapping, never a guessed
+    // partial mapping. Old exact-name reconciliation remains available.
+    let Some(path_item) = openapi.get("paths").and_then(|paths| paths.get(path)) else {
+        return Vec::new();
+    };
+    let Ok(operation) = operation_value(openapi, verb, path) else {
+        return Vec::new();
+    };
+    let mut source = BTreeSet::new();
+    for parameter in path_item
+        .get("parameters")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .chain(
+            operation
+                .get("parameters")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten(),
+        )
+    {
+        let (Some(location), Some(name)) = (
+            parameter.get("in").and_then(Value::as_str),
+            parameter.get("name").and_then(Value::as_str),
+        ) else {
+            return Vec::new();
+        };
+        if !matches!(location, "query" | "header") {
+            continue;
+        }
+        let unique = if location == "header" {
+            name.to_ascii_lowercase()
+        } else {
+            name.to_owned()
+        };
+        if !source.insert((location.to_owned(), unique)) {
+            return Vec::new();
+        }
+    }
+    if source.is_empty() {
+        return Vec::new();
+    }
+    struct WireVisitor {
+        candidates: Vec<ParameterWireEvidence>,
+    }
+    impl<'ast> Visit<'ast> for WireVisitor {
+        fn visit_expr_if(&mut self, node: &'ast syn::ExprIf) {
+            if let Some(evidence) = optional_wire_assignment(node) {
+                self.candidates.push(evidence);
+            }
+            visit::visit_expr_if(self, node);
+        }
+    }
+    let mut visitor = WireVisitor {
+        candidates: Vec::new(),
+    };
+    visitor.visit_block(&method.block);
+    let valid_parameters: BTreeSet<_> = signature
+        .parameters
+        .iter()
+        .map(|parameter| parameter.name.as_str())
+        .collect();
+    let mut mapped_names = BTreeSet::new();
+    let mut mapped_wires = BTreeSet::new();
+    let mut output = Vec::new();
+    for evidence in visitor.candidates {
+        let canonical_wire = if evidence.location == "header" {
+            evidence.wire_name.to_ascii_lowercase()
+        } else {
+            evidence.wire_name.clone()
+        };
+        let identity = (evidence.location.clone(), canonical_wire);
+        if !source.contains(&identity) {
+            continue;
+        } // authorization/Accept headers aren't source parameters
+        if !valid_parameters.contains(evidence.rust_name.as_str())
+            || !mapped_names.insert(evidence.rust_name.clone())
+            || !mapped_wires.insert(identity)
+        {
+            return Vec::new();
+        }
+        output.push(evidence);
+    }
+    if mapped_wires != source {
+        return Vec::new();
+    }
+    output.sort_by(|a, b| a.rust_name.cmp(&b.rust_name));
+    output
+}
+
 fn client_methods<'a>(
     client: &'a syn::File,
     client_type: &str,
@@ -1455,6 +1681,13 @@ pub(crate) fn inspect_details(
         output.insert(
             name.clone(),
             OperationDetails {
+                parameter_wires: parameter_wires(
+                    method,
+                    signature,
+                    &openapi,
+                    &operation.source_operation.method,
+                    &operation.source_operation.path,
+                ),
                 kind: multipart_kind(
                     method,
                     signature,
@@ -1475,4 +1708,138 @@ pub(crate) fn inspect_details(
         );
     }
     Ok(output)
+}
+
+#[cfg(test)]
+mod parameter_wire_evidence_tests {
+    use super::*;
+
+    #[test]
+    fn extracts_literal_query_and_header_wires_without_guessing_names() {
+        let query: syn::ExprIf = syn::parse_quote! {
+            if let Some(v) = sort_direction_2 {
+                query_params.push(("sort_direction".to_string(), v.to_string()));
+            }
+        };
+        assert_eq!(
+            optional_wire_assignment(&query),
+            Some(ParameterWireEvidence {
+                rust_name: "sort_direction_2".into(),
+                location: "query".into(),
+                wire_name: "sort_direction".into(),
+            })
+        );
+        let header: syn::ExprIf = syn::parse_quote! {
+            if let Some(v) = last_event_id_2 {
+                req = req.header("Last-Event-ID", v.as_ref());
+            }
+        };
+        assert_eq!(
+            optional_wire_assignment(&header),
+            Some(ParameterWireEvidence {
+                rust_name: "last_event_id_2".into(),
+                location: "header".into(),
+                wire_name: "Last-Event-ID".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn proves_complete_parameter_wire_mapping_only_for_exact_source_identity() {
+        let generated: syn::ImplItemFn = syn::parse_quote! {
+            pub async fn list(&self, sort_direction: Option<&str>, sort_direction_2: Option<&str>,
+                last_event_id_2: Option<&str>) {
+                let mut query_params: Vec<(String, String)> = Vec::new();
+                if let Some(v) = sort_direction {
+                    query_params.push(("sort.direction".to_string(), v.to_string()));
+                }
+                if let Some(v) = sort_direction_2 {
+                    query_params.push(("sort_direction".to_string(), v.to_string()));
+                }
+                if let Some(v) = last_event_id_2 {
+                    req = req.header("Last-Event-ID", v.as_ref());
+                }
+            }
+        };
+        let signature = crate::structural::MethodEvidence {
+            name: "list".into(),
+            parameters: ["sort_direction", "sort_direction_2", "last_event_id_2"]
+                .into_iter()
+                .map(|name| crate::structural::ParameterEvidence {
+                    name: name.into(),
+                    rust_type: "Option<&str>".into(),
+                })
+                .collect(),
+            return_type: "Result<(), Error>".into(),
+            success_type: Some("()".into()),
+            location: crate::structural::EvidenceLocation {
+                file: "client.rs".into(),
+                line: 1,
+                module: "client".into(),
+            },
+        };
+        let source = serde_json::json!({
+            "paths": {"/list": {"get": {
+                "parameters": [
+                    {"in": "query", "name": "sort.direction"},
+                    {"in": "query", "name": "sort_direction"},
+                    {"in": "header", "name": "Last-Event-ID"}
+                ]
+            }}}
+        });
+        assert_eq!(
+            parameter_wires(&generated, &signature, &source, "GET", "/list"),
+            vec![
+                ParameterWireEvidence {
+                    rust_name: "last_event_id_2".into(),
+                    location: "header".into(),
+                    wire_name: "Last-Event-ID".into(),
+                },
+                ParameterWireEvidence {
+                    rust_name: "sort_direction".into(),
+                    location: "query".into(),
+                    wire_name: "sort.direction".into(),
+                },
+                ParameterWireEvidence {
+                    rust_name: "sort_direction_2".into(),
+                    location: "query".into(),
+                    wire_name: "sort_direction".into(),
+                },
+            ]
+        );
+        let mut drift = source.clone();
+        drift["paths"]["/list"]["get"]["parameters"][0]["name"] =
+            serde_json::json!("sort-direction");
+        assert!(parameter_wires(&generated, &signature, &drift, "GET", "/list").is_empty());
+        let mut drift = source.clone();
+        drift["paths"]["/list"]["get"]["parameters"][2]["in"] = serde_json::json!("query");
+        assert!(parameter_wires(&generated, &signature, &drift, "GET", "/list").is_empty());
+        let mut drift = source;
+        drift["paths"]["/list"]["get"]["parameters"][1]["name"] =
+            serde_json::json!("sort.direction");
+        assert!(parameter_wires(&generated, &signature, &drift, "GET", "/list").is_empty());
+    }
+
+    #[test]
+    fn rejects_nonliteral_wires_nonparameter_guesses_and_multiple_effects() {
+        let dynamic: syn::ExprIf = syn::parse_quote! {
+            if let Some(v) = last_event_id_2 {
+                req = req.header(header_name, v.as_ref());
+            }
+        };
+        assert!(optional_wire_assignment(&dynamic).is_none());
+        let indirect: syn::ExprIf = syn::parse_quote! {
+            if let Some(v) = last_event_id_2 {
+                req = wrapper.header("Last-Event-ID", v.as_ref());
+            }
+        };
+        assert!(optional_wire_assignment(&indirect).is_none());
+        let multiple: syn::ExprIf = syn::parse_quote! {
+            if let Some(v) = last_event_id_2 {
+                query_params.push(("last_event_id".to_string(), v.to_string()));
+                req = req.header("Last-Event-ID", v.as_ref());
+            }
+        };
+        assert!(optional_wire_assignment(&multiple).is_none());
+    }
 }

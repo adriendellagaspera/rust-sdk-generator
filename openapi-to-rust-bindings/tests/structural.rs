@@ -269,7 +269,7 @@ fn unknown_layout_or_unproved_wire_names_fail_closed_with_location() {
     );
     root.file(
         "types.rs",
-        "#[serde(untagged)] pub enum Item { Text(String), Count(u64) }\n",
+        "#[serde(untagged)] pub enum Item { Text, Count }\n",
     );
     let error =
         inspect_generated(root.path()).expect_err("untagged variant names are not wire values");
@@ -302,6 +302,26 @@ fn unknown_layout_or_unproved_wire_names_fail_closed_with_location() {
     root.file("client.rs", "pub struct NotAClient;\n");
     let error = inspect_generated(root.path()).expect_err("cannot prove raw client");
     assert!(error.to_string().contains("extract.client_layout_unproven"));
+}
+
+#[test]
+fn untagged_single_payload_enum_is_proven_as_payload_union() {
+    let root = Scratch::new();
+    root.file(
+        "types.rs",
+        "#[serde(untagged)] pub enum Item { Text(String), Count(u64) }\n",
+    );
+    root.file("client.rs", CLIENT);
+    let evidence = inspect_generated(root.path()).expect("untagged payload union is structural");
+    let item = &evidence.enums["crate::generated::types::Item"];
+    assert_eq!(item.variants.len(), 2);
+    assert_eq!(item.variants[0].payload, vec!["String"]);
+    assert_eq!(item.variants[1].payload, vec!["u64"]);
+    assert!(
+        item.variants
+            .iter()
+            .all(|variant| variant.wire_name == variant.name)
+    );
 }
 
 #[test]
