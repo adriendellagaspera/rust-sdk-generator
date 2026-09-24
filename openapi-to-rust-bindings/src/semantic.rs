@@ -1195,9 +1195,11 @@ mod inline_json_response_tests {
     #[test]
     fn emitted_sse_transport_does_not_claim_source_media_compatibility() {
         let operation = source(serde_json::json!({"type": "object"}));
-        let mut signals = MethodSignals::default();
-        signals.bytes_stream = true;
-        signals.accept_event_stream = true;
+        let signals = MethodSignals {
+            bytes_stream: true,
+            accept_event_stream: true,
+            ..MethodSignals::default()
+        };
         assert_eq!(
             choose_representation(
                 &operation,
