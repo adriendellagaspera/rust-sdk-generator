@@ -450,6 +450,47 @@ impl OpenApiIndex {
         }))
     }
 
+    /// Return an exact required application/json request schema when the body
+    /// is not represented by the narrower named/inline-object helpers.
+    ///
+    /// Restrict this to required bodies: an optional nullable root has three
+    /// wire states (absent/null/value) and must not be collapsed into a raw
+    /// two-state Option without independent serializer evidence.
+    pub fn required_json_schema_request_body(
+        &self,
+        operation_id: &str,
+    ) -> Result<Option<InlineStructuredRequestBody>> {
+        let operation = self.operation(operation_id)?;
+        let Some(request_body) = operation.get("requestBody") else {
+            return Ok(None);
+        };
+        if request_body.get("required").and_then(Value::as_bool) != Some(true) {
+            return Ok(None);
+        }
+        let Some(content) = request_body
+            .get("content")
+            .and_then(Value::as_object)
+            .filter(|content| content.len() == 1)
+        else {
+            return Ok(None);
+        };
+        let Some(payload) = content.get("application/json") else {
+            return Ok(None);
+        };
+        let Some(schema) = payload.get("schema") else {
+            return Ok(None);
+        };
+        if ref_name(schema).is_some()
+            || schema.get("type").and_then(Value::as_str) == Some("object")
+        {
+            return Ok(None);
+        }
+        Ok(Some(InlineStructuredRequestBody {
+            media: RequestMediaDefinition::Json,
+            schema: schema.clone(),
+        }))
+    }
+
     pub fn raw_request_body(&self, operation_id: &str) -> Result<Option<RawRequestBody>> {
         let operation = self.operation(operation_id)?;
         let Some(request_body) = operation.get("requestBody") else {
