@@ -2494,12 +2494,7 @@ pub(crate) fn lower(
                         }
                         let payload = &payloads[0];
                         let payload_matches = payload == &stream.item
-                            || scalar_named_object_matches(
-                                &index,
-                                payload,
-                                &stream.item,
-                                bindings,
-                            );
+                            || scalar_named_object_matches(&index, payload, &stream.item, bindings);
                         if !payload_matches {
                             return Err(error(
                                 "lower.stream_drift",
@@ -2526,9 +2521,7 @@ pub(crate) fn lower(
                         {
                             return Err(error(
                                 "lower.stream_wrapper",
-                                format!(
-                                    "stream wrapper must own the configured item: {wrapper}"
-                                ),
+                                format!("stream wrapper must own the configured item: {wrapper}"),
                             ));
                         }
                     } else {
@@ -2560,11 +2553,7 @@ pub(crate) fn lower(
                                 bindings,
                             ) || (variant.raw == variant.schema
                                 && bindings.structs.contains_key(&variant.raw)
-                                && object_field_names_match(
-                                    &schema,
-                                    &variant.raw,
-                                    bindings,
-                                ));
+                                && object_field_names_match(&schema, &variant.raw, bindings));
                             let wrapper_model = models
                                 .iter()
                                 .find(|model| model.name == variant.wrapper)
@@ -2586,10 +2575,7 @@ pub(crate) fn lower(
                             {
                                 return Err(error(
                                     "lower.stream_wrapper",
-                                    format!(
-                                        "typed SSE variant drift for {}",
-                                        variant.schema
-                                    ),
+                                    format!("typed SSE variant drift for {}", variant.schema),
                                 ));
                             }
                             stream_variants.push(StreamVariantPolicy {
