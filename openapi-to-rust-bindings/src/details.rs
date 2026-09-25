@@ -1782,6 +1782,85 @@ pub(crate) fn inspect_details(
 }
 
 #[cfg(test)]
+mod request_schema_composition_tests {
+    use super::*;
+
+    fn fixture() -> Value {
+        serde_json::json!({
+            "paths": {
+                "/stream": {
+                    "post": {
+                        "requestBody": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {"$ref": "#/components/schemas/StreamRequest"}
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "components": {
+                "schemas": {
+                    "BaseRequest": {
+                        "type": "object",
+                        "required": ["input"],
+                        "properties": {
+                            "input": {"type": "string"}
+                        }
+                    },
+                    "StreamRequest": {
+                        "allOf": [
+                            {"$ref": "#/components/schemas/BaseRequest"},
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "stream": {
+                                        "type": "boolean",
+                                        "enum": [true],
+                                        "default": true
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn composes_local_all_of_properties_and_requiredness_for_discriminator_proof() {
+        let openapi = fixture();
+        let operation = &openapi["paths"]["/stream"]["post"];
+        let (properties, required) =
+            request_schema(&openapi, operation).expect("composable allOf request");
+        assert_eq!(properties["input"]["type"], "string");
+        assert_eq!(properties["stream"]["enum"], serde_json::json!([true]));
+        assert!(required.contains("input"));
+        assert!(!required.contains("stream"));
+    }
+
+    #[test]
+    fn rejects_union_or_conflicting_all_of_property_identity() {
+        let mut openapi = fixture();
+        openapi["components"]["schemas"]["StreamRequest"]["anyOf"] =
+            serde_json::json!([{"type": "object"}]);
+        let operation = &openapi["paths"]["/stream"]["post"];
+        assert!(request_schema(&openapi, operation).is_none());
+
+        let mut openapi = fixture();
+        openapi["components"]["schemas"]["StreamRequest"]["allOf"][0] =
+            serde_json::json!({
+                "type": "object",
+                "properties": {"stream": {"type": "string"}}
+            });
+        let operation = &openapi["paths"]["/stream"]["post"];
+        assert!(request_schema(&openapi, operation).is_none());
+    }
+}
+
+#[cfg(test)]
 mod parameter_wire_evidence_tests {
     use super::*;
 
