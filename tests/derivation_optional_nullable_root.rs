@@ -124,10 +124,12 @@ fn derives_exact_tri_state_root_and_preserves_public_absent_null_value() {
         .find(|model| model.raw.as_deref() == Some("PauseAlias"))
         .expect("owned inner request view");
     assert!(request.constructor.is_none());
-    assert!(request
-        .accessors
-        .as_ref()
-        .is_some_and(indexmap::IndexMap::is_empty));
+    assert!(
+        request
+            .accessors
+            .as_ref()
+            .is_some_and(indexmap::IndexMap::is_empty)
+    );
 
     let generated = generate(GenerateInput {
         openapi,
@@ -142,9 +144,7 @@ fn derives_exact_tri_state_root_and_preserves_public_absent_null_value() {
         "{client}"
     );
     assert!(
-        client.contains(
-            "request.map(|request| request.map(|request| request.into_raw()))"
-        ),
+        client.contains("request.map(|request| request.map(|request| request.into_raw()))"),
         "{client}"
     );
 }
