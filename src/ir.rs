@@ -226,6 +226,7 @@ pub(crate) enum RequestProjection {
         media: RequestMediaDefinition,
         model: String,
         raw: String,
+        nullable_root: bool,
         overrides: Vec<(String, Option<bool>)>,
     },
     Raw {
