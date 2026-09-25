@@ -1184,7 +1184,13 @@ mod tests {
                 }
             }
         }));
-        let mut raw = v3_operation("raw_ping", "ping", "GET", "/ping", OperationBindingKind::CallShape);
+        let mut raw = v3_operation(
+            "raw_ping",
+            "ping",
+            "GET",
+            "/ping",
+            OperationBindingKind::CallShape,
+        );
         raw.metadata
             .as_mut()
             .expect("v3 metadata")
@@ -1195,7 +1201,10 @@ mod tests {
         )
         .expect("reconcile");
         assert_eq!(result["ping"].binding, None);
-        assert_eq!(result["ping"].reason.as_deref(), Some("bindings.no_structural_match"));
+        assert_eq!(
+            result["ping"].reason.as_deref(),
+            Some("bindings.no_structural_match")
+        );
     }
 
     #[test]
