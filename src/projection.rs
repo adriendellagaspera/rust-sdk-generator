@@ -8,6 +8,7 @@ use crate::contracts::{
     OperationDefinition, RequestDiscriminatorValue, RequestMediaDefinition, ResourceDefinition,
     ResponseRepresentationBinding, ResponseRepresentationDefinition, ScalarEnumDefinition,
     SdkDefinition, SimpleUnionDefinition, SimpleUnionVariant, StreamDefinition,
+    StreamVariantDefinition,
 };
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::reconcile::unconstrained_json_alias_matches;
@@ -21,7 +22,7 @@ use crate::structural::{
     request_object_matches, request_object_matches_with_discriminators,
     request_optional_boolean_field, request_union_mapping, request_union_matches,
     response_array_union_matches, rust_type_matches_schema, scalar_named_object_matches,
-    scalar_object_shape, sse_payload_schema_name,
+    scalar_object_shape, sse_payload_schema_name, sse_payload_schema_names,
 };
 use crate::symbols::field_identifier;
 
@@ -1725,6 +1726,32 @@ fn binary_stream_projection(
     Ok(ProjectedResponse::BinaryStream)
 }
 
+fn sse_raw_payload(
+    openapi: &OpenApiIndex,
+    bindings: &Bindings,
+    schema_name: &str,
+) -> Result<String, &'static str> {
+    let raw_candidates = bindings
+        .structs
+        .keys()
+        .filter(|raw| scalar_named_object_matches(openapi, schema_name, raw, bindings))
+        .cloned()
+        .collect::<Vec<_>>();
+    if raw_candidates.len() == 1 {
+        return Ok(raw_candidates[0].clone());
+    }
+    if raw_candidates.is_empty()
+        && bindings.structs.contains_key(schema_name)
+        && openapi
+            .object_schema(schema_name)
+            .ok()
+            .is_some_and(|schema| object_field_names_match(&schema, schema_name, bindings))
+    {
+        return Ok(schema_name.to_owned());
+    }
+    Err("capability.event_stream_payload_not_structurally_provable")
+}
+
 fn event_stream_projection(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
@@ -1756,50 +1783,87 @@ fn event_stream_projection(
     if schemas.is_empty() {
         return Err("capability.event_stream_payload_not_structurally_provable");
     }
-    let payloads = schemas
+    let payload_sets = schemas
         .iter()
         .map(|schema| {
-            sse_payload_schema_name(openapi, schema)
+            sse_payload_schema_names(openapi, schema)
                 .ok_or("capability.event_stream_payload_not_structurally_provable")
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let first = payloads
+    let payloads = payload_sets
         .first()
         .ok_or("capability.event_stream_payload_not_structurally_provable")?;
-    if payloads.iter().any(|payload| payload != first) {
+    if payload_sets.iter().any(|candidate| candidate != payloads) {
         return Err("capability.event_stream_payload_not_structurally_provable");
     }
 
-    let raw_candidates = bindings
-        .structs
-        .keys()
-        .filter(|raw| scalar_named_object_matches(openapi, first, raw, bindings))
-        .cloned()
-        .collect::<Vec<_>>();
-    let raw_item = if raw_candidates.len() == 1 {
-        raw_candidates[0].clone()
-    } else if raw_candidates.is_empty()
-        && bindings.structs.contains_key(first)
-        && openapi
-            .object_schema(first)
-            .ok()
-            .is_some_and(|schema| object_field_names_match(&schema, first, bindings))
-    {
-        first.clone()
-    } else {
-        return Err("capability.event_stream_payload_not_structurally_provable");
-    };
     let wrapper = stream_item_model_name(resource_path, public_name);
-    let (_, wrapper_model) =
-        response_view_for_schema_named(openapi, bindings, first, &raw_item, wrapper.clone())?;
+    if payloads.len() == 1 {
+        let raw_item = sse_raw_payload(openapi, bindings, &payloads[0])?;
+        let (_, wrapper_model) = response_view_for_schema_named(
+            openapi,
+            bindings,
+            &payloads[0],
+            &raw_item,
+            wrapper.clone(),
+        )?;
+        return Ok(ProjectedResponse::Sse {
+            stream: StreamDefinition {
+                item: raw_item,
+                wrapper: Some(wrapper.clone()),
+                type_name: stream_type_name(resource_path, public_name),
+                variants: Vec::new(),
+            },
+            models: vec![(wrapper, wrapper_model)],
+        });
+    }
+
+    if !public_model_name_available(&wrapper, bindings) {
+        return Err("capability.public_model_name_collision");
+    }
+    let decoder = format!("__{wrapper}Raw");
+    if bindings.structs.contains_key(&decoder)
+        || bindings.enums.contains_key(&decoder)
+        || bindings.aliases.contains_key(&decoder)
+    {
+        return Err("capability.public_model_name_collision");
+    }
+
+    let mut models = Vec::new();
+    let mut variants = Vec::new();
+    let mut public_variants = BTreeSet::new();
+    for schema_name in payloads {
+        let raw = sse_raw_payload(openapi, bindings, schema_name)?;
+        let name = semantic_pascal_identifier(schema_name)
+            .map_err(|_| "capability.event_stream_payload_not_structurally_provable")?;
+        if !public_variants.insert(name.clone()) {
+            return Err("capability.public_model_name_collision");
+        }
+        let branch_wrapper = format!("{wrapper}{name}");
+        let (model_name, model) = response_view_for_schema_named(
+            openapi,
+            bindings,
+            schema_name,
+            &raw,
+            branch_wrapper.clone(),
+        )?;
+        models.push((model_name, model));
+        variants.push(StreamVariantDefinition {
+            name,
+            schema: schema_name.clone(),
+            raw,
+            wrapper: branch_wrapper,
+        });
+    }
 
     Ok(ProjectedResponse::Sse {
         stream: StreamDefinition {
-            item: raw_item,
-            wrapper: Some(wrapper.clone()),
+            item: decoder,
+            wrapper: Some(wrapper),
             type_name: stream_type_name(resource_path, public_name),
+            variants,
         },
-        models: vec![(wrapper, wrapper_model)],
+        models,
     })
 }
 
