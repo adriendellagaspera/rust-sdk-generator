@@ -40,6 +40,16 @@ fn option(type_name: &str) -> Result<Option<(String, usize)>> {
     }
 }
 
+fn exact_optional_nullable_core(type_name: &str) -> Option<String> {
+    let syntax = parse_type(type_name).ok()?;
+    let present = syntax.unary("Option")?;
+    let nullable = present.unary("Option")?;
+    if nullable.unary("Option").is_some() {
+        return None;
+    }
+    Some(nullable.spelling.clone())
+}
+
 fn field_map<'a>(bindings: &'a Bindings, raw: &str) -> Result<IndexMap<String, &'a FieldBinding>> {
     Ok(bindings
         .fields(raw)?
@@ -1507,9 +1517,39 @@ fn operation_call(
         media: _,
         model,
         raw,
+        nullable_root,
         overrides,
     } = &operation.request_projection
     {
+        if *nullable_root {
+            if !overrides.is_empty() {
+                return Err(error(
+                    "lower.request_override",
+                    "optional nullable root requests do not support discriminator overrides",
+                ));
+            }
+            let mut declarations = Vec::new();
+            let mut values = Vec::new();
+            for parameter in parameters {
+                if exact_optional_nullable_core(&parameter.type_name).as_deref()
+                    == Some(raw.as_str())
+                {
+                    declarations.push(format!("request: Option<Option<{model}>>"));
+                    values.push(
+                        "request.map(|request| request.map(|request| request.into_raw()))".into(),
+                    );
+                } else {
+                    let (declaration, value) = direct_parameter(parameter, bindings)?;
+                    declarations.push(declaration);
+                    values.push(value);
+                }
+            }
+            return Ok(OperationCall {
+                arguments: declarations.join(", "),
+                raw_arguments: values.join(", "),
+                default_raw_arguments: None,
+            });
+        }
         let mut body = "request.into_raw()".to_owned();
         if !overrides.is_empty() {
             let assignments = overrides
@@ -1641,6 +1681,7 @@ fn multipart_filenames_call(
         media,
         model,
         raw,
+        nullable_root,
         overrides,
     } = &operation.request_projection
     else {
@@ -1649,6 +1690,12 @@ fn multipart_filenames_call(
             "multipart filenames require a structured request model",
         ));
     };
+    if *nullable_root {
+        return Err(error(
+            "lower.multipart_filenames_request",
+            "optional nullable JSON root cannot use multipart filename helper",
+        ));
+    }
     if *media != RequestMediaDefinition::MultipartFormData {
         return Err(error(
             "lower.multipart_filenames_request",
@@ -2124,6 +2171,9 @@ pub(crate) fn lower(
                 wire_parameter_names.iter().any(|wire| wire == name)
             };
 
+            let optional_nullable_body =
+                index.optional_nullable_json_ref_request_body(operation_id)?;
+            let request_nullable_root = optional_nullable_body.is_some();
             let mut request_raw_parameter = None;
             let mut raw_request_public_name = None;
             let request_raw = if let Some(request) = request {
@@ -2138,8 +2188,23 @@ pub(crate) fn lower(
                     .as_ref()
                     .map(|metadata| metadata.request_discriminators.as_slice())
                     .unwrap_or_default();
-                let request_matches = if let Some(schema_name) = model_definition.schema.as_deref()
-                {
+                let request_matches = if let Some(body) = optional_nullable_body.as_ref() {
+                    if body.media != configured_media
+                        || model_definition.schema.as_deref() != Some(body.schema.as_str())
+                    {
+                        return Err(error(
+                            "lower.request_media_drift",
+                            format!("optional nullable request media/schema drift for {operation_id}"),
+                        ));
+                    }
+                    request_object_matches_with_discriminators(
+                        &index,
+                        &body.schema,
+                        &model.raw,
+                        bindings,
+                        request_discriminators,
+                    )
+                } else if let Some(schema_name) = model_definition.schema.as_deref() {
                     let body = index
                         .structured_request_body(operation_id)?
                         .ok_or_else(|| {
@@ -2205,7 +2270,14 @@ pub(crate) fn lower(
                     .parameters
                     .iter()
                     .filter(|parameter| !is_wire_parameter(parameter))
-                    .filter(|parameter| parameter.type_name == model.raw)
+                    .filter(|parameter| {
+                        if request_nullable_root {
+                            exact_optional_nullable_core(&parameter.type_name).as_deref()
+                                == Some(model.raw.as_str())
+                        } else {
+                            parameter.type_name == model.raw
+                        }
+                    })
                     .collect();
                 if body_parameters.len() != 1 {
                     return Err(error(
@@ -2663,6 +2735,7 @@ pub(crate) fn lower(
                     media: item.request_media.unwrap_or(RequestMediaDefinition::Json),
                     model: request.into(),
                     raw: request_raw.expect("request raw"),
+                    nullable_root: request_nullable_root,
                     overrides: item
                         .request_overrides
                         .clone()
