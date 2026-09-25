@@ -1449,9 +1449,9 @@ pub(crate) fn scalar_named_object_matches(
         .is_some_and(|(wire, actual)| wire == actual)
 }
 
-fn sse_envelope_payload(schema: &Value) -> Option<&str> {
+fn sse_envelope_payloads(schema: &Value) -> Option<Vec<&str>> {
     let properties = schema.get("properties").and_then(Value::as_object)?;
-    let data = properties.get("data").and_then(ref_name)?;
+    let data = properties.get("data")?;
     let data_required = schema
         .get("required")
         .and_then(Value::as_array)
@@ -1474,17 +1474,40 @@ fn sse_envelope_payload(schema: &Value) -> Option<&str> {
             return None;
         }
     }
-    Some(data)
+
+    if let Some(reference) = ref_name(data) {
+        return Some(vec![reference]);
+    }
+
+    // Typed facade unions use only OpenAPI oneOf. anyOf does not prove that
+    // exactly one payload schema applies, while serde's untagged decoder would
+    // otherwise silently choose the first matching branch.
+    let branches = data.get("oneOf").and_then(Value::as_array)?;
+    if branches.len() < 2 {
+        return None;
+    }
+    let payloads = branches.iter().map(ref_name).collect::<Option<Vec<_>>>()?;
+    let unique: BTreeSet<_> = payloads.iter().copied().collect();
+    (unique.len() == payloads.len()).then_some(payloads)
+}
+
+pub(crate) fn sse_payload_schema_names(
+    openapi: &OpenApiIndex,
+    schema: &Value,
+) -> Option<Vec<String>> {
+    if let Some(root) = ref_name(schema) {
+        let resolved = openapi.schema(root).ok()?;
+        return sse_envelope_payloads(resolved)
+            .map(|payloads| payloads.into_iter().map(str::to_owned).collect())
+            .or_else(|| Some(vec![root.to_owned()]));
+    }
+    sse_envelope_payloads(schema)
+        .map(|payloads| payloads.into_iter().map(str::to_owned).collect())
 }
 
 pub(crate) fn sse_payload_schema_name(openapi: &OpenApiIndex, schema: &Value) -> Option<String> {
-    if let Some(root) = ref_name(schema) {
-        let resolved = openapi.schema(root).ok()?;
-        return sse_envelope_payload(resolved)
-            .map(str::to_owned)
-            .or_else(|| Some(root.to_owned()));
-    }
-    sse_envelope_payload(schema).map(str::to_owned)
+    let mut payloads = sse_payload_schema_names(openapi, schema)?;
+    (payloads.len() == 1).then(|| payloads.remove(0))
 }
 
 pub(crate) fn scalar_object_shape(schema: &Value) -> Option<BTreeMap<String, ScalarFieldShape>> {
