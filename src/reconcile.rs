@@ -1201,10 +1201,7 @@ mod tests {
         )
         .expect("reconcile");
         assert_eq!(result["ping"].binding, None);
-        assert_eq!(
-            result["ping"].reason,
-            Some("bindings.no_structural_match")
-        );
+        assert_eq!(result["ping"].reason, Some("bindings.no_structural_match"));
     }
 
     #[test]
