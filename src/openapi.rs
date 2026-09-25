@@ -450,6 +450,116 @@ impl OpenApiIndex {
         }))
     }
 
+    /// Return an exact optional + nullable application/json request root
+    /// represented by one referenced schema plus one JSON null branch.
+    ///
+    /// This is deliberately narrower than general anyOf handling. It preserves
+    /// the three wire states only when the root has no constraining siblings:
+    /// absent body, explicit JSON null, or a referenced JSON value.
+    pub fn optional_nullable_json_ref_request_body(
+        &self,
+        operation_id: &str,
+    ) -> Result<Option<StructuredRequestBody>> {
+        let operation = self.operation(operation_id)?;
+        let Some(request_body) = operation.get("requestBody") else {
+            return Ok(None);
+        };
+        if request_body.get("required").and_then(Value::as_bool) == Some(true) {
+            return Ok(None);
+        }
+        let Some(content) = request_body
+            .get("content")
+            .and_then(Value::as_object)
+            .filter(|content| content.len() == 1)
+        else {
+            return Ok(None);
+        };
+        let Some(payload) = content.get("application/json") else {
+            return Ok(None);
+        };
+        let Some(schema) = payload.get("schema").and_then(Value::as_object) else {
+            return Ok(None);
+        };
+        if schema.keys().any(|key| {
+            !matches!(
+                key.as_str(),
+                "anyOf"
+                    | "title"
+                    | "description"
+                    | "deprecated"
+                    | "example"
+                    | "examples"
+                    | "default"
+                    | "$comment"
+            )
+        }) {
+            return Ok(None);
+        }
+        let Some(branches) = schema.get("anyOf").and_then(Value::as_array) else {
+            return Ok(None);
+        };
+        if branches.len() != 2 {
+            return Ok(None);
+        }
+        let mut reference = None;
+        let mut nulls = 0;
+        for branch in branches {
+            let Some(branch) = branch.as_object() else {
+                return Ok(None);
+            };
+            if branch.get("type").and_then(Value::as_str) == Some("null") {
+                if branch.keys().any(|key| {
+                    !matches!(
+                        key.as_str(),
+                        "type"
+                            | "title"
+                            | "description"
+                            | "deprecated"
+                            | "example"
+                            | "examples"
+                            | "default"
+                            | "$comment"
+                    )
+                }) {
+                    return Ok(None);
+                }
+                nulls += 1;
+                continue;
+            }
+            let Some(target) = branch
+                .get("$ref")
+                .and_then(Value::as_str)
+                .and_then(|value| value.strip_prefix("#/components/schemas/"))
+                .filter(|value| !value.is_empty())
+            else {
+                return Ok(None);
+            };
+            if branch.keys().any(|key| {
+                !matches!(
+                    key.as_str(),
+                    "$ref"
+                        | "title"
+                        | "description"
+                        | "deprecated"
+                        | "example"
+                        | "examples"
+                        | "default"
+                        | "$comment"
+                )
+            }) || reference.replace(target).is_some()
+            {
+                return Ok(None);
+            }
+        }
+        match (reference, nulls) {
+            (Some(schema), 1) => Ok(Some(StructuredRequestBody {
+                media: RequestMediaDefinition::Json,
+                schema: schema.into(),
+            })),
+            _ => Ok(None),
+        }
+    }
+
     /// Return an exact required application/json request schema when the body
     /// is not represented by the narrower named/inline-object helpers.
     ///
