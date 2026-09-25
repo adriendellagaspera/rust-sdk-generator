@@ -252,24 +252,31 @@ fn derives_typed_oneof_sse_envelope_without_raw_union_type() {
             ))
             .expect("notification SSE schema") = envelope.clone();
     }
-    bindings.structs.insert(
-        "OpaqueNotificationError".into(),
-        vec![
-            rust_sdk_generator::FieldBinding {
-                name: "error_code".into(),
-                wire_name: Some("error_code".into()),
-                type_name: "i64".into(),
-            },
-            rust_sdk_generator::FieldBinding {
-                name: "fatal".into(),
-                wire_name: Some("fatal".into()),
-                type_name: "bool".into(),
-            },
-        ],
+    let error_fields = vec![
+        rust_sdk_generator::FieldBinding {
+            name: "error_code".into(),
+            wire_name: Some("error_code".into()),
+            type_name: "i64".into(),
+        },
+        rust_sdk_generator::FieldBinding {
+            name: "fatal".into(),
+            wire_name: Some("fatal".into()),
+            type_name: "bool".into(),
+        },
+    ];
+    bindings
+        .structs
+        .insert("NotificationErrorPayload".into(), error_fields.clone());
+    bindings
+        .structs
+        .insert("OpaqueNotificationErrorTwin".into(), error_fields);
+    bindings.symbol_paths.insert(
+        "NotificationErrorPayload".into(),
+        "crate::generated::types::NotificationErrorPayload".into(),
     );
     bindings.symbol_paths.insert(
-        "OpaqueNotificationError".into(),
-        "crate::generated::types::OpaqueNotificationError".into(),
+        "OpaqueNotificationErrorTwin".into(),
+        "crate::generated::types::OpaqueNotificationErrorTwin".into(),
     );
 
     let derivation = derive(DeriveInput {
@@ -299,7 +306,7 @@ fn derives_typed_oneof_sse_envelope_without_raw_union_type() {
         "SubscribeNotificationsStreamItemNotificationChunk"
     );
     assert_eq!(stream.variants[1].name, "NotificationErrorPayload");
-    assert_eq!(stream.variants[1].raw, "OpaqueNotificationError");
+    assert_eq!(stream.variants[1].raw, "NotificationErrorPayload");
 
     let generated = generate(GenerateInput {
         openapi,
@@ -319,7 +326,7 @@ fn derives_typed_oneof_sse_envelope_without_raw_union_type() {
         source.contains("#[serde(untagged)]")
             && source.contains("enum __SubscribeNotificationsStreamItemRaw")
             && source.contains("NotificationChunk(OpaqueNotification6)")
-            && source.contains("NotificationErrorPayload(OpaqueNotificationError)")
+            && source.contains("NotificationErrorPayload(NotificationErrorPayload)")
             && source.contains(
                 "json_events::<_, _, __SubscribeNotificationsStreamItemRaw>(bytes)"
             )
