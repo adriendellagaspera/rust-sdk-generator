@@ -578,24 +578,16 @@ fn emit_operation_call(
                 .map(|variant| {
                     format!(
                         "{}::{}(value) => {}::{}({}::from(value))",
-                        stream.item,
-                        variant.name,
-                        stream.wrapper,
-                        variant.name,
-                        variant.wrapper
+                        stream.item, variant.name, stream.wrapper, variant.name, variant.wrapper
                     )
                 })
                 .collect::<Vec<_>>()
                 .join(",");
             format!(
                 "pub async fn {public_name}(&self{separator}{arguments}) -> Result<{}, {error_type}> {{\n    let bytes = self.raw.{raw_method}({call}).await.map_err({error_type}::from)?;\n    let events = {}::{}::<_, _, {}>(bytes)\n        .map(|event| event.map(|event| match event.data {{ {} }}).map_err(Into::into));\n    Ok(Box::pin(events))\n}}",
-                stream.type_name,
-                runtime.sse_module,
-                runtime.sse_function,
-                stream.item,
-                arms
+                stream.type_name, runtime.sse_module, runtime.sse_function, stream.item, arms
             )
-        },
+        }
         ResponseProjection::Empty => format!(
             "pub async fn {public_name}(&self{separator}{arguments}) -> Result<(), {error_type}> {{\n    self.raw.{raw_method}({call}).await.map_err(Into::into)\n}}"
         ),
