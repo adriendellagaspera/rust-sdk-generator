@@ -1459,7 +1459,7 @@ fn request_discriminators(
 
     let mut output = Vec::new();
     let mut targets = BTreeSet::new();
-    for (_, (local_type, value, access_path, assignment_depth)) in blocks {
+    for (block_index, (local_type, value, access_path, assignment_depth)) in blocks {
         if access_path.len() != 1 {
             return Err(failure(
                 "extract.request_discriminator_unproven",
@@ -1480,16 +1480,6 @@ fn request_discriminators(
             ));
         }
         if media == RequestDiscriminatorMedia::MultipartFormData {
-            let block_index = blocks
-                .iter()
-                .find(|(_, (_, _, candidate, _))| candidate == &access_path)
-                .map(|(index, _)| *index)
-                .ok_or_else(|| {
-                    failure(
-                        "extract.request_discriminator_unproven",
-                        format!("{} lost discriminator block identity", structural_method.name),
-                    )
-                })?;
             let before = request_field_reads(
                 &method.block.stmts[(rebind + 1)..block_index],
                 &access_path,
