@@ -2183,10 +2183,38 @@ mod parameter_wire_evidence_tests {
         let mut drift = source.clone();
         drift["paths"]["/list"]["get"]["parameters"][0]["name"] =
             serde_json::json!("sort-direction");
-        assert!(parameter_wires(&generated, &signature, &drift, "GET", "/list").is_empty());
+        assert_eq!(
+            parameter_wires(&generated, &signature, &drift, "GET", "/list"),
+            vec![
+                ParameterWireEvidence {
+                    rust_name: "last_event_id_2".into(),
+                    location: "header".into(),
+                    wire_name: "Last-Event-ID".into(),
+                },
+                ParameterWireEvidence {
+                    rust_name: "sort_direction_2".into(),
+                    location: "query".into(),
+                    wire_name: "sort_direction".into(),
+                },
+            ]
+        );
         let mut drift = source.clone();
         drift["paths"]["/list"]["get"]["parameters"][2]["in"] = serde_json::json!("query");
-        assert!(parameter_wires(&generated, &signature, &drift, "GET", "/list").is_empty());
+        assert_eq!(
+            parameter_wires(&generated, &signature, &drift, "GET", "/list"),
+            vec![
+                ParameterWireEvidence {
+                    rust_name: "sort_direction".into(),
+                    location: "query".into(),
+                    wire_name: "sort.direction".into(),
+                },
+                ParameterWireEvidence {
+                    rust_name: "sort_direction_2".into(),
+                    location: "query".into(),
+                    wire_name: "sort_direction".into(),
+                },
+            ]
+        );
         let mut drift = source;
         drift["paths"]["/list"]["get"]["parameters"][1]["name"] =
             serde_json::json!("sort.direction");
