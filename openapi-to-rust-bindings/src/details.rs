@@ -1480,10 +1480,8 @@ fn request_discriminators(
             ));
         }
         if media == RequestDiscriminatorMedia::MultipartFormData {
-            let before = request_field_reads(
-                &method.block.stmts[(rebind + 1)..block_index],
-                &access_path,
-            );
+            let before =
+                request_field_reads(&method.block.stmts[(rebind + 1)..block_index], &access_path);
             let after = request_field_reads(
                 &method.block.stmts[(block_index + 1)..serialization],
                 &access_path,
@@ -2018,9 +2016,9 @@ mod request_schema_composition_tests {
     #[test]
     fn recognizes_multipart_request_schema_for_discriminator_proof() {
         let mut openapi = fixture();
-        let json = openapi["paths"]["/stream"]["post"]["requestBody"]["content"]
-            ["application/json"]
-            .take();
+        let json =
+            openapi["paths"]["/stream"]["post"]["requestBody"]["content"]["application/json"]
+                .take();
         openapi["paths"]["/stream"]["post"]["requestBody"]["content"] =
             serde_json::json!({"multipart/form-data": json});
         let operation = &openapi["paths"]["/stream"]["post"];
