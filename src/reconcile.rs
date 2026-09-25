@@ -1172,6 +1172,33 @@ mod tests {
     }
 
     #[test]
+    fn rejects_binding_when_generated_request_discriminator_mutation_is_unproved() {
+        let openapi = OpenApi(serde_json::json!({
+            "openapi": "3.1.0",
+            "paths": {
+                "/ping": {
+                    "get": {
+                        "operationId": "ping",
+                        "responses": {"204": {"description": "done"}}
+                    }
+                }
+            }
+        }));
+        let mut raw = v3_operation("raw_ping", "ping", "GET", "/ping", OperationBindingKind::CallShape);
+        raw.metadata
+            .as_mut()
+            .expect("v3 metadata")
+            .request_discriminator_unproven = true;
+        let result = reconcile(
+            &openapi,
+            &v3_bindings(BTreeMap::from([("raw_ping".into(), raw)])),
+        )
+        .expect("reconcile");
+        assert_eq!(result["ping"].binding, None);
+        assert_eq!(result["ping"].reason.as_deref(), Some("bindings.no_structural_match"));
+    }
+
+    #[test]
     fn reconciles_unrelated_binding_name_and_argument_order() {
         let openapi = OpenApi(serde_json::json!({
             "openapi": "3.1.0",
