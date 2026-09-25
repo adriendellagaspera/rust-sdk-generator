@@ -872,7 +872,7 @@ fn unconstrained_request_object_branch(schema: &Value) -> bool {
     if object.get("type").and_then(Value::as_str) != Some("object")
         || object
             .get("properties")
-            .is_some_and(|properties| !properties.as_object().is_some_and(Map::is_empty))
+            .is_some_and(|properties| !properties.as_object().is_some_and(|properties| properties.is_empty()))
         || object
             .get("additionalProperties")
             .is_some_and(|additional| additional != &Value::Bool(true))
@@ -898,7 +898,7 @@ fn unconstrained_request_object_branch(schema: &Value) -> bool {
 
 fn redundant_unconstrained_object_any_of_matches(
     schema: &Value,
-    variants: &[crate::contracts::EnumVariantBinding],
+    variants: &[crate::contracts::VariantBinding],
     bindings: &Bindings,
 ) -> bool {
     let Some(object) = schema.as_object() else {
