@@ -1263,7 +1263,7 @@ mod tests {
                 },
                 "raw_pause": {
                     "name": "raw_pause",
-                    "parameters": [{"name": "request", "type": "Option<PauseAlias>"}],
+                    "parameters": [{"name": "request", "type": "Option<Option<PauseAlias>>"}],
                     "return_type": "Result<(), Error>",
                     "success_type": "()",
                     "stream": null,
@@ -1304,7 +1304,102 @@ mod tests {
             result["update_metrics"].binding.as_deref(),
             Some("raw_update_metrics")
         );
-        assert_eq!(result["pause"].binding.as_deref(), Some("pause_raw"));
+        assert_eq!(result["pause"].binding.as_deref(), Some("raw_pause"));
+    }
+
+    #[test]
+    fn optional_nullable_root_requires_exact_two_option_layers_and_no_constraints() {
+        let operation = serde_json::json!({
+            "operationId": "pause",
+            "requestBody": {
+                "content": {"application/json": {"schema": {
+                    "anyOf": [
+                        {"$ref": "#/components/schemas/PauseRequest"},
+                        {"type": "null"}
+                    ]
+                }}}
+            },
+            "responses": {"204": {"description": "done"}}
+        });
+        let shape = request_shape(&operation).expect("exact nullable root");
+        assert_eq!(
+            shape.body,
+            Some(RequestBodyShape::OptionalNullableModel(
+                RequestMediaDefinition::Json,
+                "PauseRequest".into()
+            ))
+        );
+
+        let constrained = serde_json::json!({
+            "operationId": "pause",
+            "requestBody": {
+                "content": {"application/json": {"schema": {
+                    "anyOf": [
+                        {"$ref": "#/components/schemas/PauseRequest"},
+                        {"type": "null"}
+                    ],
+                    "minProperties": 1
+                }}}
+            },
+            "responses": {"204": {"description": "done"}}
+        });
+        assert_eq!(
+            request_shape(&constrained).expect_err("constraints remain fail closed"),
+            "request.inline_or_unresolved"
+        );
+
+        let openapi = OpenApi(serde_json::json!({
+            "openapi": "3.1.0",
+            "paths": {"/pause": {"post": operation}},
+            "components": {"schemas": {
+                "PauseRequest": {
+                    "type": "object",
+                    "properties": {"reason": {"type": "string"}}
+                }
+            }}
+        }));
+        let mut shallow = v3_operation(
+            "raw_pause",
+            "pause",
+            "POST",
+            "/pause",
+            OperationBindingKind::CallShape,
+        );
+        shallow.parameters = vec![ParameterBinding {
+            name: "request".into(),
+            type_name: "Option<PauseRequest>".into(),
+        }];
+        assert_eq!(
+            reconcile(
+                &openapi,
+                &v3_bindings(BTreeMap::from([("raw_pause".into(), shallow)]))
+            )
+            .expect("reconcile")["pause"]
+                .binding,
+            None
+        );
+
+        let mut exact = v3_operation(
+            "raw_pause",
+            "pause",
+            "POST",
+            "/pause",
+            OperationBindingKind::CallShape,
+        );
+        exact.parameters = vec![ParameterBinding {
+            name: "request".into(),
+            type_name: "Option<Option<PauseRequest>>".into(),
+        }];
+        assert_eq!(
+            reconcile(
+                &openapi,
+                &v3_bindings(BTreeMap::from([("raw_pause".into(), exact)]))
+            )
+            .expect("reconcile")["pause"]
+                .binding
+                .as_deref(),
+            Some("raw_pause")
+        );
     }
 
     #[test]
