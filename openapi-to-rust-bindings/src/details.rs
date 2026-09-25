@@ -1164,7 +1164,8 @@ fn collect_request_schema_fields(
     properties: &mut BTreeMap<String, Value>,
     required: &mut BTreeSet<String>,
 ) -> Option<()> {
-    if schema.get("oneOf").is_some() || schema.get("anyOf").is_some() || schema.get("not").is_some() {
+    if schema.get("oneOf").is_some() || schema.get("anyOf").is_some() || schema.get("not").is_some()
+    {
         return None;
     }
     if let Some(reference) = schema.get("$ref").and_then(Value::as_str) {
@@ -1850,11 +1851,10 @@ mod request_schema_composition_tests {
         assert!(request_schema(&openapi, operation).is_none());
 
         let mut openapi = fixture();
-        openapi["components"]["schemas"]["StreamRequest"]["allOf"][0] =
-            serde_json::json!({
-                "type": "object",
-                "properties": {"stream": {"type": "string"}}
-            });
+        openapi["components"]["schemas"]["StreamRequest"]["allOf"][0] = serde_json::json!({
+            "type": "object",
+            "properties": {"stream": {"type": "string"}}
+        });
         let operation = &openapi["paths"]["/stream"]["post"];
         assert!(request_schema(&openapi, operation).is_none());
     }
