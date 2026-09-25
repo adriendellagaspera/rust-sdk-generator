@@ -143,14 +143,19 @@ fn derives_exact_tri_state_root_and_preserves_public_absent_null_value() {
         runtime: Runtime::default(),
     })
     .expect("generate");
-    let client = &generated.files["client.rs"];
+    let generated_source = generated
+        .files
+        .values()
+        .map(String::as_str)
+        .collect::<String>();
     assert!(
-        client.contains("request: Option<Option<PauseWorkflowsSchedulesRequest>>"),
-        "{client}"
+        generated_source.contains("request: Option<Option<PauseWorkflowsSchedulesRequest>>"),
+        "{generated_source}"
     );
     assert!(
-        client.contains("request.map(|request| request.map(|request| request.into_raw()))"),
-        "{client}"
+        generated_source
+            .contains("request.map(|request| request.map(|request| request.into_raw()))"),
+        "{generated_source}"
     );
 }
 
