@@ -64,6 +64,13 @@ fn normalize_oracle_types(bindings: &mut Value) {
         return;
     };
     for operation in operations.values_mut() {
+        if let Some(metadata) = operation.get_mut("metadata").and_then(Value::as_object_mut) {
+            // Canonical adapter observations are derived from the emitted Rust
+            // plus the source OpenAPI; legacy/fork manifests are not expected
+            // to carry them. Oracle comparison still checks the generator-
+            // owned call shape/representation and all non-adapter metadata.
+            metadata.remove("parameter_wires");
+        }
         if let Some(value) = operation.get_mut("return_type")
             && let Some(text) = value.as_str()
         {
@@ -832,6 +839,35 @@ mod tests {
             }
         });
         compare_oracle(&manifest, &extracted).expect("equivalent type spelling");
+    }
+
+    #[test]
+    fn oracle_comparison_ignores_adapter_observed_parameter_wires_only() {
+        let manifest = json!({
+            "operations": {
+                "call": {
+                    "return_type": "Result<Value, Error>",
+                    "metadata": {"representation": {"kind": "json"}}
+                }
+            }
+        });
+        let extracted = json!({
+            "operations": {
+                "call": {
+                    "return_type": "Result<Value, Error>",
+                    "metadata": {
+                        "representation": {"kind": "json"},
+                        "parameter_wires": [{
+                            "rust_name": "verbose",
+                            "location": "query",
+                            "wire_name": "verbose"
+                        }]
+                    }
+                }
+            }
+        });
+        compare_oracle(&manifest, &extracted)
+            .expect("adapter-observed wire evidence is outside the legacy manifest oracle");
     }
 
     #[test]

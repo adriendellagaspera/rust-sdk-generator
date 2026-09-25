@@ -1032,6 +1032,51 @@ impl<'ast> Visit<'ast> for JsonRequestSerialization {
     }
 }
 
+#[derive(Default)]
+struct MultipartRequestSerialization {
+    count: usize,
+}
+
+impl<'ast> Visit<'ast> for MultipartRequestSerialization {
+    fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
+        if node.method == "multipart"
+            && node.args.len() == 1
+            && matches!(
+                node.args.first(),
+                Some(Expr::Path(path)) if path.path.is_ident("form")
+            )
+        {
+            self.count += 1;
+        }
+        visit::visit_expr_method_call(self, node);
+    }
+}
+
+struct RequestFieldRead<'a> {
+    target: &'a [String],
+    count: usize,
+}
+
+impl<'ast> Visit<'ast> for RequestFieldRead<'_> {
+    fn visit_expr_field(&mut self, node: &'ast syn::ExprField) {
+        if field_access(&Expr::Field(node.clone()))
+            .as_deref()
+            .is_some_and(|path| path == self.target)
+        {
+            self.count += 1;
+        }
+        visit::visit_expr_field(self, node);
+    }
+}
+
+fn request_field_reads(statements: &[Stmt], target: &[String]) -> usize {
+    let mut visitor = RequestFieldRead { target, count: 0 };
+    for statement in statements {
+        visitor.visit_stmt(statement);
+    }
+    visitor.count
+}
+
 fn unwrap_option_layers(rust_type: &str, depth: usize) -> Option<String> {
     let mut current: Type = syn::parse_str(rust_type).ok()?;
     for _ in 0..depth {
@@ -1157,6 +1202,91 @@ fn operation_value<'a>(openapi: &'a Value, method: &str, path: &str) -> Result<&
         })
 }
 
+fn merge_request_discriminator_property(existing: &Value, candidate: &Value) -> Option<Value> {
+    if existing == candidate {
+        return Some(existing.clone());
+    }
+
+    // This helper is intentionally narrow. The generator may refine an
+    // optional Boolean discriminator in an allOf branch (for example a base
+    // `stream: boolean` plus an enum/const true-or-false branch). For the
+    // discriminator proof we only need the field's Boolean/nullable/required
+    // semantics; the exact enum/const value is checked later against the
+    // fully resolved OpenAPI object by root reconciliation.
+    fn boolean_domain(schema: &Value) -> Option<bool> {
+        let object = schema.as_object()?;
+        if object.keys().any(|key| {
+            !matches!(
+                key.as_str(),
+                "type"
+                    | "anyOf"
+                    | "enum"
+                    | "const"
+                    | "default"
+                    | "title"
+                    | "description"
+                    | "deprecated"
+                    | "example"
+                    | "examples"
+                    | "$comment"
+            )
+        }) {
+            return None;
+        }
+
+        let nullable = if object.get("type").and_then(Value::as_str) == Some("boolean") {
+            false
+        } else {
+            let branches = object.get("anyOf")?.as_array()?;
+            if branches.len() != 2 {
+                return None;
+            }
+            let mut boolean = false;
+            let mut null = false;
+            for branch in branches {
+                let branch = branch.as_object()?;
+                if branch.len() != 1 {
+                    return None;
+                }
+                match branch.get("type").and_then(Value::as_str) {
+                    Some("boolean") if !boolean => boolean = true,
+                    Some("null") if !null => null = true,
+                    _ => return None,
+                }
+            }
+            if !boolean || !null {
+                return None;
+            }
+            true
+        };
+
+        if object.get("const").is_some_and(|value| !value.is_boolean()) {
+            return None;
+        }
+        if object.get("enum").is_some_and(|value| {
+            value.as_array().is_none_or(|values| {
+                values.is_empty() || values.iter().any(|value| !value.is_boolean())
+            })
+        }) {
+            return None;
+        }
+        Some(nullable)
+    }
+
+    let nullable = boolean_domain(existing)? && boolean_domain(candidate)?;
+    Some(if nullable {
+        serde_json::json!({"anyOf": [{"type": "boolean"}, {"type": "null"}]})
+    } else {
+        serde_json::json!({"type": "boolean"})
+    })
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RequestDiscriminatorMedia {
+    Json,
+    MultipartFormData,
+}
+
 fn collect_request_schema_fields(
     openapi: &Value,
     schema: &Value,
@@ -1185,9 +1315,8 @@ fn collect_request_schema_fields(
     if let Some(fields) = schema.get("properties") {
         for (name, value) in fields.as_object()? {
             if let Some(existing) = properties.get(name) {
-                if existing != value {
-                    return None;
-                }
+                let merged = merge_request_discriminator_property(existing, value)?;
+                properties.insert(name.clone(), merged);
             } else {
                 properties.insert(name.clone(), value.clone());
             }
@@ -1208,14 +1337,25 @@ fn collect_request_schema_fields(
 fn request_schema(
     openapi: &Value,
     operation: &Value,
-) -> Option<(BTreeMap<String, Value>, BTreeSet<String>)> {
+) -> Option<(
+    RequestDiscriminatorMedia,
+    BTreeMap<String, Value>,
+    BTreeSet<String>,
+)> {
     let content = operation.get("requestBody")?.get("content")?.as_object()?;
-    let media = content.get("application/json").or_else(|| {
+    let (media_kind, media) = if let Some(value) = content.get("application/json").or_else(|| {
         content
             .iter()
             .find(|(kind, _)| kind.ends_with("+json"))
             .map(|(_, value)| value)
-    })?;
+    }) {
+        (RequestDiscriminatorMedia::Json, value)
+    } else {
+        (
+            RequestDiscriminatorMedia::MultipartFormData,
+            content.get("multipart/form-data")?,
+        )
+    };
     let schema = media.get("schema")?;
     let mut properties = BTreeMap::new();
     let mut required = BTreeSet::new();
@@ -1226,7 +1366,7 @@ fn request_schema(
         &mut properties,
         &mut required,
     )?;
-    Some((properties, required))
+    Some((media_kind, properties, required))
 }
 
 fn request_discriminators(
@@ -1239,17 +1379,21 @@ fn request_discriminators(
 ) -> Result<Vec<RequestDiscriminatorEvidence>, Error> {
     let mut blocks = Vec::new();
     let mut rebinds = Vec::new();
-    let mut serializations = Vec::new();
+    let mut json_serializations = Vec::new();
+    let mut multipart_serializations = Vec::new();
     for (index, statement) in method.block.stmts.iter().enumerate() {
         if request_rebind(statement) {
             rebinds.push(index);
         }
-        let mut serialization = JsonRequestSerialization::default();
-        serialization.visit_stmt(statement);
-        if serialization.count > 0 {
-            for _ in 0..serialization.count {
-                serializations.push(index);
-            }
+        let mut json = JsonRequestSerialization::default();
+        json.visit_stmt(statement);
+        for _ in 0..json.count {
+            json_serializations.push(index);
+        }
+        let mut multipart = MultipartRequestSerialization::default();
+        multipart.visit_stmt(statement);
+        for _ in 0..multipart.count {
+            multipart_serializations.push(index);
         }
         if let Stmt::Expr(Expr::Block(block), _) = statement
             && let Some(evidence) = discriminator_block(&block.block).map_err(|error| {
@@ -1277,13 +1421,50 @@ fn request_discriminators(
     if blocks.is_empty() {
         return Ok(Vec::new());
     }
-    if rebinds.len() != 1 || serializations.len() != 1 {
+    if rebinds.len() != 1 {
         return Err(failure(
             "extract.request_discriminator_unproven",
             format!(
-                "{}: expected one direct mutable request rebind and one JSON serialization, found {} and {}",
+                "{}: expected one direct mutable request rebind, found {}",
                 structural_method.name,
-                rebinds.len(),
+                rebinds.len()
+            ),
+        ));
+    }
+    let request_parameter = structural_method
+        .parameters
+        .iter()
+        .find(|parameter| parameter.name == "request")
+        .ok_or_else(|| {
+            failure(
+                "extract.request_discriminator_unproven",
+                format!(
+                    "{} mutates request but has no request parameter",
+                    structural_method.name
+                ),
+            )
+        })?;
+    let operation = operation_value(openapi, source_method, source_path)?;
+    let (media, properties, required) = request_schema(openapi, operation).ok_or_else(|| {
+        failure(
+            "extract.request_discriminator_unproven",
+            format!(
+                "{} has no structurally composable JSON request schema",
+                structural_method.name
+            ),
+        )
+    })?;
+    let serializations = match media {
+        RequestDiscriminatorMedia::Json => &json_serializations,
+        RequestDiscriminatorMedia::MultipartFormData => &multipart_serializations,
+    };
+    if serializations.len() != 1 {
+        return Err(failure(
+            "extract.request_discriminator_unproven",
+            format!(
+                "{}: expected one {:?} request serialization, found {}",
+                structural_method.name,
+                media,
                 serializations.len()
             ),
         ));
@@ -1302,33 +1483,10 @@ fn request_discriminators(
             ),
         ));
     }
-    let request_parameter = structural_method
-        .parameters
-        .iter()
-        .find(|parameter| parameter.name == "request")
-        .ok_or_else(|| {
-            failure(
-                "extract.request_discriminator_unproven",
-                format!(
-                    "{} mutates request but has no request parameter",
-                    structural_method.name
-                ),
-            )
-        })?;
-    let operation = operation_value(openapi, source_method, source_path)?;
-    let (properties, required) = request_schema(openapi, operation).ok_or_else(|| {
-        failure(
-            "extract.request_discriminator_unproven",
-            format!(
-                "{} has no structurally composable JSON request schema",
-                structural_method.name
-            ),
-        )
-    })?;
 
     let mut output = Vec::new();
     let mut targets = BTreeSet::new();
-    for (_, (local_type, value, access_path, assignment_depth)) in blocks {
+    for (block_index, (local_type, value, access_path, assignment_depth)) in blocks {
         if access_path.len() != 1 {
             return Err(failure(
                 "extract.request_discriminator_unproven",
@@ -1347,6 +1505,23 @@ fn request_discriminators(
                     structural_method.name
                 ),
             ));
+        }
+        if media == RequestDiscriminatorMedia::MultipartFormData {
+            let before =
+                request_field_reads(&method.block.stmts[(rebind + 1)..block_index], &access_path);
+            let after = request_field_reads(
+                &method.block.stmts[(block_index + 1)..serialization],
+                &access_path,
+            );
+            if before != 0 || after != 1 {
+                return Err(failure(
+                    "extract.request_discriminator_unproven",
+                    format!(
+                        "{} multipart discriminator field {target:?} must be projected exactly once after mutation and before multipart serialization; found {before} reads before and {after} after",
+                        structural_method.name
+                    ),
+                ));
+            }
         }
         let field = field_for_access(structural, &request_parameter.rust_type, &access_path)
             .map_err(|error| {
@@ -1576,8 +1751,11 @@ fn parameter_wires(
     verb: &str,
     path: &str,
 ) -> Vec<ParameterWireEvidence> {
-    // Missing or ambiguous evidence is an empty mapping, never a guessed
-    // partial mapping. Old exact-name reconciliation remains available.
+    // Keep every exact wire mapping observed in emitted Rust. The map may be
+    // partial when a parameter uses an unsupported serialization shape (for
+    // example a repeated Vec query value). Root reconciliation may complete
+    // only the remaining names through a separately proven bijection; it must
+    // never infer or rewrite a missing wire key.
     let Some(path_item) = openapi.get("paths").and_then(|paths| paths.get(path)) else {
         return Vec::new();
     };
@@ -1659,9 +1837,6 @@ fn parameter_wires(
             return Vec::new();
         }
         output.push(evidence);
-    }
-    if mapped_wires != source {
-        return Vec::new();
     }
     output.sort_by(|a, b| a.rust_name.cmp(&b.rust_name));
     output
@@ -1807,7 +1982,15 @@ mod request_schema_composition_tests {
                         "type": "object",
                         "required": ["input"],
                         "properties": {
-                            "input": {"type": "string"}
+                            "input": {"type": "string"},
+                            "stream": {
+                                "anyOf": [
+                                    {"type": "boolean"},
+                                    {"type": "null"}
+                                ],
+                                "default": null,
+                                "description": "base stream preference"
+                            }
                         }
                     },
                     "StreamRequest": {
@@ -1834,10 +2017,11 @@ mod request_schema_composition_tests {
     fn composes_local_all_of_properties_and_requiredness_for_discriminator_proof() {
         let openapi = fixture();
         let operation = &openapi["paths"]["/stream"]["post"];
-        let (properties, required) =
+        let (media, properties, required) =
             request_schema(&openapi, operation).expect("composable allOf request");
+        assert_eq!(media, RequestDiscriminatorMedia::Json);
         assert_eq!(properties["input"]["type"], "string");
-        assert_eq!(properties["stream"]["enum"], serde_json::json!([true]));
+        assert_eq!(properties["stream"]["type"], "boolean");
         assert!(required.contains("input"));
         assert!(!required.contains("stream"));
     }
@@ -1857,6 +2041,45 @@ mod request_schema_composition_tests {
         });
         let operation = &openapi["paths"]["/stream"]["post"];
         assert!(request_schema(&openapi, operation).is_none());
+    }
+
+    #[test]
+    fn recognizes_multipart_request_schema_for_discriminator_proof() {
+        let mut openapi = fixture();
+        let json =
+            openapi["paths"]["/stream"]["post"]["requestBody"]["content"]["application/json"]
+                .take();
+        openapi["paths"]["/stream"]["post"]["requestBody"]["content"] =
+            serde_json::json!({"multipart/form-data": json});
+        let operation = &openapi["paths"]["/stream"]["post"];
+        let (media, properties, _) =
+            request_schema(&openapi, operation).expect("multipart request schema");
+        assert_eq!(media, RequestDiscriminatorMedia::MultipartFormData);
+        assert_eq!(properties["stream"]["type"], "boolean");
+    }
+
+    #[test]
+    fn observes_multipart_sink_and_request_field_reads() {
+        let method: syn::ImplItemFn = syn::parse_quote! {
+            pub async fn transcribe(&self, request: Request) {
+                let mut request = request;
+                {
+                    let __request_discriminator_value: bool = value();
+                    request.stream = Some(__request_discriminator_value);
+                }
+                let mut form = form();
+                if let Some(value) = &request.stream {
+                    form = form.text("stream", value.to_string());
+                }
+                req = req.multipart(form);
+            }
+        };
+        let mut multipart = MultipartRequestSerialization::default();
+        multipart.visit_block(&method.block);
+        assert_eq!(multipart.count, 1);
+        let target = vec!["stream".to_owned()];
+        assert_eq!(request_field_reads(&method.block.stmts[2..4], &target), 1);
+        assert_eq!(request_field_reads(&method.block.stmts[..1], &target), 0);
     }
 }
 
@@ -1960,10 +2183,38 @@ mod parameter_wire_evidence_tests {
         let mut drift = source.clone();
         drift["paths"]["/list"]["get"]["parameters"][0]["name"] =
             serde_json::json!("sort-direction");
-        assert!(parameter_wires(&generated, &signature, &drift, "GET", "/list").is_empty());
+        assert_eq!(
+            parameter_wires(&generated, &signature, &drift, "GET", "/list"),
+            vec![
+                ParameterWireEvidence {
+                    rust_name: "last_event_id_2".into(),
+                    location: "header".into(),
+                    wire_name: "Last-Event-ID".into(),
+                },
+                ParameterWireEvidence {
+                    rust_name: "sort_direction_2".into(),
+                    location: "query".into(),
+                    wire_name: "sort_direction".into(),
+                },
+            ]
+        );
         let mut drift = source.clone();
         drift["paths"]["/list"]["get"]["parameters"][2]["in"] = serde_json::json!("query");
-        assert!(parameter_wires(&generated, &signature, &drift, "GET", "/list").is_empty());
+        assert_eq!(
+            parameter_wires(&generated, &signature, &drift, "GET", "/list"),
+            vec![
+                ParameterWireEvidence {
+                    rust_name: "sort_direction".into(),
+                    location: "query".into(),
+                    wire_name: "sort.direction".into(),
+                },
+                ParameterWireEvidence {
+                    rust_name: "sort_direction_2".into(),
+                    location: "query".into(),
+                    wire_name: "sort_direction".into(),
+                },
+            ]
+        );
         let mut drift = source;
         drift["paths"]["/list"]["get"]["parameters"][1]["name"] =
             serde_json::json!("sort.direction");

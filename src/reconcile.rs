@@ -606,7 +606,7 @@ fn binding_matches(
         // HTTP location and wire key. A normalized Rust spelling alone cannot
         // distinguish dotted query names, casing or query/header collisions.
         let mut expected = BTreeSet::new();
-        let mut path_names = BTreeSet::new();
+        let mut fallback_names = Vec::new();
         for parameter in operation
             .get("parameters")
             .and_then(Value::as_array)
@@ -620,11 +620,7 @@ fn binding_matches(
                 return false;
             };
             match location {
-                "path" => {
-                    if !path_names.insert(normalized_parameter_name(name)) {
-                        return false;
-                    }
-                }
+                "path" => fallback_names.push(normalized_parameter_name(name)),
                 "query" | "header" => {
                     let wire = if location == "header" {
                         name.to_ascii_lowercase()
@@ -650,20 +646,48 @@ fn binding_matches(
             } else {
                 wire.wire_name.clone()
             };
-            if !matched.insert((wire.location.clone(), key)) {
+            let identity = (wire.location.clone(), key);
+            if !expected.contains(&identity) || !matched.insert(identity) {
                 return false;
             }
         }
-        if matched != expected {
+
+        // Exact observed wire evidence is authoritative. Source query/header
+        // parameters not covered by that evidence may fall back to normalized
+        // Rust names only when the remainder is a strict bijection. This keeps
+        // ordinary parameters usable without guessing any missing collision.
+        for (location, wire_name) in expected.difference(&matched) {
+            let source_name = operation
+                .get("parameters")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .find_map(|parameter| {
+                    let candidate_location = parameter.get("in").and_then(Value::as_str)?;
+                    let candidate_name = parameter.get("name").and_then(Value::as_str)?;
+                    let candidate_wire = if candidate_location == "header" {
+                        candidate_name.to_ascii_lowercase()
+                    } else {
+                        candidate_name.to_owned()
+                    };
+                    (candidate_location == location.as_str()
+                        && candidate_wire == wire_name.as_str())
+                    .then_some(candidate_name)
+                })
+                .expect("expected wire identity came from this operation");
+            fallback_names.push(normalized_parameter_name(source_name));
+        }
+        let expected_fallback: BTreeSet<_> = fallback_names.iter().cloned().collect();
+        if expected_fallback.len() != fallback_names.len() {
             return false;
         }
-        let path_raw: Vec<_> = raw_names
+        let raw_fallback: Vec<_> = raw_names
             .iter()
             .filter(|name| !mapped_rust.contains(name.as_str()))
             .cloned()
             .collect();
-        let actual_path: BTreeSet<_> = path_raw.iter().cloned().collect();
-        if actual_path.len() != path_raw.len() || actual_path != path_names {
+        let actual_fallback: BTreeSet<_> = raw_fallback.iter().cloned().collect();
+        if actual_fallback.len() != raw_fallback.len() || actual_fallback != expected_fallback {
             return false;
         }
     } else {
@@ -930,7 +954,9 @@ mod tests {
                             {"name": "last_event_id", "in": "query", "required": false,
                              "schema": {"type": "string"}},
                             {"name": "Last-Event-ID", "in": "header", "required": false,
-                             "schema": {"type": "string"}}
+                             "schema": {"type": "string"}},
+                            {"name": "fields", "in": "query", "required": false,
+                             "schema": {"type": "array", "items": {"type": "string"}}}
                         ],
                         "responses": {"204": {"description": "done"}}
                     }
@@ -957,6 +983,10 @@ mod tests {
                 name: "last_event_id_2".into(),
                 type_name: "Option<impl AsRef<str>>".into(),
             },
+            ParameterBinding {
+                name: "fields".into(),
+                type_name: "Option<Vec<String>>".into(),
+            },
         ];
         let proven = vec![
             ParameterWireBinding {
@@ -982,6 +1012,9 @@ mod tests {
                 accepted
             );
         };
+        // The exact collision-prone cursor wires are proven from emitted AST,
+        // while the ordinary `fields` query parameter and path id are completed
+        // by the strict normalized-name bijection.
         check(proven.clone(), true);
         let mut swapped = proven.clone();
         swapped[0].rust_name = "last_event_id_2".into();
