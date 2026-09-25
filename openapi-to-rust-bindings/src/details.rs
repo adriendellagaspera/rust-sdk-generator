@@ -1157,10 +1157,57 @@ fn operation_value<'a>(openapi: &'a Value, method: &str, path: &str) -> Result<&
         })
 }
 
-fn request_schema<'a>(
-    openapi: &'a Value,
-    operation: &'a Value,
-) -> Option<(&'a Value, BTreeSet<String>)> {
+fn collect_request_schema_fields(
+    openapi: &Value,
+    schema: &Value,
+    stack: &mut BTreeSet<String>,
+    properties: &mut BTreeMap<String, Value>,
+    required: &mut BTreeSet<String>,
+) -> Option<()> {
+    if schema.get("oneOf").is_some() || schema.get("anyOf").is_some() || schema.get("not").is_some() {
+        return None;
+    }
+    if let Some(reference) = schema.get("$ref").and_then(Value::as_str) {
+        let name = reference.strip_prefix("#/components/schemas/")?;
+        if name.is_empty() || name.contains('/') || !stack.insert(name.to_owned()) {
+            return None;
+        }
+        let target = openapi.get("components")?.get("schemas")?.get(name)?;
+        collect_request_schema_fields(openapi, target, stack, properties, required)?;
+        stack.remove(name);
+    }
+    if let Some(items) = schema.get("required") {
+        for item in items.as_array()? {
+            required.insert(item.as_str()?.to_owned());
+        }
+    }
+    if let Some(fields) = schema.get("properties") {
+        for (name, value) in fields.as_object()? {
+            if let Some(existing) = properties.get(name) {
+                if existing != value {
+                    return None;
+                }
+            } else {
+                properties.insert(name.clone(), value.clone());
+            }
+        }
+    }
+    if let Some(branches) = schema.get("allOf") {
+        let branches = branches.as_array()?;
+        if branches.is_empty() {
+            return None;
+        }
+        for branch in branches {
+            collect_request_schema_fields(openapi, branch, stack, properties, required)?;
+        }
+    }
+    Some(())
+}
+
+fn request_schema(
+    openapi: &Value,
+    operation: &Value,
+) -> Option<(BTreeMap<String, Value>, BTreeSet<String>)> {
     let content = operation.get("requestBody")?.get("content")?.as_object()?;
     let media = content.get("application/json").or_else(|| {
         content
@@ -1169,18 +1216,16 @@ fn request_schema<'a>(
             .map(|(_, value)| value)
     })?;
     let schema = media.get("schema")?;
-    let reference = schema.get("$ref")?.as_str()?;
-    let name = reference.rsplit('/').next()?;
-    let schema = openapi.get("components")?.get("schemas")?.get(name)?;
-    let required = schema
-        .get("required")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(ToOwned::to_owned)
-        .collect();
-    Some((schema, required))
+    let mut properties = BTreeMap::new();
+    let mut required = BTreeSet::new();
+    collect_request_schema_fields(
+        openapi,
+        schema,
+        &mut BTreeSet::new(),
+        &mut properties,
+        &mut required,
+    )?;
+    Some((properties, required))
 }
 
 fn request_discriminators(
@@ -1270,24 +1315,15 @@ fn request_discriminators(
             )
         })?;
     let operation = operation_value(openapi, source_method, source_path)?;
-    let (schema, required) = request_schema(openapi, operation).ok_or_else(|| {
+    let (properties, required) = request_schema(openapi, operation).ok_or_else(|| {
         failure(
             "extract.request_discriminator_unproven",
             format!(
-                "{} has no named JSON request schema",
+                "{} has no structurally composable JSON request schema",
                 structural_method.name
             ),
         )
     })?;
-    let properties = schema
-        .get("properties")
-        .and_then(Value::as_object)
-        .ok_or_else(|| {
-            failure(
-                "extract.request_discriminator_unproven",
-                "request schema has no properties",
-            )
-        })?;
 
     let mut output = Vec::new();
     let mut targets = BTreeSet::new();
