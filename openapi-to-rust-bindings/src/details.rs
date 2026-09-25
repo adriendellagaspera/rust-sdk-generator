@@ -1032,6 +1032,51 @@ impl<'ast> Visit<'ast> for JsonRequestSerialization {
     }
 }
 
+#[derive(Default)]
+struct MultipartRequestSerialization {
+    count: usize,
+}
+
+impl<'ast> Visit<'ast> for MultipartRequestSerialization {
+    fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
+        if node.method == "multipart"
+            && node.args.len() == 1
+            && matches!(
+                node.args.first(),
+                Some(Expr::Path(path)) if path.path.is_ident("form")
+            )
+        {
+            self.count += 1;
+        }
+        visit::visit_expr_method_call(self, node);
+    }
+}
+
+struct RequestFieldRead<'a> {
+    target: &'a [String],
+    count: usize,
+}
+
+impl<'ast> Visit<'ast> for RequestFieldRead<'_> {
+    fn visit_expr_field(&mut self, node: &'ast syn::ExprField) {
+        if field_access(&Expr::Field(node.clone()))
+            .as_deref()
+            .is_some_and(|path| path == self.target)
+        {
+            self.count += 1;
+        }
+        visit::visit_expr_field(self, node);
+    }
+}
+
+fn request_field_reads(statements: &[Stmt], target: &[String]) -> usize {
+    let mut visitor = RequestFieldRead { target, count: 0 };
+    for statement in statements {
+        visitor.visit_stmt(statement);
+    }
+    visitor.count
+}
+
 fn unwrap_option_layers(rust_type: &str, depth: usize) -> Option<String> {
     let mut current: Type = syn::parse_str(rust_type).ok()?;
     for _ in 0..depth {
@@ -1307,17 +1352,21 @@ fn request_discriminators(
 ) -> Result<Vec<RequestDiscriminatorEvidence>, Error> {
     let mut blocks = Vec::new();
     let mut rebinds = Vec::new();
-    let mut serializations = Vec::new();
+    let mut json_serializations = Vec::new();
+    let mut multipart_serializations = Vec::new();
     for (index, statement) in method.block.stmts.iter().enumerate() {
         if request_rebind(statement) {
             rebinds.push(index);
         }
-        let mut serialization = JsonRequestSerialization::default();
-        serialization.visit_stmt(statement);
-        if serialization.count > 0 {
-            for _ in 0..serialization.count {
-                serializations.push(index);
-            }
+        let mut json = JsonRequestSerialization::default();
+        json.visit_stmt(statement);
+        for _ in 0..json.count {
+            json_serializations.push(index);
+        }
+        let mut multipart = MultipartRequestSerialization::default();
+        multipart.visit_stmt(statement);
+        for _ in 0..multipart.count {
+            multipart_serializations.push(index);
         }
         if let Stmt::Expr(Expr::Block(block), _) = statement
             && let Some(evidence) = discriminator_block(&block.block).map_err(|error| {
@@ -1345,13 +1394,50 @@ fn request_discriminators(
     if blocks.is_empty() {
         return Ok(Vec::new());
     }
-    if rebinds.len() != 1 || serializations.len() != 1 {
+    if rebinds.len() != 1 {
         return Err(failure(
             "extract.request_discriminator_unproven",
             format!(
-                "{}: expected one direct mutable request rebind and one JSON serialization, found {} and {}",
+                "{}: expected one direct mutable request rebind, found {}",
                 structural_method.name,
-                rebinds.len(),
+                rebinds.len()
+            ),
+        ));
+    }
+    let request_parameter = structural_method
+        .parameters
+        .iter()
+        .find(|parameter| parameter.name == "request")
+        .ok_or_else(|| {
+            failure(
+                "extract.request_discriminator_unproven",
+                format!(
+                    "{} mutates request but has no request parameter",
+                    structural_method.name
+                ),
+            )
+        })?;
+    let operation = operation_value(openapi, source_method, source_path)?;
+    let (media, properties, required) = request_schema(openapi, operation).ok_or_else(|| {
+        failure(
+            "extract.request_discriminator_unproven",
+            format!(
+                "{} has no structurally composable JSON request schema",
+                structural_method.name
+            ),
+        )
+    })?;
+    let serializations = match media {
+        RequestDiscriminatorMedia::Json => &json_serializations,
+        RequestDiscriminatorMedia::MultipartFormData => &multipart_serializations,
+    };
+    if serializations.len() != 1 {
+        return Err(failure(
+            "extract.request_discriminator_unproven",
+            format!(
+                "{}: expected one {:?} request serialization, found {}",
+                structural_method.name,
+                media,
                 serializations.len()
             ),
         ));
@@ -1370,29 +1456,6 @@ fn request_discriminators(
             ),
         ));
     }
-    let request_parameter = structural_method
-        .parameters
-        .iter()
-        .find(|parameter| parameter.name == "request")
-        .ok_or_else(|| {
-            failure(
-                "extract.request_discriminator_unproven",
-                format!(
-                    "{} mutates request but has no request parameter",
-                    structural_method.name
-                ),
-            )
-        })?;
-    let operation = operation_value(openapi, source_method, source_path)?;
-    let (properties, required) = request_schema(openapi, operation).ok_or_else(|| {
-        failure(
-            "extract.request_discriminator_unproven",
-            format!(
-                "{} has no structurally composable JSON request schema",
-                structural_method.name
-            ),
-        )
-    })?;
 
     let mut output = Vec::new();
     let mut targets = BTreeSet::new();
@@ -1415,6 +1478,35 @@ fn request_discriminators(
                     structural_method.name
                 ),
             ));
+        }
+        if media == RequestDiscriminatorMedia::MultipartFormData {
+            let block_index = blocks
+                .iter()
+                .find(|(_, (_, _, candidate, _))| candidate == &access_path)
+                .map(|(index, _)| *index)
+                .ok_or_else(|| {
+                    failure(
+                        "extract.request_discriminator_unproven",
+                        format!("{} lost discriminator block identity", structural_method.name),
+                    )
+                })?;
+            let before = request_field_reads(
+                &method.block.stmts[(rebind + 1)..block_index],
+                &access_path,
+            );
+            let after = request_field_reads(
+                &method.block.stmts[(block_index + 1)..serialization],
+                &access_path,
+            );
+            if before != 0 || after != 1 {
+                return Err(failure(
+                    "extract.request_discriminator_unproven",
+                    format!(
+                        "{} multipart discriminator field {target:?} must be projected exactly once after mutation and before multipart serialization; found {before} reads before and {after} after",
+                        structural_method.name
+                    ),
+                ));
+            }
         }
         let field = field_for_access(structural, &request_parameter.rust_type, &access_path)
             .map_err(|error| {
