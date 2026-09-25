@@ -1213,14 +1213,13 @@ fn merge_request_discriminator_property(existing: &Value, candidate: &Value) -> 
     // discriminator proof we only need the field's Boolean/nullable/required
     // semantics; the exact enum/const value is checked later against the
     // fully resolved OpenAPI object by root reconciliation.
-    fn boolean_refinement(schema: &Value) -> bool {
-        let Some(object) = schema.as_object() else {
-            return false;
-        };
+    fn boolean_domain(schema: &Value) -> Option<bool> {
+        let object = schema.as_object()?;
         if object.keys().any(|key| {
             !matches!(
                 key.as_str(),
                 "type"
+                    | "anyOf"
                     | "enum"
                     | "const"
                     | "default"
@@ -1232,26 +1231,54 @@ fn merge_request_discriminator_property(existing: &Value, candidate: &Value) -> 
                     | "$comment"
             )
         }) {
-            return false;
+            return None;
         }
-        if object.get("type").and_then(Value::as_str) != Some("boolean") {
-            return false;
-        }
+
+        let nullable = if object.get("type").and_then(Value::as_str) == Some("boolean") {
+            false
+        } else {
+            let branches = object.get("anyOf")?.as_array()?;
+            if branches.len() != 2 {
+                return None;
+            }
+            let mut boolean = false;
+            let mut null = false;
+            for branch in branches {
+                let branch = branch.as_object()?;
+                if branch.len() != 1 {
+                    return None;
+                }
+                match branch.get("type").and_then(Value::as_str) {
+                    Some("boolean") if !boolean => boolean = true,
+                    Some("null") if !null => null = true,
+                    _ => return None,
+                }
+            }
+            if !boolean || !null {
+                return None;
+            }
+            true
+        };
+
         if object.get("const").is_some_and(|value| !value.is_boolean()) {
-            return false;
+            return None;
         }
         if object.get("enum").is_some_and(|value| {
             value.as_array().is_none_or(|values| {
                 values.is_empty() || values.iter().any(|value| !value.is_boolean())
             })
         }) {
-            return false;
+            return None;
         }
-        true
+        Some(nullable)
     }
 
-    (boolean_refinement(existing) && boolean_refinement(candidate))
-        .then(|| serde_json::json!({"type": "boolean"}))
+    let nullable = boolean_domain(existing)? && boolean_domain(candidate)?;
+    Some(if nullable {
+        serde_json::json!({"anyOf": [{"type": "boolean"}, {"type": "null"}]})
+    } else {
+        serde_json::json!({"type": "boolean"})
+    })
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1957,8 +1984,11 @@ mod request_schema_composition_tests {
                         "properties": {
                             "input": {"type": "string"},
                             "stream": {
-                                "type": "boolean",
-                                "default": false,
+                                "anyOf": [
+                                    {"type": "boolean"},
+                                    {"type": "null"}
+                                ],
+                                "default": null,
                                 "description": "base stream preference"
                             }
                         }
