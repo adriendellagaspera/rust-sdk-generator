@@ -1957,7 +1957,12 @@ mod request_schema_composition_tests {
                         "type": "object",
                         "required": ["input"],
                         "properties": {
-                            "input": {"type": "string"}
+                            "input": {"type": "string"},
+                            "stream": {
+                                "type": "boolean",
+                                "default": false,
+                                "description": "base stream preference"
+                            }
                         }
                     },
                     "StreamRequest": {
@@ -1984,10 +1989,11 @@ mod request_schema_composition_tests {
     fn composes_local_all_of_properties_and_requiredness_for_discriminator_proof() {
         let openapi = fixture();
         let operation = &openapi["paths"]["/stream"]["post"];
-        let (properties, required) =
+        let (media, properties, required) =
             request_schema(&openapi, operation).expect("composable allOf request");
+        assert_eq!(media, RequestDiscriminatorMedia::Json);
         assert_eq!(properties["input"]["type"], "string");
-        assert_eq!(properties["stream"]["enum"], serde_json::json!([true]));
+        assert_eq!(properties["stream"]["type"], "boolean");
         assert!(required.contains("input"));
         assert!(!required.contains("stream"));
     }
@@ -2007,6 +2013,45 @@ mod request_schema_composition_tests {
         });
         let operation = &openapi["paths"]["/stream"]["post"];
         assert!(request_schema(&openapi, operation).is_none());
+    }
+
+    #[test]
+    fn recognizes_multipart_request_schema_for_discriminator_proof() {
+        let mut openapi = fixture();
+        let json = openapi["paths"]["/stream"]["post"]["requestBody"]["content"]
+            ["application/json"]
+            .take();
+        openapi["paths"]["/stream"]["post"]["requestBody"]["content"] =
+            serde_json::json!({"multipart/form-data": json});
+        let operation = &openapi["paths"]["/stream"]["post"];
+        let (media, properties, _) =
+            request_schema(&openapi, operation).expect("multipart request schema");
+        assert_eq!(media, RequestDiscriminatorMedia::MultipartFormData);
+        assert_eq!(properties["stream"]["type"], "boolean");
+    }
+
+    #[test]
+    fn observes_multipart_sink_and_request_field_reads() {
+        let method: syn::ImplItemFn = syn::parse_quote! {
+            pub async fn transcribe(&self, request: Request) {
+                let mut request = request;
+                {
+                    let __request_discriminator_value: bool = value();
+                    request.stream = Some(__request_discriminator_value);
+                }
+                let mut form = form();
+                if let Some(value) = &request.stream {
+                    form = form.text("stream", value.to_string());
+                }
+                req = req.multipart(form);
+            }
+        };
+        let mut multipart = MultipartRequestSerialization::default();
+        multipart.visit_block(&method.block);
+        assert_eq!(multipart.count, 1);
+        let target = vec!["stream".to_owned()];
+        assert_eq!(request_field_reads(&method.block.stmts[2..4], &target), 1);
+        assert_eq!(request_field_reads(&method.block.stmts[..1], &target), 0);
     }
 }
 
