@@ -865,6 +865,89 @@ pub(crate) fn request_union_mapping(
     request_union_mapping_inner(openapi, schema, raw_union, bindings, &mut BTreeSet::new())
 }
 
+fn unconstrained_request_object_branch(schema: &Value) -> bool {
+    let Some(object) = schema.as_object() else {
+        return false;
+    };
+    if object.get("type").and_then(Value::as_str) != Some("object")
+        || object.get("properties").is_some_and(|properties| {
+            !properties
+                .as_object()
+                .is_some_and(|properties| properties.is_empty())
+        })
+        || object
+            .get("additionalProperties")
+            .is_some_and(|additional| additional != &Value::Bool(true))
+    {
+        return false;
+    }
+    object.keys().all(|key| {
+        matches!(
+            key.as_str(),
+            "type"
+                | "properties"
+                | "additionalProperties"
+                | "title"
+                | "description"
+                | "deprecated"
+                | "example"
+                | "examples"
+                | "default"
+                | "$comment"
+        )
+    })
+}
+
+fn redundant_unconstrained_object_any_of_matches(
+    schema: &Value,
+    variants: &[crate::contracts::VariantBinding],
+    bindings: &Bindings,
+) -> bool {
+    let Some(object) = schema.as_object() else {
+        return false;
+    };
+    if object.contains_key("oneOf")
+        || object.keys().any(|key| {
+            !matches!(
+                key.as_str(),
+                "anyOf"
+                    | "title"
+                    | "description"
+                    | "deprecated"
+                    | "example"
+                    | "examples"
+                    | "default"
+                    | "$comment"
+            )
+        })
+    {
+        return false;
+    }
+    let Some(branches) = object
+        .get("anyOf")
+        .and_then(Value::as_array)
+        .filter(|branches| branches.len() >= 2)
+    else {
+        return false;
+    };
+    if !branches.iter().all(unconstrained_request_object_branch)
+        || variants.is_empty()
+        || variants.iter().any(|variant| variant.payload.is_none())
+    {
+        return false;
+    }
+    let canonical = serde_json::json!({
+        "type": "object",
+        "additionalProperties": true
+    });
+    variants.iter().all(|variant| {
+        variant
+            .payload
+            .as_deref()
+            .is_some_and(|payload| rust_type_matches_schema(&canonical, payload, bindings))
+    })
+}
+
 fn request_union_matches_inner(
     openapi: &OpenApiIndex,
     schema: &Value,
@@ -878,6 +961,9 @@ fn request_union_matches_inner(
     let Some(variants) = bindings.enums.get(raw_union) else {
         return false;
     };
+    if redundant_unconstrained_object_any_of_matches(schema, variants, bindings) {
+        return true;
+    }
     if variants.len() != branches.len() || variants.iter().any(|variant| variant.payload.is_none())
     {
         return false;
@@ -1906,6 +1992,125 @@ mod recursive_union_type_tests {
             "type": "object"
         });
         assert!(!rust_type_matches_schema(&schema, "ItemUnion", &bindings()));
+    }
+}
+
+#[cfg(test)]
+mod redundant_open_object_any_of_tests {
+    use super::*;
+    use crate::contracts::OpenApi;
+
+    fn fixture() -> (OpenApiIndex, Bindings) {
+        let source = OpenApi(serde_json::json!({
+            "openapi": "3.1.0",
+            "components": {"schemas": {}}
+        }));
+        let index = OpenApiIndex::new(&source).expect("OpenAPI index");
+        let bindings = serde_json::from_value(serde_json::json!({
+            "schema_version": 3,
+            "structs": {
+                "OpenObject": [{
+                    "name": "additional_properties",
+                    "type": "std::collections::BTreeMap<String, serde_json::Value>",
+                    "wire_name": null
+                }]
+            },
+            "enums": {
+                "InputUnion": [
+                    {"name": "Struct", "payload": "OpenObject"},
+                    {"name": "Alias", "payload": "OpenObjectAlias"}
+                ]
+            },
+            "aliases": {
+                "OpenObjectAlias": "std::collections::BTreeMap<String, serde_json::Value>"
+            },
+            "operations": {},
+            "symbol_paths": {
+                "OpenObject": "crate::generated::types::OpenObject",
+                "InputUnion": "crate::generated::types::InputUnion",
+                "OpenObjectAlias": "crate::generated::types::OpenObjectAlias"
+            },
+            "binding": {
+                "client": {
+                    "type_path": "crate::generated::Client",
+                    "constructor": "new",
+                    "api_key_builder": "with_api_key",
+                    "base_url_builder": "with_base_url"
+                },
+                "type_preludes": []
+            }
+        }))
+        .expect("canonical binding fixture");
+        (index, bindings)
+    }
+
+    fn redundant_any_of() -> Value {
+        serde_json::json!({
+            "anyOf": [
+                {"type": "object", "additionalProperties": true},
+                {"type": "object", "properties": {}}
+            ]
+        })
+    }
+
+    #[test]
+    fn proves_semantically_redundant_unconstrained_object_any_of() {
+        let (index, bindings) = fixture();
+        assert!(request_union_matches(
+            &index,
+            &redundant_any_of(),
+            "InputUnion",
+            &bindings
+        ));
+    }
+
+    #[test]
+    fn redundant_object_proof_is_any_of_only_and_rejects_constraints() {
+        let (index, bindings) = fixture();
+
+        let one_of = serde_json::json!({
+            "oneOf": [
+                {"type": "object", "additionalProperties": true},
+                {"type": "object", "properties": {}}
+            ]
+        });
+        assert!(!request_union_matches(
+            &index,
+            &one_of,
+            "InputUnion",
+            &bindings
+        ));
+
+        let mut constrained = redundant_any_of();
+        constrained["anyOf"][1]["properties"] = serde_json::json!({"known": {"type": "string"}});
+        assert!(!request_union_matches(
+            &index,
+            &constrained,
+            "InputUnion",
+            &bindings
+        ));
+
+        let mut closed = redundant_any_of();
+        closed["anyOf"][1]["additionalProperties"] = Value::Bool(false);
+        assert!(!request_union_matches(
+            &index,
+            &closed,
+            "InputUnion",
+            &bindings
+        ));
+    }
+
+    #[test]
+    fn rejects_raw_variant_that_broadens_beyond_json_objects() {
+        let (index, mut bindings) = fixture();
+        bindings.enums.get_mut("InputUnion").expect("InputUnion")[1].payload =
+            Some("String".into());
+        assert!(!request_union_matches(
+            &index,
+            &redundant_any_of(),
+            "InputUnion",
+            &bindings
+        ));
     }
 }
 
