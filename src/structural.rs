@@ -222,11 +222,7 @@ fn scalar_enum_matches_schema(schema: &Value, raw: &str, bindings: &Bindings) ->
     let Some(values) = schema.get("enum").and_then(Value::as_array) else {
         return false;
     };
-    let Some(values) = values
-        .iter()
-        .map(Value::as_str)
-        .collect::<Option<Vec<_>>>()
-    else {
+    let Some(values) = values.iter().map(Value::as_str).collect::<Option<Vec<_>>>() else {
         return false;
     };
     let wire = values.into_iter().collect::<BTreeSet<_>>();
