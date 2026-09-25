@@ -32,7 +32,12 @@ fn fixture(raw_request_type: &str) -> (OpenApi, Bindings, PublicSdkSurface) {
             "PauseRequest": {
                 "type": "object",
                 "properties": {
-                    "note": {"type": ["string", "null"]}
+                    "note": {
+                        "anyOf": [
+                            {"type": "string"},
+                            {"type": "null"}
+                        ]
+                    }
                 }
             }
         }}
