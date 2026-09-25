@@ -1731,6 +1731,18 @@ fn sse_raw_payload(
     bindings: &Bindings,
     schema_name: &str,
 ) -> Result<String, &'static str> {
+    // Exact source/raw symbol identity is stronger than anonymous shape
+    // matching and disambiguates distinct named schemas that intentionally
+    // share the same object layout (for example separate stream error types).
+    if bindings.structs.contains_key(schema_name)
+        && openapi
+            .object_schema(schema_name)
+            .ok()
+            .is_some_and(|schema| object_field_names_match(&schema, schema_name, bindings))
+    {
+        return Ok(schema_name.to_owned());
+    }
+
     let raw_candidates = bindings
         .structs
         .keys()
@@ -1739,15 +1751,6 @@ fn sse_raw_payload(
         .collect::<Vec<_>>();
     if raw_candidates.len() == 1 {
         return Ok(raw_candidates[0].clone());
-    }
-    if raw_candidates.is_empty()
-        && bindings.structs.contains_key(schema_name)
-        && openapi
-            .object_schema(schema_name)
-            .ok()
-            .is_some_and(|schema| object_field_names_match(&schema, schema_name, bindings))
-    {
-        return Ok(schema_name.to_owned());
     }
     Err("capability.event_stream_payload_not_structurally_provable")
 }
