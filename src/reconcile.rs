@@ -31,6 +31,7 @@ struct RequestShape {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum RequestBodyShape {
     Model(RequestMediaDefinition, String),
+    OptionalNullableModel(RequestMediaDefinition, String),
     InlineModel(RequestMediaDefinition, Value),
     Schema(RequestMediaDefinition, Value),
     Raw(RequestMediaDefinition, String),
@@ -100,6 +101,74 @@ fn normalized_parameter_name(value: &str) -> String {
     value.replace('-', "_")
 }
 
+fn optional_nullable_ref_request(schema: &Value) -> Option<&str> {
+    let object = schema.as_object()?;
+    if object.keys().any(|key| {
+        !matches!(
+            key.as_str(),
+            "anyOf"
+                | "title"
+                | "description"
+                | "deprecated"
+                | "example"
+                | "examples"
+                | "default"
+                | "$comment"
+        )
+    }) {
+        return None;
+    }
+    let branches = object.get("anyOf")?.as_array()?;
+    if branches.len() != 2 {
+        return None;
+    }
+    let mut reference = None;
+    let mut nulls = 0;
+    for branch in branches {
+        let branch = branch.as_object()?;
+        if branch.get("type").and_then(Value::as_str) == Some("null") {
+            if branch.keys().any(|key| {
+                !matches!(
+                    key.as_str(),
+                    "type"
+                        | "title"
+                        | "description"
+                        | "deprecated"
+                        | "example"
+                        | "examples"
+                        | "default"
+                        | "$comment"
+                )
+            }) {
+                return None;
+            }
+            nulls += 1;
+            continue;
+        }
+        let target = branch.get("$ref").and_then(Value::as_str)?;
+        let target = target.strip_prefix("#/components/schemas/")?;
+        if target.is_empty()
+            || branch.keys().any(|key| {
+                !matches!(
+                    key.as_str(),
+                    "$ref"
+                        | "title"
+                        | "description"
+                        | "deprecated"
+                        | "example"
+                        | "examples"
+                        | "default"
+                        | "$comment"
+                )
+            })
+            || reference.replace(target).is_some()
+        {
+            return None;
+        }
+    }
+    if nulls == 1 { reference } else { None }
+}
+
 fn request_shape(operation: &Value) -> std::result::Result<RequestShape, &'static str> {
     let mut parameters = BTreeSet::new();
     for parameter in operation
@@ -158,6 +227,14 @@ fn request_shape(operation: &Value) -> std::result::Result<RequestShape, &'stati
                     };
                     if let Some(schema) = ref_name(schema) {
                         Some(RequestBodyShape::Model(media, schema.to_owned()))
+                    } else if media == RequestMediaDefinition::Json
+                        && !required
+                        && let Some(schema) = optional_nullable_ref_request(schema)
+                    {
+                        Some(RequestBodyShape::OptionalNullableModel(
+                            media,
+                            schema.to_owned(),
+                        ))
                     } else if schema.get("type").and_then(Value::as_str) == Some("object") {
                         Some(RequestBodyShape::InlineModel(media, schema.clone()))
                     } else if media == RequestMediaDefinition::Json && required {
@@ -572,6 +649,33 @@ fn binding_matches(
                             openapi,
                             schema,
                             &parameter.type_name,
+                            bindings,
+                            discriminators,
+                        )
+                }
+                RequestBodyShape::OptionalNullableModel(_, schema) => {
+                    let Ok(raw) = parse_type(&parameter.type_name) else {
+                        return false;
+                    };
+                    let Some(present) = raw.unary("Option") else {
+                        return false;
+                    };
+                    let Some(nullable) = present.unary("Option") else {
+                        return false;
+                    };
+                    if nullable.unary("Option").is_some() {
+                        return false;
+                    }
+                    let discriminators = binding
+                        .metadata
+                        .as_ref()
+                        .map(|metadata| metadata.request_discriminators.as_slice())
+                        .unwrap_or_default();
+                    nullable.spelling == *schema
+                        || request_object_matches_with_discriminators(
+                            openapi,
+                            schema,
+                            &nullable.spelling,
                             bindings,
                             discriminators,
                         )
@@ -1035,7 +1139,7 @@ mod tests {
     }
 
     #[test]
-    fn reconciles_required_array_and_union_roots_but_not_optional_nullable_root() {
+    fn reconciles_required_array_union_and_exact_optional_nullable_root() {
         let openapi = OpenApi(serde_json::json!({
             "openapi": "3.1.0",
             "paths": {
@@ -1159,7 +1263,7 @@ mod tests {
                 },
                 "raw_pause": {
                     "name": "raw_pause",
-                    "parameters": [{"name": "request", "type": "Option<PauseAlias>"}],
+                    "parameters": [{"name": "request", "type": "Option<Option<PauseAlias>>"}],
                     "return_type": "Result<(), Error>",
                     "success_type": "()",
                     "stream": null,
@@ -1200,8 +1304,102 @@ mod tests {
             result["update_metrics"].binding.as_deref(),
             Some("raw_update_metrics")
         );
-        assert_eq!(result["pause"].binding, None);
-        assert_eq!(result["pause"].reason, Some("request.inline_or_unresolved"));
+        assert_eq!(result["pause"].binding.as_deref(), Some("raw_pause"));
+    }
+
+    #[test]
+    fn optional_nullable_root_requires_exact_two_option_layers_and_no_constraints() {
+        let operation = serde_json::json!({
+            "operationId": "pause",
+            "requestBody": {
+                "content": {"application/json": {"schema": {
+                    "anyOf": [
+                        {"$ref": "#/components/schemas/PauseRequest"},
+                        {"type": "null"}
+                    ]
+                }}}
+            },
+            "responses": {"204": {"description": "done"}}
+        });
+        let shape = request_shape(&operation).expect("exact nullable root");
+        assert_eq!(
+            shape.body,
+            Some(RequestBodyShape::OptionalNullableModel(
+                RequestMediaDefinition::Json,
+                "PauseRequest".into()
+            ))
+        );
+
+        let constrained = serde_json::json!({
+            "operationId": "pause",
+            "requestBody": {
+                "content": {"application/json": {"schema": {
+                    "anyOf": [
+                        {"$ref": "#/components/schemas/PauseRequest"},
+                        {"type": "null"}
+                    ],
+                    "minProperties": 1
+                }}}
+            },
+            "responses": {"204": {"description": "done"}}
+        });
+        assert_eq!(
+            request_shape(&constrained).expect_err("constraints remain fail closed"),
+            "request.inline_or_unresolved"
+        );
+
+        let openapi = OpenApi(serde_json::json!({
+            "openapi": "3.1.0",
+            "paths": {"/pause": {"post": operation}},
+            "components": {"schemas": {
+                "PauseRequest": {
+                    "type": "object",
+                    "properties": {"reason": {"type": "string"}}
+                }
+            }}
+        }));
+        let mut shallow = v3_operation(
+            "raw_pause",
+            "pause",
+            "POST",
+            "/pause",
+            OperationBindingKind::CallShape,
+        );
+        shallow.parameters = vec![ParameterBinding {
+            name: "request".into(),
+            type_name: "Option<PauseRequest>".into(),
+        }];
+        assert_eq!(
+            reconcile(
+                &openapi,
+                &v3_bindings(BTreeMap::from([("raw_pause".into(), shallow)]))
+            )
+            .expect("reconcile")["pause"]
+                .binding,
+            None
+        );
+
+        let mut exact = v3_operation(
+            "raw_pause",
+            "pause",
+            "POST",
+            "/pause",
+            OperationBindingKind::CallShape,
+        );
+        exact.parameters = vec![ParameterBinding {
+            name: "request".into(),
+            type_name: "Option<Option<PauseRequest>>".into(),
+        }];
+        assert_eq!(
+            reconcile(
+                &openapi,
+                &v3_bindings(BTreeMap::from([("raw_pause".into(), exact)]))
+            )
+            .expect("reconcile")["pause"]
+                .binding
+                .as_deref(),
+            Some("raw_pause")
+        );
     }
 
     #[test]
