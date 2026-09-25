@@ -547,6 +547,13 @@ fn binding_matches(
     binding: &OperationBinding,
     bindings: &Bindings,
 ) -> bool {
+    if binding
+        .metadata
+        .as_ref()
+        .is_some_and(|metadata| metadata.request_discriminator_unproven)
+    {
+        return false;
+    }
     let mut body_index = None;
     if let Some(body) = &request.body {
         let matching: Vec<_> = binding
@@ -880,6 +887,7 @@ mod tests {
                 representation,
                 success_statuses: success_statuses.into_iter().map(str::to_owned).collect(),
                 request_discriminators: Vec::new(),
+                request_discriminator_unproven: false,
                 parameter_wires: Vec::new(),
                 stream_abi: None,
             }),
