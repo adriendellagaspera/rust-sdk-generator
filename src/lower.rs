@@ -2194,7 +2194,9 @@ pub(crate) fn lower(
                     {
                         return Err(error(
                             "lower.request_media_drift",
-                            format!("optional nullable request media/schema drift for {operation_id}"),
+                            format!(
+                                "optional nullable request media/schema drift for {operation_id}"
+                            ),
                         ));
                     }
                     request_object_matches_with_discriminators(
