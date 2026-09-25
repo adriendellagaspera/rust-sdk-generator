@@ -670,8 +670,9 @@ fn binding_matches(
                     } else {
                         candidate_name.to_owned()
                     };
-                    (candidate_location == location && candidate_wire == *wire_name)
-                        .then_some(candidate_name)
+                    (candidate_location == location.as_str()
+                        && candidate_wire == wire_name.as_str())
+                    .then_some(candidate_name)
                 })
                 .expect("expected wire identity came from this operation");
             fallback_names.push(normalized_parameter_name(source_name));
@@ -953,7 +954,9 @@ mod tests {
                             {"name": "last_event_id", "in": "query", "required": false,
                              "schema": {"type": "string"}},
                             {"name": "Last-Event-ID", "in": "header", "required": false,
-                             "schema": {"type": "string"}}
+                             "schema": {"type": "string"}},
+                            {"name": "fields", "in": "query", "required": false,
+                             "schema": {"type": "array", "items": {"type": "string"}}}
                         ],
                         "responses": {"204": {"description": "done"}}
                     }
@@ -980,6 +983,10 @@ mod tests {
                 name: "last_event_id_2".into(),
                 type_name: "Option<impl AsRef<str>>".into(),
             },
+            ParameterBinding {
+                name: "fields".into(),
+                type_name: "Option<Vec<String>>".into(),
+            },
         ];
         let proven = vec![
             ParameterWireBinding {
@@ -1005,6 +1012,9 @@ mod tests {
                 accepted
             );
         };
+        // The exact collision-prone cursor wires are proven from emitted AST,
+        // while the ordinary `fields` query parameter and path id are completed
+        // by the strict normalized-name bijection.
         check(proven.clone(), true);
         let mut swapped = proven.clone();
         swapped[0].rust_name = "last_event_id_2".into();
