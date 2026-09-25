@@ -222,16 +222,25 @@ fn scalar_enum_matches_schema(schema: &Value, raw: &str, bindings: &Bindings) ->
     let Some(values) = schema.get("enum").and_then(Value::as_array) else {
         return false;
     };
-    let wire = values
+    let Some(values) = values
         .iter()
-        .filter_map(Value::as_str)
-        .collect::<BTreeSet<_>>();
-    if wire.len() != values.len() {
+        .map(Value::as_str)
+        .collect::<Option<Vec<_>>>()
+    else {
+        return false;
+    };
+    let wire = values.into_iter().collect::<BTreeSet<_>>();
+    if wire.is_empty() {
         return false;
     }
     bindings.enums.get(raw).is_some_and(|variants| {
-        variants.len() == values.len()
-            && variants.iter().all(|variant| variant.payload.is_none())
+        variants.iter().all(|variant| {
+            variant.payload.is_none()
+                && variant
+                    .wire_name
+                    .as_deref()
+                    .is_some_and(|value| wire.contains(value))
+        })
             && variants
                 .iter()
                 .filter_map(|variant| variant.wire_name.as_deref())
@@ -1687,6 +1696,72 @@ pub(crate) fn inline_object_union_mapping(
             })
             .collect(),
     )
+}
+
+#[cfg(test)]
+mod duplicate_scalar_enum_tests {
+    use super::*;
+
+    fn bindings() -> Bindings {
+        serde_json::from_value(serde_json::json!({
+            "schema_version": 3,
+            "structs": {},
+            "enums": {
+                "Role": [
+                    {"name": "A", "payload": null, "wire_name": "A"},
+                    {"name": "Static", "payload": null, "wire_name": "static"},
+                    {"name": "StaticDuplicate", "payload": null, "wire_name": "static"}
+                ]
+            },
+            "aliases": {},
+            "operations": {},
+            "symbol_paths": {"Role": "crate::generated::types::Role"},
+            "binding": {
+                "client": {
+                    "type_path": "crate::generated::Client",
+                    "constructor": "new",
+                    "api_key_builder": "with_api_key",
+                    "base_url_builder": "with_base_url"
+                },
+                "type_preludes": []
+            }
+        }))
+        .expect("canonical binding fixture")
+    }
+
+    #[test]
+    fn duplicate_wire_enum_values_are_semantically_redundant() {
+        let bindings = bindings();
+        let schema = serde_json::json!({
+            "type": "string",
+            "enum": ["A", "static", "static"]
+        });
+        assert!(rust_type_matches_schema(&schema, "Role", &bindings));
+
+        let source_unique = serde_json::json!({
+            "type": "string",
+            "enum": ["A", "static"]
+        });
+        assert!(rust_type_matches_schema(&source_unique, "Role", &bindings));
+    }
+
+    #[test]
+    fn duplicate_wire_enum_proof_still_rejects_payloads_and_value_drift() {
+        let bindings = bindings();
+        let drift = serde_json::json!({
+            "type": "string",
+            "enum": ["A", "other", "other"]
+        });
+        assert!(!rust_type_matches_schema(&drift, "Role", &bindings));
+
+        let mut payload = bindings;
+        payload.enums.get_mut("Role").expect("Role")[2].payload = Some("String".into());
+        let schema = serde_json::json!({
+            "type": "string",
+            "enum": ["A", "static", "static"]
+        });
+        assert!(!rust_type_matches_schema(&schema, "Role", &payload));
+    }
 }
 
 #[cfg(test)]
