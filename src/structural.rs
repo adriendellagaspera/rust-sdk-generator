@@ -240,12 +240,11 @@ fn scalar_enum_matches_schema(schema: &Value, raw: &str, bindings: &Bindings) ->
                     .wire_name
                     .as_deref()
                     .is_some_and(|value| wire.contains(value))
-        })
-            && variants
-                .iter()
-                .filter_map(|variant| variant.wire_name.as_deref())
-                .collect::<BTreeSet<_>>()
-                == wire
+        }) && variants
+            .iter()
+            .filter_map(|variant| variant.wire_name.as_deref())
+            .collect::<BTreeSet<_>>()
+            == wire
     })
 }
 
