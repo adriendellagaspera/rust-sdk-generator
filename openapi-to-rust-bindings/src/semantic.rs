@@ -297,7 +297,10 @@ fn emitted_operation_id(
         .expect("one emitted operation id"))
 }
 
-fn operation_doc(attrs: &[Attribute]) -> Result<Option<(String, String)>, Error> {
+fn operation_doc(attrs: &[Attribute]) -> Vec<(String, String)> {
+    // A generated method may document multiple source aliases for the same
+    // physical route. Keep *all* of them: each must match the independently
+    // observed HTTP verb and route skeleton before the method is certified.
     let mut matches = Vec::new();
     for attr in attrs.iter().filter(|attr| attr.path().is_ident("doc")) {
         let Meta::NameValue(meta) = &attr.meta else {
@@ -326,19 +329,66 @@ fn operation_doc(attrs: &[Attribute]) -> Result<Option<(String, String)>, Error>
             matches.push((method, path.to_owned()));
         }
     }
-    match matches.len() {
-        0 => Ok(None),
-        1 => Ok(matches.pop()),
-        count => Err(semantic_error(
-            "extract.source_identity_ambiguous",
-            format!("multiple HTTP route doc attributes found: {count}"),
-        )),
+    matches
+}
+
+// Rustdoc includes concrete example URLs alongside templates. An example
+// may substitute one segment for a source path variable, but may never
+// change static segments, method or route arity. The actual HTTP request
+// verb/URL and the unique source identity are proved independently.
+fn documented_route_skeleton(path: &str) -> Result<String, Error> {
+    let wire_path = if let Some((wire, query)) = path.split_once('?') {
+        if wire.is_empty() || query.is_empty() {
+            return Err(semantic_error("extract.documented_path_invalid", path));
+        }
+        wire
+    } else {
+        path
+    };
+    route_skeleton(wire_path)
+}
+
+fn documented_route_matches(doc_path: &str, source_path: &str) -> Result<bool, Error> {
+    // Query examples in Rustdoc are usage hints, not route identity. Exact
+    // query/header parameter names and locations are proved separately from
+    // the emitted request AST.
+    let doc = documented_route_skeleton(doc_path)?;
+    let source = route_skeleton(source_path)?;
+    let doc_segments: Vec<_> = doc.split('/').collect();
+    let source_segments: Vec<_> = source.split('/').collect();
+    if doc_segments.len() != source_segments.len() {
+        return Ok(false);
     }
+    Ok(source_segments
+        .iter()
+        .zip(doc_segments)
+        .all(|(expected, actual)| {
+            expected == &actual
+                || (expected == &"{}" && !actual.is_empty() && actual != "." && actual != "..")
+        }))
 }
 
 fn route_skeleton(path: &str) -> Result<String, Error> {
+    // An overlaid source may distinguish several OpenAPI operation paths by
+    // a synthetic "#variant" fragment even when their HTTP route is identical.
+    // A fragment never reaches the server; the actual request URL, HTTP method
+    // and Rustdoc route still have to agree with the source before identity is
+    // accepted. Reject malformed/empty fragments rather than guessing a route.
+    let wire_path = if let Some((wire, variant)) = path.split_once('#') {
+        if wire.is_empty()
+            || variant.is_empty()
+            || !variant
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+        {
+            return Err(semantic_error("extract.source_path_invalid", path));
+        }
+        wire
+    } else {
+        path
+    };
     let mut output = String::new();
-    let mut chars = path.chars().peekable();
+    let mut chars = wire_path.chars().peekable();
     while let Some(ch) = chars.next() {
         if ch != '{' {
             output.push(ch);
@@ -409,6 +459,26 @@ fn index_openapi(value: &Value) -> Result<BTreeMap<(String, String), OpenApiOper
         }
     }
     Ok(operations)
+}
+
+fn source_has_sse_success(operation: &OpenApiOperation) -> bool {
+    operation
+        .value
+        .get("responses")
+        .and_then(Value::as_object)
+        .is_some_and(|responses| {
+            responses.iter().any(|(status, response)| {
+                success_status(status)
+                    && response
+                        .get("content")
+                        .and_then(Value::as_object)
+                        .is_some_and(|content| {
+                            content
+                                .keys()
+                                .any(|media| media.eq_ignore_ascii_case("text/event-stream"))
+                        })
+            })
+        })
 }
 
 #[derive(Default)]
@@ -656,6 +726,9 @@ fn is_binary_media(media_type: &str, media: &Value) -> bool {
     media_type.eq_ignore_ascii_case("application/octet-stream")
         || media_type.eq_ignore_ascii_case("application/*")
         || media_type.eq_ignore_ascii_case("*/*")
+        // Audio media (including audio/wav) is a byte response even when an
+        // OpenAPI producer omits the optional format: binary schema hint.
+        || media_type.to_ascii_lowercase().starts_with("audio/")
         || media
             .get("schema")
             .and_then(|schema| schema.get("format"))
@@ -689,15 +762,12 @@ fn choose_representation(
         || compact.contains("LocalBoxStream<");
     if streaming {
         if signals.accept_event_stream {
-            if !media
-                .iter()
-                .any(|(kind, _)| kind.eq_ignore_ascii_case("text/event-stream"))
-            {
-                return Err(semantic_error(
-                    "extract.representation_unproven",
-                    format!("{method_name}: emitted SSE Accept has no matching OpenAPI media type"),
-                ));
-            }
+            // This records the emitted streaming transport, not an assertion
+            // that its source OpenAPI advertises SSE. The downstream root
+            // reconciler independently requires an exact matching
+            // text/event-stream success response before accepting an operation.
+            // A source/media mismatch rejects that operation, not extraction
+            // of the entire otherwise-valid generated SDK.
             return Ok(RepresentationEvidence::EventStream {
                 media_type: "text/event-stream".into(),
             });
@@ -747,20 +817,30 @@ fn choose_representation(
                 format!("{method_name}: JSON media is ambiguous"),
             ));
         }
-        let schema_name = schema_ref_name(&json[0].1).ok_or_else(|| {
-            semantic_error(
-                "extract.response_schema_unproven",
-                format!("{method_name}: JSON success schema is not a named ref"),
-            )
-        })?;
-        if compact != schema_name.replace(' ', "") {
+        let Some(_schema) = json[0].1.get("schema").and_then(Value::as_object) else {
             return Err(semantic_error(
                 "extract.response_schema_unproven",
-                format!(
-                    "{method_name}: generated success type {success_type:?} does not match schema {schema_name:?}"
-                ),
+                format!("{method_name}: JSON success media has no object schema"),
             ));
-        }
+        };
+        let schema_name = if let Some(reference) = schema_ref_name(&json[0].1) {
+            if compact != reference.replace(' ', "") {
+                return Err(semantic_error(
+                    "extract.response_schema_unproven",
+                    format!(
+                        "{method_name}: generated success type {success_type:?} does not match schema {reference:?}"
+                    ),
+                ));
+            }
+            reference
+        } else {
+            // An inline JSON response may be an array, object, union, or
+            // the unconstrained OpenAPI schema {}. Preserve the exact emitted
+            // Rust type as provisional evidence; the root independently proves
+            // the entire source schema (for {}, only serde_json::Value or a
+            // canonical alias is acceptable) before deriving an operation.
+            compact.to_owned()
+        };
         return Ok(RepresentationEvidence::Json {
             schema_name,
             media_type: json[0].0.clone(),
@@ -855,7 +935,7 @@ pub fn inspect_semantics(
                 format!("{rust_method_name}: no structural signature"),
             ));
         };
-        let documented = operation_doc(&method.attrs)?;
+        let documented = operation_doc(&method.attrs);
         let mut signals = MethodSignals::default();
         signals.visit_block(&method.block);
         signals.bounded_text = proves_bounded_text(&method.block);
@@ -880,9 +960,19 @@ pub fn inspect_semantics(
                 continue;
             }
             let skeleton = route_skeleton(candidate_path)?;
-            if signals.string_literals.contains(&skeleton) {
+            if signals.string_literals.contains(&skeleton)
+                && (signals.accept_event_stream || !candidate_path.ends_with("#stream"))
+            {
                 candidates.push(operation);
             }
+        }
+        if signals.accept_event_stream && candidates.len() > 1 {
+            // On shared physical routes, source SSE media disambiguates the
+            // emitted streaming variant. A unique route remains identifiable
+            // even when its source media disagrees with emitted transport:
+            // the root reconciler will then reject that operation, rather
+            // than aborting the entire canonical Bindings extraction.
+            candidates.retain(|operation| source_has_sse_success(operation));
         }
         if candidates.len() != 1 {
             return Err(semantic_error(
@@ -894,17 +984,21 @@ pub fn inspect_semantics(
             ));
         }
         let source_operation = candidates.remove(0);
-        if let Some((doc_verb, doc_path)) = documented
-            && (doc_verb != source_operation.identity.method
-                || route_skeleton(&doc_path)? != route_skeleton(&source_operation.identity.path)?)
-        {
-            return Err(semantic_error(
-                "extract.source_identity_ambiguous",
-                format!(
-                    "{rust_method_name}: rustdoc {doc_verb} {doc_path} disagrees with body/OpenAPI identity {} {}",
-                    source_operation.identity.method, source_operation.identity.path
-                ),
-            ));
+        // Multiple rustdoc aliases are admissible only when every one
+        // identifies this exact observable method and physical route. Do not
+        // choose a convenient annotation while ignoring a contradictory one.
+        for (doc_verb, doc_path) in documented {
+            if doc_verb != source_operation.identity.method
+                || !documented_route_matches(&doc_path, &source_operation.identity.path)?
+            {
+                return Err(semantic_error(
+                    "extract.source_identity_ambiguous",
+                    format!(
+                        "{rust_method_name}: rustdoc {doc_verb} {doc_path} disagrees with body/OpenAPI identity {} {}",
+                        source_operation.identity.method, source_operation.identity.path
+                    ),
+                ));
+            }
         }
         matched_sources.insert((
             source_operation.identity.method.clone(),
@@ -1071,5 +1165,233 @@ mod bounded_text_tests {
                 "unproved bounded text was accepted: {changed}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod inline_json_response_tests {
+    use super::*;
+
+    fn source(schema: Value) -> OpenApiOperation {
+        OpenApiOperation {
+            identity: SourceOperationEvidence {
+                operation_id: "list".into(),
+                method: "GET".into(),
+                path: "/list".into(),
+            },
+            value: serde_json::json!({
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {"schema": schema}
+                        }
+                    }
+                }
+            }),
+        }
+    }
+
+    fn select(
+        operation: &OpenApiOperation,
+        success_type: &str,
+    ) -> Result<RepresentationEvidence, Error> {
+        choose_representation(
+            operation,
+            "list",
+            success_type,
+            &["200".into()],
+            &MethodSignals::default(),
+        )
+    }
+
+    #[test]
+    fn multiple_rustdoc_aliases_must_all_agree_with_observed_route() {
+        let attrs: Vec<Attribute> = vec![
+            syn::parse_quote!(#[doc = " DELETE /v1/connectors/{connector_id}#id "]),
+            syn::parse_quote!(#[doc = " DELETE /v1/connectors/{connector_id_or_name}#idOrName "]),
+            syn::parse_quote!(#[doc = " DELETE /v1/connectors/{id} "]),
+            syn::parse_quote!(#[doc = " DELETE /v1/connectors/{name} "]),
+        ];
+        let docs = operation_doc(&attrs);
+        assert_eq!(docs.len(), 4);
+        let source = "/v1/connectors/{connector_id}#id";
+        assert!(docs.iter().all(|(verb, path)| {
+            verb == "DELETE" && documented_route_matches(path, source).expect("doc route")
+        }));
+        assert!(
+            documented_route_matches(
+                "/v1/workflows/MyWorkflow/metrics",
+                "/v1/workflows/{workflow_name}/metrics"
+            )
+            .expect("concrete rustdoc example")
+        );
+        assert!(
+            documented_route_matches(
+                "/v1/workflows/MyWorkflow/metrics?start_time=2025-01-01T00:00:00Z",
+                "/v1/workflows/{workflow_name}/metrics"
+            )
+            .expect("query-bearing rustdoc example")
+        );
+        assert!(documented_route_skeleton("/v1/workflows/x/metrics?").is_err());
+        assert!(
+            !documented_route_matches(
+                "/v1/workflows/MyWorkflow/logs",
+                "/v1/workflows/{workflow_name}/metrics"
+            )
+            .expect("static mismatch")
+        );
+        assert!(
+            !documented_route_matches(
+                "/v1/workflows/MyWorkflow/metrics/extra",
+                "/v1/workflows/{workflow_name}/metrics"
+            )
+            .expect("arity mismatch")
+        );
+        let mut contradictory = attrs;
+        contradictory.push(syn::parse_quote!(#[doc = " PATCH /v1/connectors/{id} "]));
+        assert!(
+            operation_doc(&contradictory)
+                .iter()
+                .any(|(verb, _)| verb != "DELETE")
+        );
+        contradictory.push(syn::parse_quote!(#[doc = " DELETE /v1/other/{id} "]));
+        assert!(
+            operation_doc(&contradictory)
+                .iter()
+                .any(|(_, path)| { !documented_route_matches(path, source).expect("doc route") })
+        );
+    }
+
+    #[test]
+    fn emitted_audio_bytes_accept_audio_wav_without_schema_format_hint() {
+        let audio = OpenApiOperation {
+            identity: SourceOperationEvidence {
+                operation_id: "audio_sample".into(),
+                method: "GET".into(),
+                path: "/voice/sample".into(),
+            },
+            value: serde_json::json!({
+                "responses": {"200": {"content": {"audio/wav": {"schema": {"type": "string"}}}}}
+            }),
+        };
+        assert_eq!(
+            choose_representation(
+                &audio,
+                "audio_sample_wav",
+                "bytes::Bytes",
+                &["200".into()],
+                &MethodSignals {
+                    bytes: true,
+                    ..MethodSignals::default()
+                },
+            )
+            .expect("observed audio bytes are media-proven"),
+            RepresentationEvidence::BinaryBuffered {
+                media_type: "audio/wav".into(),
+                wildcard: false,
+            }
+        );
+        let ambiguous = OpenApiOperation {
+            value: serde_json::json!({
+                "responses": {"200": {"content": {
+                    "audio/wav": {"schema": {"type": "string"}},
+                    "audio/mpeg": {"schema": {"type": "string"}}
+                }}}
+            }),
+            ..audio
+        };
+        assert!(
+            choose_representation(
+                &ambiguous,
+                "audio_sample_wav",
+                "bytes::Bytes",
+                &["200".into()],
+                &MethodSignals {
+                    bytes: true,
+                    ..MethodSignals::default()
+                },
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn synthetic_source_fragments_are_not_part_of_the_http_route() {
+        assert_eq!(
+            route_skeleton("/v1/connectors/{connector_id}#id").expect("id route"),
+            "/v1/connectors/{}"
+        );
+        assert_eq!(
+            route_skeleton("/v1/connectors/{connector_id_or_name}#idOrName")
+                .expect("alternate identity route"),
+            "/v1/connectors/{}"
+        );
+        assert_eq!(
+            route_skeleton("/v1/conversations/{conversation_id}#stream")
+                .expect("stream variant route"),
+            "/v1/conversations/{}"
+        );
+        assert_eq!(
+            route_skeleton("/v1/connectors/{connector_id}").expect("ordinary route"),
+            "/v1/connectors/{}"
+        );
+        assert!(route_skeleton("/v1/connectors/{connector_id}#").is_err());
+        assert!(route_skeleton("/v1/connectors/{connector_id}#id/other").is_err());
+        assert!(route_skeleton("/v1/connectors/{connector_id}#id#other").is_err());
+    }
+
+    #[test]
+    fn emitted_sse_transport_does_not_claim_source_media_compatibility() {
+        let operation = source(serde_json::json!({"type": "object"}));
+        let signals = MethodSignals {
+            bytes_stream: true,
+            accept_event_stream: true,
+            ..MethodSignals::default()
+        };
+        assert_eq!(
+            choose_representation(
+                &operation,
+                "list",
+                "HttpResponseByteStream",
+                &["200".into()],
+                &signals,
+            )
+            .expect("observed SSE transport is carried to strict root reconciliation"),
+            RepresentationEvidence::EventStream {
+                media_type: "text/event-stream".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn retains_emitted_success_type_for_inline_json_array_subject_to_root_proof() {
+        let list = source(serde_json::json!({
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/Agent"}
+        }));
+        assert_eq!(
+            select(&list, "Vec<Agent>").expect("provisionally typed JSON"),
+            RepresentationEvidence::Json {
+                schema_name: "Vec<Agent>".into(),
+                media_type: "application/json".into(),
+            }
+        );
+        let named = source(serde_json::json!({"$ref": "#/components/schemas/Agent"}));
+        assert_eq!(
+            select(&named, "Agent").expect("named ref"),
+            RepresentationEvidence::Json {
+                schema_name: "Agent".into(),
+                media_type: "application/json".into(),
+            }
+        );
+        assert!(select(&named, "Vec<Agent>").is_err());
+        assert_eq!(
+            select(&source(serde_json::json!({})), "UnconstrainedResponse")
+                .expect("an explicit empty source schema is unconstrained JSON"),
+            RepresentationEvidence::Json {
+                schema_name: "UnconstrainedResponse".into(),
+                media_type: "application/json".into(),
+            }
+        );
     }
 }

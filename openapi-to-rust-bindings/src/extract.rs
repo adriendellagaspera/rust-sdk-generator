@@ -367,6 +367,9 @@ pub fn extract_bindings(
         if !parameter_wires.is_empty() {
             metadata["parameter_wires"] = json!(parameter_wires);
         }
+        if detail.request_discriminator_unproven {
+            metadata["request_discriminator_unproven"] = Value::Bool(true);
+        }
         operations.insert(
             name.clone(),
             json!({

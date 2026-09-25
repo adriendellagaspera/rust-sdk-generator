@@ -368,11 +368,22 @@ fn validate_metadata(
             "request_discriminators",
             "stream_abi",
         ],
-        &["parameter_wires"],
+        &["parameter_wires", "request_discriminator_unproven"],
         context,
     )?;
     if let Some(wires) = metadata.get("parameter_wires") {
         validate_parameter_wires(wires, &format!("{context}.parameter_wires"))?;
+    }
+    if let Some(unproven) = metadata.get("request_discriminator_unproven") {
+        boolean(
+            unproven,
+            &format!("{context}.request_discriminator_unproven"),
+        )?;
+        if unproven.as_bool() != Some(true) {
+            return Err(invalid(format!(
+                "{context}.request_discriminator_unproven must be true when present"
+            )));
+        }
     }
 
     let kind = string(&metadata["kind"], &format!("{context}.kind"))?;

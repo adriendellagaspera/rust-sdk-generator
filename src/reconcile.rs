@@ -547,6 +547,13 @@ fn binding_matches(
     binding: &OperationBinding,
     bindings: &Bindings,
 ) -> bool {
+    if binding
+        .metadata
+        .as_ref()
+        .is_some_and(|metadata| metadata.request_discriminator_unproven)
+    {
+        return false;
+    }
     let mut body_index = None;
     if let Some(body) = &request.body {
         let matching: Vec<_> = binding
@@ -880,6 +887,7 @@ mod tests {
                 representation,
                 success_statuses: success_statuses.into_iter().map(str::to_owned).collect(),
                 request_discriminators: Vec::new(),
+                request_discriminator_unproven: false,
                 parameter_wires: Vec::new(),
                 stream_abi: None,
             }),
@@ -1161,6 +1169,39 @@ mod tests {
         );
         assert_eq!(result["pause"].binding, None);
         assert_eq!(result["pause"].reason, Some("request.inline_or_unresolved"));
+    }
+
+    #[test]
+    fn rejects_binding_when_generated_request_discriminator_mutation_is_unproved() {
+        let openapi = OpenApi(serde_json::json!({
+            "openapi": "3.1.0",
+            "paths": {
+                "/ping": {
+                    "get": {
+                        "operationId": "ping",
+                        "responses": {"204": {"description": "done"}}
+                    }
+                }
+            }
+        }));
+        let mut raw = v3_operation(
+            "raw_ping",
+            "ping",
+            "GET",
+            "/ping",
+            OperationBindingKind::CallShape,
+        );
+        raw.metadata
+            .as_mut()
+            .expect("v3 metadata")
+            .request_discriminator_unproven = true;
+        let result = reconcile(
+            &openapi,
+            &v3_bindings(BTreeMap::from([("raw_ping".into(), raw)])),
+        )
+        .expect("reconcile");
+        assert_eq!(result["ping"].binding, None);
+        assert_eq!(result["ping"].reason, Some("bindings.no_structural_match"));
     }
 
     #[test]

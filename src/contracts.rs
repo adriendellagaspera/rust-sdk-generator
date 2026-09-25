@@ -145,6 +145,8 @@ pub struct OperationMetadataBinding {
     #[serde(default)]
     pub request_discriminators: Vec<RequestDiscriminatorBinding>,
     #[serde(default)]
+    pub request_discriminator_unproven: bool,
+    #[serde(default)]
     pub parameter_wires: Vec<ParameterWireBinding>,
     #[serde(default)]
     pub stream_abi: Option<StreamAbiBinding>,

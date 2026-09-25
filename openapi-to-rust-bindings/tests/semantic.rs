@@ -400,6 +400,14 @@ fn assert_extract_error(root: &Scratch, code: &str, context: &str) {
     assert!(message.contains(context), "{message}");
 }
 
+fn assert_unproven_request_discriminator(root: &Scratch) {
+    let bindings = extract_bindings(root.path(), root.path().join("openapi.json"))
+        .expect("operation-specific discriminator uncertainty must not abort SDK extraction");
+    let metadata = &bindings.as_value()["operations"]["render"]["metadata"];
+    assert_eq!(metadata["request_discriminator_unproven"], true);
+    assert_eq!(metadata["request_discriminators"], serde_json::json!([]));
+}
+
 #[test]
 fn client_constructor_signature_must_match_the_facade_contract() {
     let client = CLIENT.replacen(
@@ -960,7 +968,7 @@ fn discriminator_evidence_rejects_unrelated_or_nested_assignments() {
         1,
     );
     let root = discriminator_fixture(&unrelated);
-    assert_extract_error(&root, "extract.request_discriminator_unproven", "render");
+    assert_unproven_request_discriminator(&root);
 
     let nested = DISCRIMINATOR_CLIENT.replacen(
         "request.live_output = __request_discriminator_value;",
@@ -968,11 +976,7 @@ fn discriminator_evidence_rejects_unrelated_or_nested_assignments() {
         1,
     );
     let root = discriminator_fixture(&nested);
-    assert_extract_error(
-        &root,
-        "extract.request_discriminator_unproven",
-        "nested discriminator path",
-    );
+    assert_unproven_request_discriminator(&root);
 }
 
 #[test]
@@ -983,11 +987,7 @@ fn discriminator_evidence_rejects_wrong_value_type_and_duplicate_target() {
         1,
     );
     let root = discriminator_fixture(&wrong_type);
-    assert_extract_error(
-        &root,
-        "extract.request_discriminator_unproven",
-        "assigned value type",
-    );
+    assert_unproven_request_discriminator(&root);
 
     let duplicate_block = FIRST_DISCRIMINATOR_BLOCK.replace(
         "serde_json::Value::Bool(true)",
@@ -999,11 +999,7 @@ fn discriminator_evidence_rejects_wrong_value_type_and_duplicate_target() {
         1,
     );
     let root = discriminator_fixture(&duplicate);
-    assert_extract_error(
-        &root,
-        "extract.request_discriminator_unproven",
-        "more than once",
-    );
+    assert_unproven_request_discriminator(&root);
 }
 
 #[test]
@@ -1013,11 +1009,7 @@ fn discriminator_evidence_rejects_conditional_or_post_serialization_mutation() {
     let conditional =
         DISCRIMINATOR_CLIENT.replacen(FIRST_DISCRIMINATOR_BLOCK, &conditional_block, 1);
     let root = discriminator_fixture(&conditional);
-    assert_extract_error(
-        &root,
-        "extract.request_discriminator_unproven",
-        "outside a direct generated assignment block",
-    );
+    assert_unproven_request_discriminator(&root);
 
     let moved = DISCRIMINATOR_CLIENT
         .replacen(FIRST_DISCRIMINATOR_BLOCK, "", 1)
@@ -1035,11 +1027,7 @@ fn discriminator_evidence_rejects_conditional_or_post_serialization_mutation() {
             1,
         );
     let root = discriminator_fixture(&moved);
-    assert_extract_error(
-        &root,
-        "extract.request_discriminator_unproven",
-        "before serialization",
-    );
+    assert_unproven_request_discriminator(&root);
 }
 
 const STREAM_ALIAS_CLIENT: &str = r#"
@@ -1141,13 +1129,18 @@ fn owned_native_and_wasm_stream_aliases_are_proved_exactly() {
 }
 
 #[test]
-fn emitted_stream_representation_must_exist_in_the_selected_source_response() {
+fn emitted_stream_transport_is_preserved_when_source_media_disagrees() {
     let root = stream_alias_fixture(NATIVE_STREAM, Some(WASM_STREAM));
     root.file(
         "openapi.json",
         &STREAM_ALIAS_OPENAPI.replace("text/event-stream", "application/json"),
     );
-    assert_extract_error(&root, "extract.representation_unproven", "events");
+    let bindings = extract_bindings(root.path(), root.path().join("openapi.json"))
+        .expect("unique HTTP route can be identified independently of response media");
+    assert_eq!(
+        bindings.as_value()["operations"]["events"]["metadata"]["representation"]["media_type"],
+        "text/event-stream"
+    );
 }
 
 #[test]
