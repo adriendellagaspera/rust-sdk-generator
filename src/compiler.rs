@@ -28,8 +28,7 @@ pub(crate) fn generate(input: GenerateInput) -> Result<GeneratedSdk> {
         runtime,
     } = input;
     let (ir, files) = compile(&openapi, &bindings, &definition, &runtime)?;
-    let mut inventory_models: Vec<_> =
-        ir.models.iter().map(|model| model.name.clone()).collect();
+    let mut inventory_models: Vec<_> = ir.models.iter().map(|model| model.name.clone()).collect();
     inventory_models.extend(ir.resources.iter().flat_map(|resource| {
         resource.operations.iter().filter_map(|operation| {
             let crate::ir::ResponseProjection::Sse(stream) = &operation.response_projection else {
