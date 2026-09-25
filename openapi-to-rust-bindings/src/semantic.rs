@@ -336,8 +336,23 @@ fn operation_doc(attrs: &[Attribute]) -> Vec<(String, String)> {
 // may substitute one segment for a source path variable, but may never
 // change static segments, method or route arity. The actual HTTP request
 // verb/URL and the unique source identity are proved independently.
+fn documented_route_skeleton(path: &str) -> Result<String, Error> {
+    let wire_path = if let Some((wire, query)) = path.split_once('?') {
+        if wire.is_empty() || query.is_empty() {
+            return Err(semantic_error("extract.documented_path_invalid", path));
+        }
+        wire
+    } else {
+        path
+    };
+    route_skeleton(wire_path)
+}
+
 fn documented_route_matches(doc_path: &str, source_path: &str) -> Result<bool, Error> {
-    let doc = route_skeleton(doc_path)?;
+    // Query examples in Rustdoc are usage hints, not route identity. Exact
+    // query/header parameter names and locations are proved separately from
+    // the emitted request AST.
+    let doc = documented_route_skeleton(doc_path)?;
     let source = route_skeleton(source_path)?;
     let doc_segments: Vec<_> = doc.split('/').collect();
     let source_segments: Vec<_> = source.split('/').collect();
@@ -1210,6 +1225,14 @@ mod inline_json_response_tests {
             )
             .expect("concrete rustdoc example")
         );
+        assert!(
+            documented_route_matches(
+                "/v1/workflows/MyWorkflow/metrics?start_time=2025-01-01T00:00:00Z",
+                "/v1/workflows/{workflow_name}/metrics"
+            )
+            .expect("query-bearing rustdoc example")
+        );
+        assert!(documented_route_skeleton("/v1/workflows/x/metrics?").is_err());
         assert!(
             !documented_route_matches(
                 "/v1/workflows/MyWorkflow/logs",
