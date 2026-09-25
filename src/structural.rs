@@ -1245,10 +1245,14 @@ fn request_object_matches_inner(
         return false;
     }
 
-    let matched = openapi
-        .object_schema(schema_name)
-        .ok()
-        .is_some_and(|schema| request_object_value_matches(openapi, &schema, raw, bindings, seen));
+    let matched = if let Some(alias) = bindings.aliases.get(raw) {
+        request_object_matches_inner(openapi, schema_name, alias, bindings, seen)
+    } else {
+        openapi
+            .object_schema(schema_name)
+            .ok()
+            .is_some_and(|schema| request_object_value_matches(openapi, &schema, raw, bindings, seen))
+    };
 
     seen.remove(&pair);
     matched
