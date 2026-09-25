@@ -221,6 +221,160 @@ fn derives_inline_standard_sse_envelope_with_optional_data() {
 }
 
 #[test]
+fn derives_typed_oneof_sse_envelope_without_raw_union_type() {
+    let (mut openapi, mut bindings, surface) = fixture();
+
+    openapi.0["components"]["schemas"]["NotificationErrorPayload"] = serde_json::json!({
+        "type": "object",
+        "required": ["error_code", "fatal"],
+        "properties": {
+            "error_code": {"type": "integer"},
+            "fatal": {"type": "boolean"}
+        }
+    });
+    let envelope = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "event": {"type": "string"},
+            "data": {"oneOf": [
+                {"$ref": "#/components/schemas/NotificationChunk"},
+                {"$ref": "#/components/schemas/NotificationErrorPayload"}
+            ]},
+            "id": {"type": "string"},
+            "retry": {"type": "integer"}
+        }
+    });
+    for status in ["200", "206"] {
+        *openapi
+            .0
+            .pointer_mut(&format!(
+                "/paths/~1notifications/get/responses/{status}/content/text~1event-stream/schema"
+            ))
+            .expect("notification SSE schema") = envelope.clone();
+    }
+    bindings.structs.insert(
+        "OpaqueNotificationError".into(),
+        vec![
+            rust_sdk_generator::FieldBinding {
+                name: "error_code".into(),
+                wire_name: Some("error_code".into()),
+                type_name: "i64".into(),
+            },
+            rust_sdk_generator::FieldBinding {
+                name: "fatal".into(),
+                wire_name: Some("fatal".into()),
+                type_name: "bool".into(),
+            },
+        ],
+    );
+    bindings.symbol_paths.insert(
+        "OpaqueNotificationError".into(),
+        "crate::generated::types::OpaqueNotificationError".into(),
+    );
+
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("typed SSE oneOf envelope should derive");
+
+    let outcome = &derivation.report.operations["subscribe_notifications"];
+    assert_eq!(outcome.status, DerivationStatus::Derived);
+    let stream = derivation.definition.resources["notifications"].operations["subscribe"]
+        .stream
+        .as_ref()
+        .expect("typed stream");
+    assert_eq!(stream.item, "__SubscribeNotificationsStreamItemRaw");
+    assert_eq!(
+        stream.wrapper.as_deref(),
+        Some("SubscribeNotificationsStreamItem")
+    );
+    assert_eq!(stream.variants.len(), 2);
+    assert_eq!(stream.variants[0].name, "NotificationChunk");
+    assert_eq!(stream.variants[0].raw, "OpaqueNotification6");
+    assert_eq!(
+        stream.variants[0].wrapper,
+        "SubscribeNotificationsStreamItemNotificationChunk"
+    );
+    assert_eq!(stream.variants[1].name, "NotificationErrorPayload");
+    assert_eq!(stream.variants[1].raw, "OpaqueNotificationError");
+
+    let generated = generate(GenerateInput {
+        openapi,
+        bindings,
+        definition: derivation.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("typed SSE oneOf envelope should lower");
+
+    let types = &generated.files["facade_types.rs"];
+    assert!(types.contains("pub enum SubscribeNotificationsStreamItem"));
+    assert!(types.contains(
+        "NotificationChunk(SubscribeNotificationsStreamItemNotificationChunk)"
+    ));
+    assert!(types.contains(
+        "NotificationErrorPayload(SubscribeNotificationsStreamItemNotificationErrorPayload)"
+    ));
+    assert!(generated.files.values().any(|source| {
+        source.contains("#[serde(untagged)]")
+            && source.contains("enum __SubscribeNotificationsStreamItemRaw")
+            && source.contains("NotificationChunk(OpaqueNotification6)")
+            && source.contains("NotificationErrorPayload(OpaqueNotificationError)")
+            && source.contains(
+                "json_events::<_, _, __SubscribeNotificationsStreamItemRaw>(bytes)"
+            )
+            && source.contains(
+                "__SubscribeNotificationsStreamItemRaw::NotificationChunk(value) => SubscribeNotificationsStreamItem::NotificationChunk"
+            )
+    }));
+    assert!(generated
+        .inventory
+        .models
+        .contains(&"SubscribeNotificationsStreamItem".to_owned()));
+}
+
+#[test]
+fn rejects_ambiguous_anyof_sse_envelope_payload() {
+    let (mut openapi, bindings, surface) = fixture();
+    let envelope = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "event": {"type": "string"},
+            "data": {"anyOf": [
+                {"$ref": "#/components/schemas/NotificationChunk"},
+                {"$ref": "#/components/schemas/JobChunk"}
+            ]},
+            "id": {"type": "string"}
+        }
+    });
+    for status in ["200", "206"] {
+        *openapi
+            .0
+            .pointer_mut(&format!(
+                "/paths/~1notifications/get/responses/{status}/content/text~1event-stream/schema"
+            ))
+            .expect("notification SSE schema") = envelope.clone();
+    }
+
+    let derivation = derive(DeriveInput {
+        openapi,
+        bindings,
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive should report unsupported ambiguous SSE envelope");
+
+    let outcome = &derivation.report.operations["subscribe_notifications"];
+    assert_eq!(outcome.status, DerivationStatus::Rejected);
+    assert_eq!(
+        outcome.reason.code,
+        "capability.event_stream_payload_not_structurally_provable"
+    );
+}
+
+#[test]
 fn lowering_revalidates_sse_envelope_payload() {
     let (mut openapi, bindings, surface) = fixture();
     let derivation = derive(DeriveInput {
