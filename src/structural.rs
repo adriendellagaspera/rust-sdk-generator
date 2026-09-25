@@ -1131,9 +1131,7 @@ fn request_object_value_matches(
         }
 
         if let Some((union_schema, raw_union)) = request_union_collection(openapi, wire, &core) {
-            if request_union_mapping_inner(openapi, union_schema, raw_union, bindings, seen)
-                .is_none()
-            {
+            if !request_union_matches_inner(openapi, union_schema, raw_union, bindings, seen) {
                 return false;
             }
             continue;
@@ -1912,6 +1910,102 @@ mod recursive_union_type_tests {
             "type": "object"
         });
         assert!(!rust_type_matches_schema(&schema, "ItemUnion", &bindings()));
+    }
+}
+
+#[cfg(test)]
+mod request_scalar_union_collection_tests {
+    use super::*;
+    use crate::contracts::OpenApi;
+
+    fn fixture() -> (OpenApiIndex, Bindings) {
+        let source = OpenApi(serde_json::json!({
+            "openapi": "3.1.0",
+            "components": {
+                "schemas": {
+                    "RoleA": {"type": "string", "enum": ["A", "M"]},
+                    "RoleB": {"type": "string", "enum": ["static", "static"]},
+                    "Request": {
+                        "type": "object",
+                        "properties": {
+                            "roles": {
+                                "anyOf": [
+                                    {
+                                        "type": "array",
+                                        "items": {
+                                            "anyOf": [
+                                                {"$ref": "#/components/schemas/RoleA"},
+                                                {"$ref": "#/components/schemas/RoleB"}
+                                            ]
+                                        }
+                                    },
+                                    {"type": "null"}
+                                ]
+                            }
+                        }
+                    }
+                }
+            }
+        }));
+        let index = OpenApiIndex::new(&source).expect("OpenAPI index");
+        let bindings = serde_json::from_value(serde_json::json!({
+            "schema_version": 3,
+            "structs": {
+                "Request": [{
+                    "name": "roles",
+                    "type": "Option<Option<Vec<RoleUnion>>>",
+                    "wire_name": "roles"
+                }]
+            },
+            "enums": {
+                "RoleA": [
+                    {"name": "A", "payload": null, "wire_name": "A"},
+                    {"name": "M", "payload": null, "wire_name": "M"}
+                ],
+                "RoleB": [
+                    {"name": "Static", "payload": null, "wire_name": "static"},
+                    {"name": "StaticDuplicate", "payload": null, "wire_name": "static"}
+                ],
+                "RoleUnion": [
+                    {"name": "RoleA", "payload": "RoleA"},
+                    {"name": "RoleB", "payload": "RoleB"}
+                ]
+            },
+            "aliases": {},
+            "operations": {},
+            "symbol_paths": {
+                "Request": "crate::generated::types::Request",
+                "RoleA": "crate::generated::types::RoleA",
+                "RoleB": "crate::generated::types::RoleB",
+                "RoleUnion": "crate::generated::types::RoleUnion"
+            },
+            "binding": {
+                "client": {
+                    "type_path": "crate::generated::Client",
+                    "constructor": "new",
+                    "api_key_builder": "with_api_key",
+                    "base_url_builder": "with_base_url"
+                },
+                "type_preludes": []
+            }
+        }))
+        .expect("canonical binding fixture");
+        (index, bindings)
+    }
+
+    #[test]
+    fn proves_nullable_array_of_scalar_reference_union() {
+        let (index, bindings) = fixture();
+        let schema = index.schema("Request").expect("Request schema");
+        assert!(object_value_matches(&index, schema, "Request", &bindings));
+    }
+
+    #[test]
+    fn rejects_scalar_union_collection_wire_drift() {
+        let (index, mut bindings) = fixture();
+        bindings.enums.get_mut("RoleB").expect("RoleB")[0].wire_name = Some("other".into());
+        let schema = index.schema("Request").expect("Request schema");
+        assert!(!object_value_matches(&index, schema, "Request", &bindings));
     }
 }
 
