@@ -1251,7 +1251,9 @@ fn request_object_matches_inner(
         openapi
             .object_schema(schema_name)
             .ok()
-            .is_some_and(|schema| request_object_value_matches(openapi, &schema, raw, bindings, seen))
+            .is_some_and(|schema| {
+                request_object_value_matches(openapi, &schema, raw, bindings, seen)
+            })
     };
 
     seen.remove(&pair);
