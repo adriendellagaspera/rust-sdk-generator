@@ -250,6 +250,15 @@ pub(crate) struct StreamPolicy {
     pub item: String,
     pub wrapper: String,
     pub type_name: String,
+    pub variants: Vec<StreamVariantPolicy>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StreamVariantPolicy {
+    pub name: String,
+    pub schema: String,
+    pub raw: String,
+    pub wrapper: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
