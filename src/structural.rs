@@ -870,9 +870,11 @@ fn unconstrained_request_object_branch(schema: &Value) -> bool {
         return false;
     };
     if object.get("type").and_then(Value::as_str) != Some("object")
-        || object
-            .get("properties")
-            .is_some_and(|properties| !properties.as_object().is_some_and(|properties| properties.is_empty()))
+        || object.get("properties").is_some_and(|properties| {
+            !properties
+                .as_object()
+                .is_some_and(|properties| properties.is_empty())
+        })
         || object
             .get("additionalProperties")
             .is_some_and(|additional| additional != &Value::Bool(true))
@@ -2072,11 +2074,15 @@ mod redundant_open_object_any_of_tests {
                 {"type": "object", "properties": {}}
             ]
         });
-        assert!(!request_union_matches(&index, &one_of, "InputUnion", &bindings));
+        assert!(!request_union_matches(
+            &index,
+            &one_of,
+            "InputUnion",
+            &bindings
+        ));
 
         let mut constrained = redundant_any_of();
-        constrained["anyOf"][1]["properties"] =
-            serde_json::json!({"known": {"type": "string"}});
+        constrained["anyOf"][1]["properties"] = serde_json::json!({"known": {"type": "string"}});
         assert!(!request_union_matches(
             &index,
             &constrained,
@@ -2097,11 +2103,8 @@ mod redundant_open_object_any_of_tests {
     #[test]
     fn rejects_raw_variant_that_broadens_beyond_json_objects() {
         let (index, mut bindings) = fixture();
-        bindings
-            .enums
-            .get_mut("InputUnion")
-            .expect("InputUnion")[1]
-            .payload = Some("String".into());
+        bindings.enums.get_mut("InputUnion").expect("InputUnion")[1].payload =
+            Some("String".into());
         assert!(!request_union_matches(
             &index,
             &redundant_any_of(),
