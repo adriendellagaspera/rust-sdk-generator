@@ -1157,6 +1157,64 @@ fn operation_value<'a>(openapi: &'a Value, method: &str, path: &str) -> Result<&
         })
 }
 
+fn merge_request_discriminator_property(existing: &Value, candidate: &Value) -> Option<Value> {
+    if existing == candidate {
+        return Some(existing.clone());
+    }
+
+    // This helper is intentionally narrow. The generator may refine an
+    // optional Boolean discriminator in an allOf branch (for example a base
+    // `stream: boolean` plus an enum/const true-or-false branch). For the
+    // discriminator proof we only need the field's Boolean/nullable/required
+    // semantics; the exact enum/const value is checked later against the
+    // fully resolved OpenAPI object by root reconciliation.
+    fn boolean_refinement(schema: &Value) -> bool {
+        let Some(object) = schema.as_object() else {
+            return false;
+        };
+        if object.keys().any(|key| {
+            !matches!(
+                key.as_str(),
+                "type"
+                    | "enum"
+                    | "const"
+                    | "default"
+                    | "title"
+                    | "description"
+                    | "deprecated"
+                    | "example"
+                    | "examples"
+                    | "$comment"
+            )
+        }) {
+            return false;
+        }
+        if object.get("type").and_then(Value::as_str) != Some("boolean") {
+            return false;
+        }
+        if object.get("const").is_some_and(|value| !value.is_boolean()) {
+            return false;
+        }
+        if object.get("enum").is_some_and(|value| {
+            value.as_array().is_none_or(|values| {
+                values.is_empty() || values.iter().any(|value| !value.is_boolean())
+            })
+        }) {
+            return false;
+        }
+        true
+    }
+
+    (boolean_refinement(existing) && boolean_refinement(candidate))
+        .then(|| serde_json::json!({"type": "boolean"}))
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RequestDiscriminatorMedia {
+    Json,
+    MultipartFormData,
+}
+
 fn collect_request_schema_fields(
     openapi: &Value,
     schema: &Value,
@@ -1185,9 +1243,8 @@ fn collect_request_schema_fields(
     if let Some(fields) = schema.get("properties") {
         for (name, value) in fields.as_object()? {
             if let Some(existing) = properties.get(name) {
-                if existing != value {
-                    return None;
-                }
+                let merged = merge_request_discriminator_property(existing, value)?;
+                properties.insert(name.clone(), merged);
             } else {
                 properties.insert(name.clone(), value.clone());
             }
@@ -1208,14 +1265,25 @@ fn collect_request_schema_fields(
 fn request_schema(
     openapi: &Value,
     operation: &Value,
-) -> Option<(BTreeMap<String, Value>, BTreeSet<String>)> {
+) -> Option<(
+    RequestDiscriminatorMedia,
+    BTreeMap<String, Value>,
+    BTreeSet<String>,
+)> {
     let content = operation.get("requestBody")?.get("content")?.as_object()?;
-    let media = content.get("application/json").or_else(|| {
+    let (media_kind, media) = if let Some(value) = content.get("application/json").or_else(|| {
         content
             .iter()
             .find(|(kind, _)| kind.ends_with("+json"))
             .map(|(_, value)| value)
-    })?;
+    }) {
+        (RequestDiscriminatorMedia::Json, value)
+    } else {
+        (
+            RequestDiscriminatorMedia::MultipartFormData,
+            content.get("multipart/form-data")?,
+        )
+    };
     let schema = media.get("schema")?;
     let mut properties = BTreeMap::new();
     let mut required = BTreeSet::new();
@@ -1226,7 +1294,7 @@ fn request_schema(
         &mut properties,
         &mut required,
     )?;
-    Some((properties, required))
+    Some((media_kind, properties, required))
 }
 
 fn request_discriminators(
