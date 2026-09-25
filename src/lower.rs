@@ -20,6 +20,7 @@ use crate::structural::{
     request_object_matches_with_discriminators, request_optional_boolean_field,
     request_union_mapping, response_array_union_matches, rust_type_matches_schema,
     scalar_named_object_matches, scalar_object_shape, sse_payload_schema_name,
+    sse_payload_schema_names,
 };
 use crate::symbols::{SymbolProvider, field_identifier};
 
@@ -2431,6 +2432,11 @@ pub(crate) fn lower(
                     ResponseProjection::Binary
                 }
             } else if let Some(stream) = &item.stream {
+                let wrapper = stream
+                    .wrapper
+                    .clone()
+                    .unwrap_or_else(|| stream.item.clone());
+                let mut stream_variants = Vec::new();
                 if item.response_representation
                     == Some(ResponseRepresentationDefinition::EventStream)
                 {
@@ -2453,10 +2459,10 @@ pub(crate) fn lower(
                         &metadata.success_statuses,
                         media_type,
                     )?;
-                    let payloads = schemas
+                    let payload_sets = schemas
                         .iter()
                         .map(|schema| {
-                            sse_payload_schema_name(&index, schema).ok_or_else(|| {
+                            sse_payload_schema_names(&index, schema).ok_or_else(|| {
                                 error(
                                     "lower.stream_drift",
                                     format!(
@@ -2466,21 +2472,141 @@ pub(crate) fn lower(
                             })
                         })
                         .collect::<Result<Vec<_>>>()?;
-                    let payload = payloads.first().ok_or_else(|| {
+                    let payloads = payload_sets.first().ok_or_else(|| {
                         error(
                             "lower.stream_drift",
                             format!("event stream has no selected payload for {raw_method}"),
                         )
                     })?;
-                    let payload_matches = payload == &stream.item
-                        || scalar_named_object_matches(&index, payload, &stream.item, bindings);
-                    if payloads.iter().any(|candidate| candidate != payload) || !payload_matches {
+                    if payload_sets.iter().any(|candidate| candidate != payloads) {
                         return Err(error(
                             "lower.stream_drift",
                             format!("stream payload drift for {raw_method}"),
                         ));
                     }
+
+                    if stream.variants.is_empty() {
+                        if payloads.len() != 1 {
+                            return Err(error(
+                                "lower.stream_drift",
+                                format!("typed SSE union is missing for {raw_method}"),
+                            ));
+                        }
+                        let payload = &payloads[0];
+                        let payload_matches = payload == &stream.item
+                            || scalar_named_object_matches(
+                                &index,
+                                payload,
+                                &stream.item,
+                                bindings,
+                            );
+                        if !payload_matches {
+                            return Err(error(
+                                "lower.stream_drift",
+                                format!("stream payload drift for {raw_method}"),
+                            ));
+                        }
+                        let _ = bindings.fields(&stream.item)?;
+                        let wrapper_model = models
+                            .iter()
+                            .find(|model| model.name == wrapper)
+                            .ok_or_else(|| {
+                                error(
+                                    "lower.stream_wrapper",
+                                    format!(
+                                        "stream wrapper must own the configured item: {wrapper}"
+                                    ),
+                                )
+                            })?;
+                        if wrapper_model.raw != stream.item
+                            || !matches!(
+                                &wrapper_model.render,
+                                ModelRenderSpec::View(view) if !view.borrowed
+                            )
+                        {
+                            return Err(error(
+                                "lower.stream_wrapper",
+                                format!(
+                                    "stream wrapper must own the configured item: {wrapper}"
+                                ),
+                            ));
+                        }
+                    } else {
+                        if payloads.len() != stream.variants.len()
+                            || payloads
+                                .iter()
+                                .zip(&stream.variants)
+                                .any(|(payload, variant)| payload != &variant.schema)
+                            || bindings.structs.contains_key(&stream.item)
+                            || bindings.enums.contains_key(&stream.item)
+                            || bindings.aliases.contains_key(&stream.item)
+                        {
+                            return Err(error(
+                                "lower.stream_drift",
+                                format!("typed SSE union drift for {raw_method}"),
+                            ));
+                        }
+                        for variant in &stream.variants {
+                            let schema = index.object_schema(&variant.schema).map_err(|_| {
+                                error(
+                                    "lower.stream_drift",
+                                    format!("unknown SSE payload schema {}", variant.schema),
+                                )
+                            })?;
+                            let raw_matches = scalar_named_object_matches(
+                                &index,
+                                &variant.schema,
+                                &variant.raw,
+                                bindings,
+                            ) || (variant.raw == variant.schema
+                                && bindings.structs.contains_key(&variant.raw)
+                                && object_field_names_match(
+                                    &schema,
+                                    &variant.raw,
+                                    bindings,
+                                ));
+                            let wrapper_model = models
+                                .iter()
+                                .find(|model| model.name == variant.wrapper)
+                                .ok_or_else(|| {
+                                    error(
+                                        "lower.stream_wrapper",
+                                        format!(
+                                            "typed SSE variant wrapper is missing: {}",
+                                            variant.wrapper
+                                        ),
+                                    )
+                                })?;
+                            if !raw_matches
+                                || wrapper_model.raw != variant.raw
+                                || !matches!(
+                                    &wrapper_model.render,
+                                    ModelRenderSpec::View(view) if !view.borrowed
+                                )
+                            {
+                                return Err(error(
+                                    "lower.stream_wrapper",
+                                    format!(
+                                        "typed SSE variant drift for {}",
+                                        variant.schema
+                                    ),
+                                ));
+                            }
+                            stream_variants.push(StreamVariantPolicy {
+                                name: variant.name.clone(),
+                                schema: variant.schema.clone(),
+                                raw: variant.raw.clone(),
+                                wrapper: variant.wrapper.clone(),
+                            });
+                        }
+                    }
                 } else {
+                    if !stream.variants.is_empty() {
+                        return Err(error(
+                            "lower.stream_drift",
+                            format!("typed SSE union requires canonical metadata for {raw_method}"),
+                        ));
+                    }
                     let schema = success_schema(wire_operation, "text/event-stream")?;
                     let wire_item = sse_payload_schema_name(&index, schema);
                     if wire_item.as_deref() != Some(stream.item.as_str()) {
@@ -2489,34 +2615,34 @@ pub(crate) fn lower(
                             format!("stream payload drift for {raw_method}"),
                         ));
                     }
-                }
-                let _ = bindings.fields(&stream.item)?;
-                let wrapper = stream
-                    .wrapper
-                    .clone()
-                    .unwrap_or_else(|| stream.item.clone());
-                let wrapper_model = models
-                    .iter()
-                    .find(|model| model.name == wrapper)
-                    .ok_or_else(|| {
-                        error(
+                    let _ = bindings.fields(&stream.item)?;
+                    let wrapper_model = models
+                        .iter()
+                        .find(|model| model.name == wrapper)
+                        .ok_or_else(|| {
+                            error(
+                                "lower.stream_wrapper",
+                                format!("stream wrapper must own the configured item: {wrapper}"),
+                            )
+                        })?;
+                    if wrapper_model.raw != stream.item
+                        || !matches!(
+                            &wrapper_model.render,
+                            ModelRenderSpec::View(view) if !view.borrowed
+                        )
+                    {
+                        return Err(error(
                             "lower.stream_wrapper",
                             format!("stream wrapper must own the configured item: {wrapper}"),
-                        )
-                    })?;
-                if wrapper_model.raw != stream.item
-                    || !matches!(&wrapper_model.render, ModelRenderSpec::View(view) if !view.borrowed)
-                {
-                    return Err(error(
-                        "lower.stream_wrapper",
-                        format!("stream wrapper must own the configured item: {wrapper}"),
-                    ));
+                        ));
+                    }
                 }
                 validate_owned_byte_stream(raw_method, raw_operation)?;
                 ResponseProjection::Sse(StreamPolicy {
                     item: stream.item.clone(),
                     wrapper,
                     type_name: stream.type_name.clone(),
+                    variants: stream_variants,
                 })
             } else if let Some(response) = response {
                 let model = models
