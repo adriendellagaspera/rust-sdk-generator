@@ -1751,8 +1751,11 @@ fn parameter_wires(
     verb: &str,
     path: &str,
 ) -> Vec<ParameterWireEvidence> {
-    // Missing or ambiguous evidence is an empty mapping, never a guessed
-    // partial mapping. Old exact-name reconciliation remains available.
+    // Keep every exact wire mapping observed in emitted Rust. The map may be
+    // partial when a parameter uses an unsupported serialization shape (for
+    // example a repeated Vec query value). Root reconciliation may complete
+    // only the remaining names through a separately proven bijection; it must
+    // never infer or rewrite a missing wire key.
     let Some(path_item) = openapi.get("paths").and_then(|paths| paths.get(path)) else {
         return Vec::new();
     };
@@ -1834,9 +1837,6 @@ fn parameter_wires(
             return Vec::new();
         }
         output.push(evidence);
-    }
-    if mapped_wires != source {
-        return Vec::new();
     }
     output.sort_by(|a, b| a.rust_name.cmp(&b.rust_name));
     output
