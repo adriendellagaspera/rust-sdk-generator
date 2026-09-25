@@ -597,6 +597,61 @@ impl SdkDefinition {
                         "operation must select exactly one response projection",
                     ));
                 }
+                if let Some(stream) = &operation.stream {
+                    parse_type(&stream.item).map_err(|error| {
+                        invalid(
+                            format!("definition.resources.{module}.operations.{name}.stream.item"),
+                            error.to_string(),
+                        )
+                    })?;
+                    require_identifier(
+                        &format!("definition.resources.{module}.operations.{name}.stream.type"),
+                        &stream.type_name,
+                    )?;
+                    if let Some(wrapper) = &stream.wrapper {
+                        require_identifier(
+                            &format!(
+                                "definition.resources.{module}.operations.{name}.stream.wrapper"
+                            ),
+                            wrapper,
+                        )?;
+                    }
+                    if !stream.variants.is_empty() {
+                        if stream.variants.len() < 2 || stream.wrapper.is_none() {
+                            return Err(invalid(
+                                format!(
+                                    "definition.resources.{module}.operations.{name}.stream.variants"
+                                ),
+                                "typed SSE union requires at least two variants and a public wrapper",
+                            ));
+                        }
+                        let mut variant_names = BTreeSet::new();
+                        let mut schemas = BTreeSet::new();
+                        let mut raws = BTreeSet::new();
+                        let mut wrappers = BTreeSet::new();
+                        for (index, variant) in stream.variants.iter().enumerate() {
+                            let context = format!(
+                                "definition.resources.{module}.operations.{name}.stream.variants[{index}]"
+                            );
+                            require_identifier(&format!("{context}.name"), &variant.name)?;
+                            require_nonempty(&format!("{context}.schema"), &variant.schema)?;
+                            parse_type(&variant.raw).map_err(|error| {
+                                invalid(format!("{context}.raw"), error.to_string())
+                            })?;
+                            require_identifier(&format!("{context}.wrapper"), &variant.wrapper)?;
+                            if !variant_names.insert(&variant.name)
+                                || !schemas.insert(&variant.schema)
+                                || !raws.insert(&variant.raw)
+                                || !wrappers.insert(&variant.wrapper)
+                            {
+                                return Err(invalid(
+                                    context,
+                                    "typed SSE union variants must be bijectively unique",
+                                ));
+                            }
+                        }
+                    }
+                }
                 if let Some(media) = operation.request_media {
                     let structured = matches!(
                         media,

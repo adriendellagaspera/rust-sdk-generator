@@ -365,6 +365,17 @@ pub struct StreamDefinition {
     pub wrapper: Option<String>,
     #[serde(rename = "type")]
     pub type_name: String,
+    #[serde(default)]
+    pub variants: Vec<StreamVariantDefinition>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StreamVariantDefinition {
+    pub name: String,
+    pub schema: String,
+    pub raw: String,
+    pub wrapper: String,
 }
 
 /// Consumer-owned support paths referenced by emitted Rust.

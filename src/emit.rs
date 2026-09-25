@@ -468,6 +468,40 @@ fn emit_model(model: &ModelSpec) -> String {
     }
 }
 
+fn emit_sse_union_public(stream: &StreamPolicy) -> Option<String> {
+    if stream.variants.is_empty() {
+        return None;
+    }
+    let variants = stream
+        .variants
+        .iter()
+        .map(|variant| format!("{}({})", variant.name, variant.wrapper))
+        .collect::<Vec<_>>()
+        .join(",\n");
+    Some(format!(
+        "#[derive(Debug, Clone)]\n#[non_exhaustive]\npub enum {} {{\n{}\n}}",
+        stream.wrapper,
+        indent(&variants, 4)
+    ))
+}
+
+fn emit_sse_union_raw(stream: &StreamPolicy) -> Option<String> {
+    if stream.variants.is_empty() {
+        return None;
+    }
+    let variants = stream
+        .variants
+        .iter()
+        .map(|variant| format!("{}({})", variant.name, variant.raw))
+        .collect::<Vec<_>>()
+        .join(",\n");
+    Some(format!(
+        "#[derive(Debug, serde::Deserialize)]\n#[serde(untagged)]\nenum {} {{\n{}\n}}",
+        stream.item,
+        indent(&variants, 4)
+    ))
+}
+
 fn emit_parameter_request(operation: &OperationSpec) -> String {
     let Some(request) = &operation.parameter_request else {
         return String::new();
@@ -533,10 +567,27 @@ fn emit_operation_call(
     let separator = if arguments.is_empty() { "" } else { ", " };
     let error_type = &runtime.error_type;
     Ok(match response {
-        ResponseProjection::Sse(stream) => format!(
+        ResponseProjection::Sse(stream) if stream.variants.is_empty() => format!(
             "pub async fn {public_name}(&self{separator}{arguments}) -> Result<{}, {error_type}> {{\n    let bytes = self.raw.{raw_method}({call}).await.map_err({error_type}::from)?;\n    let events = {}::{}::<_, _, {}>(bytes)\n        .map(|event| event.map(|event| {}::from(event.data)).map_err(Into::into));\n    Ok(Box::pin(events))\n}}",
             stream.type_name, runtime.sse_module, runtime.sse_function, stream.item, stream.wrapper
         ),
+        ResponseProjection::Sse(stream) => {
+            let arms = stream
+                .variants
+                .iter()
+                .map(|variant| {
+                    format!(
+                        "{}::{}(value) => {}::{}({}::from(value))",
+                        stream.item, variant.name, stream.wrapper, variant.name, variant.wrapper
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            format!(
+                "pub async fn {public_name}(&self{separator}{arguments}) -> Result<{}, {error_type}> {{\n    let bytes = self.raw.{raw_method}({call}).await.map_err({error_type}::from)?;\n    let events = {}::{}::<_, _, {}>(bytes)\n        .map(|event| event.map(|event| match event.data {{ {} }}).map_err(Into::into));\n    Ok(Box::pin(events))\n}}",
+                stream.type_name, runtime.sse_module, runtime.sse_function, stream.item, arms
+            )
+        }
         ResponseProjection::Empty => format!(
             "pub async fn {public_name}(&self{separator}{arguments}) -> Result<(), {error_type}> {{\n    self.raw.{raw_method}({call}).await.map_err(Into::into)\n}}"
         ),
@@ -626,6 +677,17 @@ fn emit_resource(
     if streaming {
         imports.push_str(&prelude_imports(binding));
     }
+    let stream_helpers = resource
+        .operations
+        .iter()
+        .filter_map(|operation| {
+            let ResponseProjection::Sse(stream) = &operation.response_projection else {
+                return None;
+            };
+            emit_sse_union_raw(stream)
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
     let operations = resource
         .operations
         .iter()
@@ -665,10 +727,15 @@ fn emit_resource(
         .join("\n\n");
     let client = client_name(binding);
     Ok(format!(
-        "{}{}use super::*;\nuse {};\n{}#[derive(Clone, Copy)]\npub struct {}<'a> {{ raw: &'a {client} }}\n\nimpl<'a> {}<'a> {{\n    pub(crate) fn new(raw: &'a {client}) -> Self {{ Self {{ raw }} }}\n{}\n}}\n",
+        "{}{}use super::*;\nuse {};\n{}{}#[derive(Clone, Copy)]\npub struct {}<'a> {{ raw: &'a {client} }}\n\nimpl<'a> {}<'a> {{\n    pub(crate) fn new(raw: &'a {client}) -> Self {{ Self {{ raw }} }}\n{}\n}}\n",
         runtime.generated_marker,
         imports,
         binding.client.type_path,
+        if stream_helpers.is_empty() {
+            String::new()
+        } else {
+            format!("{stream_helpers}\n\n")
+        },
         requests,
         resource.name,
         resource.name,
@@ -698,12 +765,15 @@ fn emit_mod(ir: &FacadeIr, binding: &BindingLayout, runtime: &Runtime) -> String
     let mut exported_types: Vec<String> =
         ir.models.iter().map(|model| model.name.clone()).collect();
     exported_types.extend(ir.resources.iter().flat_map(|resource| {
-        resource.operations.iter().filter_map(|operation| {
-            if let ResponseProjection::Sse(stream) = &operation.response_projection {
-                Some(stream.type_name.clone())
-            } else {
-                None
+        resource.operations.iter().flat_map(|operation| {
+            let ResponseProjection::Sse(stream) = &operation.response_projection else {
+                return Vec::new();
+            };
+            let mut names = vec![stream.type_name.clone()];
+            if !stream.variants.is_empty() {
+                names.push(stream.wrapper.clone());
             }
+            names
         })
     }));
     if ir.resources.iter().any(|resource| {
@@ -758,6 +828,22 @@ fn emit_facade_types(ir: &FacadeIr, binding: &BindingLayout, runtime: &Runtime) 
             .collect::<Vec<_>>()
             .join("\n\n"),
     );
+    let stream_unions = ir
+        .resources
+        .iter()
+        .flat_map(|resource| resource.operations.iter())
+        .filter_map(|operation| {
+            let ResponseProjection::Sse(stream) = &operation.response_projection else {
+                return None;
+            };
+            emit_sse_union_public(stream)
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    if !stream_unions.is_empty() {
+        source.push_str("\n\n");
+        source.push_str(&stream_unions);
+    }
     let mut aliases = Vec::new();
     if ir.resources.iter().any(|resource| {
         resource
