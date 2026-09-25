@@ -1501,8 +1501,7 @@ pub(crate) fn sse_payload_schema_names(
             .map(|payloads| payloads.into_iter().map(str::to_owned).collect())
             .or_else(|| Some(vec![root.to_owned()]));
     }
-    sse_envelope_payloads(schema)
-        .map(|payloads| payloads.into_iter().map(str::to_owned).collect())
+    sse_envelope_payloads(schema).map(|payloads| payloads.into_iter().map(str::to_owned).collect())
 }
 
 pub(crate) fn sse_payload_schema_name(openapi: &OpenApiIndex, schema: &Value) -> Option<String> {
