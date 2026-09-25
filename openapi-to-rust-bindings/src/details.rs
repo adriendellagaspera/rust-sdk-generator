@@ -54,6 +54,7 @@ pub(crate) struct OperationDetails {
     pub kind: OperationKindEvidence,
     pub stream: Option<StreamAbiEvidence>,
     pub request_discriminators: Vec<RequestDiscriminatorEvidence>,
+    pub request_discriminator_unproven: bool,
 }
 
 fn failure(code: &str, detail: impl std::fmt::Display) -> Error {
@@ -1380,6 +1381,37 @@ fn request_discriminators(
     Ok(output)
 }
 
+fn request_discriminator_evidence(
+    method: &syn::ImplItemFn,
+    structural: &StructuralEvidence,
+    structural_method: &crate::structural::MethodEvidence,
+    openapi: &Value,
+    source_method: &str,
+    source_path: &str,
+) -> Result<(Vec<RequestDiscriminatorEvidence>, bool), Error> {
+    match request_discriminators(
+        method,
+        structural,
+        structural_method,
+        openapi,
+        source_method,
+        source_path,
+    ) {
+        Ok(evidence) => Ok((evidence, false)),
+        Err(error)
+            if error
+                .to_string()
+                .starts_with("extract.request_discriminator_unproven:") =>
+        {
+            // Preserve the raw operation in canonical Bindings, but mark this
+            // request mutation as unproved. Root reconciliation must reject
+            // that operation rather than abort extraction for the whole SDK.
+            Ok((Vec::new(), true))
+        }
+        Err(error) => Err(error),
+    }
+}
+
 // Only claim wire identity when the emitted method visibly takes a Rust
 // parameter into a literal query key or HTTP header. Do not derive names by
 // mangling the Rust identifier (suffixes and punctuation are ambiguous).
@@ -1678,6 +1710,15 @@ pub(crate) fn inspect_details(
         } else {
             None
         };
+        let (request_discriminators, request_discriminator_unproven) =
+            request_discriminator_evidence(
+                method,
+                structural,
+                signature,
+                &openapi,
+                &operation.source_operation.method,
+                &operation.source_operation.path,
+            )?;
         output.insert(
             name.clone(),
             OperationDetails {
@@ -1696,14 +1737,8 @@ pub(crate) fn inspect_details(
                     &operation.source_operation.path,
                 )?,
                 stream,
-                request_discriminators: request_discriminators(
-                    method,
-                    structural,
-                    signature,
-                    &openapi,
-                    &operation.source_operation.method,
-                    &operation.source_operation.path,
-                )?,
+                request_discriminators,
+                request_discriminator_unproven,
             },
         );
     }
