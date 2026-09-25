@@ -311,9 +311,7 @@ fn derives_typed_oneof_sse_envelope_without_raw_union_type() {
 
     let types = &generated.files["facade_types.rs"];
     assert!(types.contains("pub enum SubscribeNotificationsStreamItem"));
-    assert!(types.contains(
-        "NotificationChunk(SubscribeNotificationsStreamItemNotificationChunk)"
-    ));
+    assert!(types.contains("NotificationChunk(SubscribeNotificationsStreamItemNotificationChunk)"));
     assert!(types.contains(
         "NotificationErrorPayload(SubscribeNotificationsStreamItemNotificationErrorPayload)"
     ));
@@ -329,10 +327,12 @@ fn derives_typed_oneof_sse_envelope_without_raw_union_type() {
                 "__SubscribeNotificationsStreamItemRaw::NotificationChunk(value) => SubscribeNotificationsStreamItem::NotificationChunk"
             )
     }));
-    assert!(generated
-        .inventory
-        .models
-        .contains(&"SubscribeNotificationsStreamItem".to_owned()));
+    assert!(
+        generated
+            .inventory
+            .models
+            .contains(&"SubscribeNotificationsStreamItem".to_owned())
+    );
 }
 
 #[test]
