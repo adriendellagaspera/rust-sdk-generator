@@ -11,7 +11,7 @@ use crate::contracts::{
 use crate::error::{GenerationError, Result};
 use crate::ir::*;
 use crate::openapi::{OpenApiIndex, ref_name};
-use crate::reconcile::unconstrained_json_alias_matches;
+use crate::reconcile::{parameter_bindings_match, unconstrained_json_alias_matches};
 use crate::rust_type::{Type, TypeKind, parse_type};
 use crate::structural::{
     constant_enum_response_object_matches, flattened_json_response_object_matches,
@@ -2393,9 +2393,13 @@ pub(crate) fn lower(
                         .to_owned()
                 })
                 .collect();
-            let mut wire_sorted = wire_parameter_names.clone();
+            let body_index = request_raw_parameter.as_ref().and_then(|name| {
+                raw_operation
+                    .parameters
+                    .iter()
+                    .position(|parameter| &parameter.name == name)
+            });
             let mut raw_sorted = raw_parameter_names.clone();
-            wire_sorted.sort();
             raw_sorted.sort();
             if raw_sorted.windows(2).any(|pair| pair[0] == pair[1]) {
                 return Err(error(
@@ -2403,7 +2407,7 @@ pub(crate) fn lower(
                     format!("duplicate raw parameter names for {raw_method}"),
                 ));
             }
-            if raw_sorted != wire_sorted {
+            if !parameter_bindings_match(wire_operation, raw_operation, body_index) {
                 return Err(error(
                     "lower.parameter_drift",
                     format!("OpenAPI/raw parameter drift for {raw_method}"),

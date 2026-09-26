@@ -616,86 +616,14 @@ fn has_source_operation_id(bindings: &Bindings, operation_id: &str) -> bool {
     })
 }
 
-fn binding_matches(
-    openapi: &OpenApiIndex,
+pub(crate) fn parameter_bindings_match(
     operation: &Value,
-    request: &RequestShape,
-    response: Option<&ResponseShape>,
     binding: &OperationBinding,
-    bindings: &Bindings,
+    body_index: Option<usize>,
 ) -> bool {
-    if binding
-        .metadata
-        .as_ref()
-        .is_some_and(|metadata| metadata.request_discriminator_unproven)
-    {
+    let Ok(request) = request_shape(operation) else {
         return false;
-    }
-    let mut body_index = None;
-    if let Some(body) = &request.body {
-        let matching: Vec<_> = binding
-            .parameters
-            .iter()
-            .enumerate()
-            .filter(|(_, parameter)| match body {
-                RequestBodyShape::Model(_, schema) => {
-                    let discriminators = binding
-                        .metadata
-                        .as_ref()
-                        .map(|metadata| metadata.request_discriminators.as_slice())
-                        .unwrap_or_default();
-                    parameter.type_name == *schema
-                        || request_object_matches_with_discriminators(
-                            openapi,
-                            schema,
-                            &parameter.type_name,
-                            bindings,
-                            discriminators,
-                        )
-                }
-                RequestBodyShape::OptionalNullableModel(_, schema) => {
-                    let Ok(raw) = parse_type(&parameter.type_name) else {
-                        return false;
-                    };
-                    let Some(present) = raw.unary("Option") else {
-                        return false;
-                    };
-                    let Some(nullable) = present.unary("Option") else {
-                        return false;
-                    };
-                    if nullable.unary("Option").is_some() {
-                        return false;
-                    }
-                    let discriminators = binding
-                        .metadata
-                        .as_ref()
-                        .map(|metadata| metadata.request_discriminators.as_slice())
-                        .unwrap_or_default();
-                    nullable.spelling == *schema
-                        || request_object_matches_with_discriminators(
-                            openapi,
-                            schema,
-                            &nullable.spelling,
-                            bindings,
-                            discriminators,
-                        )
-                }
-                RequestBodyShape::InlineModel(_, schema) => {
-                    object_value_matches(openapi, schema, &parameter.type_name, bindings)
-                }
-                RequestBodyShape::Schema(_, schema) => {
-                    rust_type_matches_schema(schema, &parameter.type_name, bindings)
-                }
-                RequestBodyShape::Raw(_, type_name) => parameter.type_name == *type_name,
-            })
-            .map(|(index, _)| index)
-            .collect();
-        if matching.len() != 1 {
-            return false;
-        }
-        body_index = Some(matching[0]);
-    }
-
+    };
     let raw_names: Vec<_> = binding
         .parameters
         .iter()
@@ -799,6 +727,92 @@ fn binding_matches(
         if raw_names.len() != raw_set.len() || raw_set != request.parameters {
             return false;
         }
+    }
+    true
+}
+
+fn binding_matches(
+    openapi: &OpenApiIndex,
+    operation: &Value,
+    request: &RequestShape,
+    response: Option<&ResponseShape>,
+    binding: &OperationBinding,
+    bindings: &Bindings,
+) -> bool {
+    if binding
+        .metadata
+        .as_ref()
+        .is_some_and(|metadata| metadata.request_discriminator_unproven)
+    {
+        return false;
+    }
+    let mut body_index = None;
+    if let Some(body) = &request.body {
+        let matching: Vec<_> = binding
+            .parameters
+            .iter()
+            .enumerate()
+            .filter(|(_, parameter)| match body {
+                RequestBodyShape::Model(_, schema) => {
+                    let discriminators = binding
+                        .metadata
+                        .as_ref()
+                        .map(|metadata| metadata.request_discriminators.as_slice())
+                        .unwrap_or_default();
+                    parameter.type_name == *schema
+                        || request_object_matches_with_discriminators(
+                            openapi,
+                            schema,
+                            &parameter.type_name,
+                            bindings,
+                            discriminators,
+                        )
+                }
+                RequestBodyShape::OptionalNullableModel(_, schema) => {
+                    let Ok(raw) = parse_type(&parameter.type_name) else {
+                        return false;
+                    };
+                    let Some(present) = raw.unary("Option") else {
+                        return false;
+                    };
+                    let Some(nullable) = present.unary("Option") else {
+                        return false;
+                    };
+                    if nullable.unary("Option").is_some() {
+                        return false;
+                    }
+                    let discriminators = binding
+                        .metadata
+                        .as_ref()
+                        .map(|metadata| metadata.request_discriminators.as_slice())
+                        .unwrap_or_default();
+                    nullable.spelling == *schema
+                        || request_object_matches_with_discriminators(
+                            openapi,
+                            schema,
+                            &nullable.spelling,
+                            bindings,
+                            discriminators,
+                        )
+                }
+                RequestBodyShape::InlineModel(_, schema) => {
+                    object_value_matches(openapi, schema, &parameter.type_name, bindings)
+                }
+                RequestBodyShape::Schema(_, schema) => {
+                    rust_type_matches_schema(schema, &parameter.type_name, bindings)
+                }
+                RequestBodyShape::Raw(_, type_name) => parameter.type_name == *type_name,
+            })
+            .map(|(index, _)| index)
+            .collect();
+        if matching.len() != 1 {
+            return false;
+        }
+        body_index = Some(matching[0]);
+    }
+
+    if !parameter_bindings_match(operation, binding, body_index) {
+        return false;
     }
     if let Some(metadata) = &binding.metadata {
         metadata_response_matches(openapi, operation, binding, metadata, bindings)
@@ -1106,6 +1120,8 @@ mod tests {
         ];
         let mut check = |wires: Vec<ParameterWireBinding>, accepted: bool| {
             raw.metadata.as_mut().expect("v3 metadata").parameter_wires = wires;
+            let operation = &openapi.0["paths"]["/events/{event_id}"]["get"];
+            assert_eq!(parameter_bindings_match(operation, &raw, None), accepted);
             let result = reconcile(
                 &openapi,
                 &v3_bindings(BTreeMap::from([("opaque_events".into(), raw.clone())])),

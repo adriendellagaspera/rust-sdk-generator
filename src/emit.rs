@@ -332,10 +332,19 @@ fn emit_accessor(accessor: &ResolvedAccessor) -> String {
             "pub fn {}(&self) -> {} {{ {expression} }}",
             accessor.name, accessor.return_type
         ),
-        crate::AccessorKindDefinition::OptionalRef => format!(
-            "pub fn {}(&self) -> {} {{ {expression}.as_deref() }}",
-            accessor.name, accessor.return_type
-        ),
+        crate::AccessorKindDefinition::OptionalRef => {
+            let borrow = if accessor.return_type == "Option<&str>"
+                || accessor.return_type.starts_with("Option<&[")
+            {
+                "as_deref"
+            } else {
+                "as_ref"
+            };
+            format!(
+                "pub fn {}(&self) -> {} {{ {expression}.{borrow}() }}",
+                accessor.name, accessor.return_type
+            )
+        }
         crate::AccessorKindDefinition::Iter => format!(
             "pub fn {}(&self) -> {} {{\n    {expression}.iter().map({}::new)\n}}",
             accessor.name,
@@ -365,6 +374,29 @@ fn emit_accessor(accessor: &ResolvedAccessor) -> String {
                     .expect("resolved enum variant")
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod optional_ref_tests {
+    use super::emit_accessor;
+    use crate::AccessorKindDefinition;
+    use crate::ir::ResolvedAccessor;
+
+    #[test]
+    fn nested_option_borrows_outer_option_without_deref() {
+        let mut accessor = ResolvedAccessor {
+            name: "trace_id".into(),
+            kind: AccessorKindDefinition::OptionalRef,
+            path: vec!["trace_id".into()],
+            return_type: "Option<&Option<String>>".into(),
+            wrapper: None,
+            enum_type: None,
+            enum_variant: None,
+        };
+        assert!(emit_accessor(&accessor).contains("self.raw.trace_id.as_ref()"));
+        accessor.return_type = "Option<&str>".into();
+        assert!(emit_accessor(&accessor).contains("self.raw.trace_id.as_deref()"));
     }
 }
 
