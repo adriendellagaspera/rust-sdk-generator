@@ -5,7 +5,7 @@ generates Rust files and reports an outcome for every source operation, so unsup
 excluded operations are visible before publication.
 
 This workspace contains the backend-neutral `rust-sdk-generator` and a concrete
-`openapi-to-rust-bindings` adapter. The adapter extracts canonical Bindings v3 from an
+`openapi-to-rust-bindings` adapter. The adapter extracts canonical Bindings v4 from an
 unmodified backend's generated Rust and its effective OpenAPI; the root generator consumes
 that contract. SDK repositories own their API source, runtime policy and releases.
 
