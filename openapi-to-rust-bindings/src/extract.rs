@@ -244,9 +244,9 @@ fn client_layout(structural: &StructuralEvidence) -> Result<Value, Error> {
     }))
 }
 
-/// Produce canonical Bindings v3 only for call shapes whose complete required
-/// semantics are directly observable. Streaming shapes require a proven
-/// target-specific owned alias; anonymous or incomplete stream ABIs fail closed.
+/// Produce canonical Bindings v4 only for call shapes whose complete required
+/// semantics are directly observable. Streaming shapes require a proven owned
+/// transport; anonymous transports without explicit static/capture proof fail closed.
 pub fn extract_bindings(
     generated: impl AsRef<Path>,
     effective_openapi: impl AsRef<Path>,
