@@ -75,6 +75,29 @@ class ProductionCompatibilityTests(unittest.TestCase):
         raw_gap = compat.capability_observation(bindings, None, absent)
         self.assertEqual(raw_gap["status"], "raw_generation_gap")
         self.assertEqual(raw_gap["diagnostic"], "raw.binary_stream_not_emitted")
+
+        raw_metadata = {
+            "symbols": [
+                {
+                    "operation": {
+                        "operation_id": "download_blob_binary_stream",
+                        "source_operation_id": "download_blob",
+                        "response_kind": "binary",
+                        "consumption": "binary_stream",
+                        "multipart_filenames": False,
+                    }
+                }
+            ]
+        }
+        omitted_adapter_gap = compat.capability_observation(
+            bindings, None, absent, raw_metadata
+        )
+        self.assertEqual(omitted_adapter_gap["status"], "adapter_evidence_gap")
+        self.assertEqual(
+            omitted_adapter_gap["diagnostic"], "extract.stream_abi_unproven"
+        )
+        self.assertEqual(omitted_adapter_gap["failure_owner"], "adapter")
+
         adapter_gap = compat.capability_observation(
             None, "extract.stream_abi_unproven", absent
         )
