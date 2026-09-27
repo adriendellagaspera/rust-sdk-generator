@@ -46,12 +46,6 @@ pub(crate) struct RequestDiscriminatorEvidence {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum OperationKindEvidence {
-    CallShape,
-    MultipartFilenames,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ParameterWireEvidence {
     pub rust_name: String,
     pub location: String,
@@ -61,7 +55,6 @@ pub(crate) struct ParameterWireEvidence {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct OperationDetails {
     pub parameter_wires: Vec<ParameterWireEvidence>,
-    pub kind: OperationKindEvidence,
     pub stream: Option<StreamEvidence>,
     pub request_discriminators: Vec<RequestDiscriminatorEvidence>,
     pub request_discriminator_unproven: bool,
@@ -808,121 +801,6 @@ impl<'ast> Visit<'ast> for IdentUse<'_> {
         }
         visit::visit_expr_path(self, node);
     }
-}
-
-fn filename_part_evidence(node: &syn::ExprIf) -> Option<(String, String)> {
-    let Expr::Let(condition) = &*node.cond else {
-        return None;
-    };
-    let mut filename_bindings = Vec::new();
-    pattern_bindings(&condition.pat, &mut filename_bindings);
-    if filename_bindings.len() != 1 {
-        return None;
-    }
-    let filename = &filename_bindings[0];
-    let wire_name = filename_lookup_wire(&condition.expr)?;
-
-    let Expr::MethodCall(file_name) = tail_expression(&node.then_branch)? else {
-        return None;
-    };
-    if file_name.method != "file_name" || file_name.args.len() != 1 {
-        return None;
-    }
-    let Expr::Path(part) = &*file_name.receiver else {
-        return None;
-    };
-    let part_name = part.path.get_ident()?.to_string();
-    let mut filename_use = IdentUse {
-        ident: filename,
-        count: 0,
-    };
-    filename_use.visit_expr(file_name.args.first()?);
-    if filename_use.count != 1 {
-        return None;
-    }
-    Some((wire_name, part_name))
-}
-
-#[derive(Default)]
-struct MultipartFilenameSignals {
-    filename_parts: BTreeSet<(String, String)>,
-    form_parts: BTreeSet<(String, String)>,
-}
-
-impl<'ast> Visit<'ast> for MultipartFilenameSignals {
-    fn visit_expr_if(&mut self, node: &'ast syn::ExprIf) {
-        if let Some(evidence) = filename_part_evidence(node) {
-            self.filename_parts.insert(evidence);
-        }
-        visit::visit_expr_if(self, node);
-    }
-
-    fn visit_expr_assign(&mut self, node: &'ast syn::ExprAssign) {
-        if matches!(&*node.left, Expr::Path(path) if path.path.is_ident("form"))
-            && let Expr::MethodCall(call) = &*node.right
-            && call.method == "part"
-            && matches!(&*call.receiver, Expr::Path(path) if path.path.is_ident("form"))
-            && call.args.len() == 2
-            && let Some(Expr::Lit(value)) = call.args.first()
-            && let Lit::Str(wire) = &value.lit
-            && let Some(Expr::Path(part)) = call.args.iter().nth(1)
-            && let Some(part) = part.path.get_ident()
-        {
-            self.form_parts.insert((wire.value(), part.to_string()));
-        }
-        visit::visit_expr_assign(self, node);
-    }
-}
-
-fn multipart_kind(
-    method: &syn::ImplItemFn,
-    structural_method: &crate::structural::MethodEvidence,
-    openapi: &Value,
-    source_method: &str,
-    source_path: &str,
-) -> Result<OperationKindEvidence, Error> {
-    let matches: Vec<_> = structural_method
-        .parameters
-        .iter()
-        .filter(|parameter| parameter.name == "multipart_filenames")
-        .collect();
-    if matches.is_empty() {
-        return Ok(OperationKindEvidence::CallShape);
-    }
-    let source_is_multipart = operation_value(openapi, source_method, source_path)?
-        .get("requestBody")
-        .and_then(|body| body.get("content"))
-        .and_then(Value::as_object)
-        .is_some_and(|content| content.contains_key("multipart/form-data"));
-    if !source_is_multipart
-        || matches.len() != 1
-        || compact(&matches[0].rust_type) != "&[(&str,&str)]"
-    {
-        return Err(failure(
-            "extract.multipart_helper_unproven",
-            format!(
-                "{}: multipart filename parameter is not corroborated by the source multipart operation",
-                structural_method.name
-            ),
-        ));
-    }
-    let mut signals = MultipartFilenameSignals::default();
-    signals.visit_block(&method.block);
-    if signals.filename_parts.is_empty()
-        || !signals
-            .filename_parts
-            .iter()
-            .all(|part| signals.form_parts.contains(part))
-    {
-        return Err(failure(
-            "extract.multipart_helper_unproven",
-            format!(
-                "{}: multipart_filenames is not proven to select filenames that are applied to emitted multipart form parts",
-                structural_method.name
-            ),
-        ));
-    }
-    Ok(OperationKindEvidence::MultipartFilenames)
 }
 
 fn field_access(expr: &Expr) -> Option<Vec<String>> {
@@ -2009,7 +1887,6 @@ fn inspect_details_inner(
     effective_openapi: impl AsRef<Path>,
     structural: &StructuralEvidence,
     semantic: &SemanticEvidence,
-    prove_operation_kind: bool,
 ) -> Result<BTreeMap<String, OperationDetails>, Error> {
     let generated = generated.as_ref();
     let client_path = generated.join("client.rs");
@@ -2077,17 +1954,6 @@ fn inspect_details_inner(
                     &operation.source_operation.method,
                     &operation.source_operation.path,
                 ),
-                kind: if prove_operation_kind {
-                    multipart_kind(
-                        method,
-                        signature,
-                        &openapi,
-                        &operation.source_operation.method,
-                        &operation.source_operation.path,
-                    )?
-                } else {
-                    OperationKindEvidence::CallShape
-                },
                 stream,
                 request_discriminators,
                 request_discriminator_unproven,
@@ -2103,7 +1969,7 @@ pub(crate) fn inspect_metadata_backed_details(
     structural: &StructuralEvidence,
     semantic: &SemanticEvidence,
 ) -> Result<BTreeMap<String, OperationDetails>, Error> {
-    inspect_details_inner(generated, effective_openapi, structural, semantic, false)
+    inspect_details_inner(generated, effective_openapi, structural, semantic)
 }
 
 #[cfg(test)]
