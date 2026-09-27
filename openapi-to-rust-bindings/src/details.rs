@@ -704,36 +704,6 @@ pub(crate) fn prove_client_layout(
     prove_builder(&structural.client.path, api_key, "api_key", true)
 }
 
-fn pattern_bindings(pat: &Pat, names: &mut Vec<String>) {
-    match pat {
-        Pat::Ident(value) => names.push(value.ident.to_string()),
-        Pat::Tuple(value) => {
-            for element in &value.elems {
-                pattern_bindings(element, names);
-            }
-        }
-        Pat::TupleStruct(value) => {
-            for element in &value.elems {
-                pattern_bindings(element, names);
-            }
-        }
-        Pat::Reference(value) => pattern_bindings(&value.pat, names),
-        _ => {}
-    }
-}
-
-fn binding_operand(expr: &Expr, binding: &str) -> bool {
-    match expr {
-        Expr::Path(path) => path.path.is_ident(binding),
-        Expr::Unary(unary) if matches!(unary.op, syn::UnOp::Deref(_)) => {
-            binding_operand(&unary.expr, binding)
-        }
-        Expr::Paren(paren) => binding_operand(&paren.expr, binding),
-        Expr::Group(group) => binding_operand(&group.expr, binding),
-        _ => false,
-    }
-}
-
 fn literal_string(expr: &Expr) -> Option<String> {
     match expr {
         Expr::Lit(value) if matches!(&value.lit, Lit::Str(_)) => {
@@ -743,63 +713,6 @@ fn literal_string(expr: &Expr) -> Option<String> {
             Some(value.value())
         }
         _ => None,
-    }
-}
-
-fn filename_lookup_wire(expr: &Expr) -> Option<String> {
-    let Expr::MethodCall(find) = expr else {
-        return None;
-    };
-    if find.method != "find" || find.args.len() != 1 {
-        return None;
-    }
-    let Expr::MethodCall(iter) = &*find.receiver else {
-        return None;
-    };
-    if iter.method != "iter"
-        || !iter.args.is_empty()
-        || !matches!(&*iter.receiver, Expr::Path(path) if path.path.is_ident("multipart_filenames"))
-    {
-        return None;
-    }
-    let Expr::Closure(closure) = find.args.first()? else {
-        return None;
-    };
-    if closure.inputs.len() != 1 {
-        return None;
-    }
-    let mut bindings = Vec::new();
-    pattern_bindings(closure.inputs.first()?, &mut bindings);
-    if bindings.len() != 1 {
-        return None;
-    }
-    let field = &bindings[0];
-    let Expr::Binary(comparison) = &*closure.body else {
-        return None;
-    };
-    if !matches!(comparison.op, syn::BinOp::Eq(_)) {
-        return None;
-    }
-    if binding_operand(&comparison.left, field) {
-        literal_string(&comparison.right)
-    } else if binding_operand(&comparison.right, field) {
-        literal_string(&comparison.left)
-    } else {
-        None
-    }
-}
-
-struct IdentUse<'a> {
-    ident: &'a str,
-    count: usize,
-}
-
-impl<'ast> Visit<'ast> for IdentUse<'_> {
-    fn visit_expr_path(&mut self, node: &'ast syn::ExprPath) {
-        if node.path.is_ident(self.ident) {
-            self.count += 1;
-        }
-        visit::visit_expr_path(self, node);
     }
 }
 
