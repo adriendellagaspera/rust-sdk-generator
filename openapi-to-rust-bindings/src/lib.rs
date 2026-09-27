@@ -8,6 +8,7 @@ mod reader;
 mod rust_type;
 mod semantic;
 mod structural;
+mod upstream_metadata;
 
 pub use extract::extract_bindings;
 pub use manifest::{MANIFEST_NAME, parse_binding_manifest};
