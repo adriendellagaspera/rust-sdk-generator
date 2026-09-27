@@ -31,7 +31,7 @@ pub struct Bindings {
 }
 
 impl Bindings {
-    /// Validate and normalize a backend-neutral Bindings v2/v3 JSON value.
+    /// Validate and normalize a backend-neutral Bindings v2/v3/v4 JSON value.
     pub fn from_value(mut value: Value) -> Result<Self, Error> {
         validate_bindings(&value)?;
         if let Some(operations) = value.get_mut("operations").and_then(Value::as_object_mut) {
@@ -317,6 +317,34 @@ fn validate_stream_abi(value: &Value, context: &str) -> Result<(), Error> {
     Ok(())
 }
 
+fn validate_stream_transport(value: &Value, context: &str) -> Result<(), Error> {
+    let transport = object(value, context)?;
+    let kind = string(&transport["kind"], &format!("{context}.kind"))?;
+    match kind {
+        "named_alias" => {
+            exact_keys(
+                transport,
+                &["kind", "alias", "native_type", "wasm_type"],
+                &[],
+                context,
+            )?;
+            for key in ["alias", "native_type", "wasm_type"] {
+                nonempty_string(&transport[key], &format!("{context}.{key}"))?;
+            }
+        }
+        "anonymous_impl_trait" => {
+            exact_keys(transport, &["kind", "rust_type"], &[], context)?;
+            nonempty_string(&transport["rust_type"], &format!("{context}.rust_type"))?;
+        }
+        _ => {
+            return Err(invalid(format!(
+                "{context}.kind has unsupported value {kind:?}"
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn validate_parameter_wires(value: &Value, context: &str) -> Result<(), Error> {
     let mut names = BTreeSet::new();
     let mut keys = BTreeSet::new();
@@ -355,8 +383,14 @@ fn validate_metadata(
     value: &Value,
     context: &str,
     operation_stream: Option<&Value>,
+    version: u64,
 ) -> Result<String, Error> {
     let metadata = object(value, context)?;
+    let stream_key = match version {
+        3 => "stream_abi",
+        4 => "stream_transport",
+        _ => return Err(invalid(format!("{context} requires Bindings v3 or v4"))),
+    };
     exact_keys(
         metadata,
         &[
@@ -366,7 +400,7 @@ fn validate_metadata(
             "representation",
             "success_statuses",
             "request_discriminators",
-            "stream_abi",
+            stream_key,
         ],
         &["parameter_wires", "request_discriminator_unproven"],
         context,
@@ -444,32 +478,51 @@ fn validate_metadata(
         )?;
     }
 
-    let stream_abi = &metadata["stream_abi"];
-    if stream_abi.is_null() != !streaming {
-        return Err(invalid(format!(
-            "{context}.stream_abi presence must match response representation"
-        )));
-    }
-    if streaming {
-        validate_stream_abi(stream_abi, &format!("{context}.stream_abi"))?;
-    }
-
     let common_stream_present = operation_stream.is_some_and(|stream| !stream.is_null());
     if common_stream_present != streaming {
         return Err(invalid(format!(
-            "{context} stream ABI disagrees with operation.stream"
+            "{context} stream semantics disagree with response representation"
         )));
     }
-    if let Some(stream) = operation_stream.filter(|stream| !stream.is_null()) {
-        let stream = object(stream, "operation.stream")?;
-        let abi = object(stream_abi, &format!("{context}.stream_abi"))?;
-        for key in ["item_type", "error_type", "lifetime"] {
-            if stream[key] != abi[key] {
+
+    match version {
+        3 => {
+            let stream_abi = &metadata["stream_abi"];
+            if stream_abi.is_null() != !streaming {
                 return Err(invalid(format!(
-                    "{context}.stream_abi.{key} disagrees with operation.stream.{key}"
+                    "{context}.stream_abi presence must match response representation"
                 )));
             }
+            if streaming {
+                validate_stream_abi(stream_abi, &format!("{context}.stream_abi"))?;
+            }
+            if let Some(stream) = operation_stream.filter(|stream| !stream.is_null()) {
+                let stream = object(stream, "operation.stream")?;
+                let abi = object(stream_abi, &format!("{context}.stream_abi"))?;
+                for key in ["item_type", "error_type", "lifetime"] {
+                    if stream[key] != abi[key] {
+                        return Err(invalid(format!(
+                            "{context}.stream_abi.{key} disagrees with operation.stream.{key}"
+                        )));
+                    }
+                }
+            }
         }
+        4 => {
+            let transport = &metadata["stream_transport"];
+            if transport.is_null() != !streaming {
+                return Err(invalid(format!(
+                    "{context}.stream_transport presence must match response representation"
+                )));
+            }
+            if streaming {
+                validate_stream_transport(
+                    transport,
+                    &format!("{context}.stream_transport"),
+                )?;
+            }
+        }
+        _ => unreachable!("validated metadata version"),
     }
 
     Ok(format!(
@@ -497,9 +550,9 @@ fn validate_bindings(value: &Value) -> Result<(), Error> {
     let version = root["schema_version"]
         .as_u64()
         .ok_or_else(|| invalid("schema_version must be an integer"))?;
-    if !matches!(version, 2 | 3) {
+    if !matches!(version, 2 | 3 | 4) {
         return Err(invalid(format!(
-            "unsupported schema_version {version}; expected 2 or 3"
+            "unsupported schema_version {version}; expected 2, 3, or 4"
         )));
     }
 
@@ -538,7 +591,7 @@ fn validate_bindings(value: &Value) -> Result<(), Error> {
     for (name, operation) in operations {
         let context = format!("operations.{name}");
         let operation = object(operation, &context)?;
-        if version == 3 {
+        if matches!(version, 3 | 4) {
             exact_keys(
                 operation,
                 &[
@@ -560,7 +613,7 @@ fn validate_bindings(value: &Value) -> Result<(), Error> {
             )?;
         }
         let operation_name = string(&operation["name"], &format!("{context}.name"))?;
-        if version == 3 && operation_name != name {
+        if matches!(version, 3 | 4) && operation_name != name {
             return Err(invalid(format!(
                 "{context}.name must equal its operation map key"
             )));
@@ -582,11 +635,12 @@ fn validate_bindings(value: &Value) -> Result<(), Error> {
             validate_stream(stream, &format!("{context}.stream"))?;
         }
 
-        if version == 3 {
+        if matches!(version, 3 | 4) {
             let identity = validate_metadata(
                 &operation["metadata"],
                 &format!("{context}.metadata"),
                 operation.get("stream"),
+                version,
             )?;
             if !canonical_identities.insert(identity) {
                 return Err(invalid(format!(
