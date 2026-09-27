@@ -255,9 +255,8 @@ impl Bindings {
                     let mut parameter_names = BTreeSet::new();
                     let mut parameter_wires = BTreeSet::new();
                     for (index, wire) in metadata.parameter_wires.iter().enumerate() {
-                        let context = format!(
-                            "bindings.operations.{key}.metadata.parameter_wires[{index}]"
-                        );
+                        let context =
+                            format!("bindings.operations.{key}.metadata.parameter_wires[{index}]");
                         require_nonempty(&format!("{context}.rust_name"), &wire.rust_name)?;
                         require_nonempty(&format!("{context}.wire_name"), &wire.wire_name)?;
                         if !matches!(wire.location.as_str(), "query" | "header") {
@@ -272,8 +271,7 @@ impl Bindings {
                             wire.wire_name.clone()
                         };
                         if !parameter_names.insert(wire.rust_name.as_str())
-                            || !parameter_wires
-                                .insert((wire.location.as_str(), canonical_wire))
+                            || !parameter_wires.insert((wire.location.as_str(), canonical_wire))
                         {
                             return Err(invalid(
                                 context,
@@ -448,7 +446,10 @@ impl Bindings {
         for (field, value) in [
             ("type_path", self.binding.client.type_path.as_str()),
             ("constructor", self.binding.client.constructor.as_str()),
-            ("api_key_builder", self.binding.client.api_key_builder.as_str()),
+            (
+                "api_key_builder",
+                self.binding.client.api_key_builder.as_str(),
+            ),
             (
                 "base_url_builder",
                 self.binding.client.base_url_builder.as_str(),
@@ -457,10 +458,7 @@ impl Bindings {
             require_nonempty(&format!("bindings.binding.client.{field}"), value)?;
         }
         for (index, prelude) in self.binding.type_preludes.iter().enumerate() {
-            require_nonempty(
-                &format!("bindings.binding.type_preludes[{index}]"),
-                prelude,
-            )?;
+            require_nonempty(&format!("bindings.binding.type_preludes[{index}]"), prelude)?;
         }
         require_unique(
             "bindings.binding.type_preludes",
