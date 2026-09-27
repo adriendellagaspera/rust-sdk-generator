@@ -85,10 +85,10 @@ fn derives_canonical_sse_with_owned_public_wrappers_and_discriminator() {
 
     let types = &generated.files["facade_types.rs"];
     assert!(types.contains(
-        "pub type WatchJobsStream = Pin<Box<dyn Stream<Item = Result<WatchJobsStreamItem, SdkError>> + Send + 'static>>;"
+        "pub type WatchJobsStream = Pin<Box<dyn Stream<Item = Result<WatchJobsStreamItem, SdkError>> + 'static>>;"
     ));
     assert!(types.contains(
-        "pub type SubscribeNotificationsStream = Pin<Box<dyn Stream<Item = Result<SubscribeNotificationsStreamItem, SdkError>> + Send + 'static>>;"
+        "pub type SubscribeNotificationsStream = Pin<Box<dyn Stream<Item = Result<SubscribeNotificationsStreamItem, SdkError>> + 'static>>;"
     ));
 
     assert!(generated.files.values().any(|source| {
