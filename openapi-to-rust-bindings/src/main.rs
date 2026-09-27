@@ -20,7 +20,9 @@ fn run() -> Result<(), String> {
     }
 
     let (directory, openapi) = match arguments.as_slice() {
-        [directory, openapi] => (directory, openapi),
+        [directory, openapi] if !directory.to_string_lossy().starts_with('-') => {
+            (directory, openapi)
+        }
         [flag, directory, openapi] if flag == "--extract" => (directory, openapi),
         [directory] => {
             return Err(format!(
