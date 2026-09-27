@@ -604,7 +604,7 @@ impl UpstreamMetadata {
             })?;
             let metadata_return = canonical_rust_type(&operation.signature.return_type)?;
             let structural_return = canonical_rust_type(&method.return_type)?;
-            if metadata_return != structural_return {
+            if !equivalent_type_spelling(&metadata_return, &structural_return) {
                 return Err(failure(
                     "metadata.signature_drift",
                     format!(
@@ -620,8 +620,10 @@ impl UpstreamMetadata {
             }
             for (metadata, actual) in operation.signature.arguments.iter().zip(&method.parameters) {
                 if metadata.name != actual.name
-                    || canonical_rust_type(&metadata.rust_type)?
-                        != canonical_rust_type(&actual.rust_type)?
+                    || !equivalent_type_spelling(
+                        &canonical_rust_type(&metadata.rust_type)?,
+                        &canonical_rust_type(&actual.rust_type)?,
+                    )
                 {
                     return Err(failure(
                         "metadata.signature_drift",
@@ -632,6 +634,17 @@ impl UpstreamMetadata {
         }
         Ok(())
     }
+}
+
+fn equivalent_type_spelling(left: &str, right: &str) -> bool {
+    fn normalize(value: &str) -> String {
+        let mut value = value.to_owned();
+        while value.contains(",>") {
+            value = value.replace(",>", ">");
+        }
+        value
+    }
+    normalize(left) == normalize(right)
 }
 
 fn success_type(return_type: &str) -> Result<String, Error> {
