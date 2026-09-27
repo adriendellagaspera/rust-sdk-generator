@@ -3009,6 +3009,7 @@ mod stream_abi_tests {
                     native_type: "futures_util::stream::BoxStream<'static, Result<bytes::Bytes, reqwest::Error>>".into(),
                     wasm_type: "futures_util::stream::LocalBoxStream<'static, Result<bytes::Bytes, reqwest::Error>>".into(),
                 }),
+                stream_transport: None,
             }),
         }
     }
