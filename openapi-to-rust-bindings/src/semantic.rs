@@ -1409,10 +1409,9 @@ mod status_guard_tests {
 
     #[test]
     fn accepts_repeated_identical_finite_status_guards() {
-        let block: syn::Block = syn::parse_str(
-            "{ if status_code == 200 { Ok(()) } if status_code == 200 { Ok(()) } }",
-        )
-        .expect("valid generated method body");
+        let block: syn::Block =
+            syn::parse_str("{ if status_code == 200 { Ok(()) } if status_code == 200 { Ok(()) } }")
+                .expect("valid generated method body");
         assert_eq!(
             top_level_status_guard(&block).expect("identical guards prove one selected status"),
             vec!["200"]
