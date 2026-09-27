@@ -333,62 +333,6 @@
         }
       ]
     },
-    "operationMetadata": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "kind",
-        "source_operation",
-        "emitted_operation_id",
-        "representation",
-        "success_statuses",
-        "request_discriminators",
-        "stream_abi"
-      ],
-      "properties": {
-        "kind": {
-          "enum": [
-            "call_shape",
-            "multipart_filenames"
-          ]
-        },
-        "source_operation": {
-          "$ref": "#/$defs/sourceOperation"
-        },
-        "emitted_operation_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "representation": {
-          "$ref": "#/$defs/representation"
-        },
-        "success_statuses": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "uniqueItems": true
-        },
-        "request_discriminators": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/requestDiscriminator"
-          }
-        },
-        "stream_abi": {
-          "$ref": "#/$defs/streamAbi"
-        },
-        "parameter_wires": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/parameterWire"
-          }
-        },
-        "request_discriminator_unproven": {
-          "type": "boolean"
-        }
-      }
-    },
     "operationV2": {
       "type": "object",
       "additionalProperties": false,
@@ -449,7 +393,7 @@
           "$ref": "#/$defs/stream"
         },
         "metadata": {
-          "$ref": "#/$defs/operationMetadata"
+          "$ref": "#/$defs/operationMetadataV3"
         }
       }
     },
@@ -729,11 +673,33 @@
         "parameter_wires": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/parameterWire"
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "rust_name",
+              "location",
+              "wire_name"
+            ],
+            "properties": {
+              "rust_name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "location": {
+                "enum": [
+                  "query",
+                  "header"
+                ]
+              },
+              "wire_name": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
           }
         },
         "request_discriminator_unproven": {
-          "type": "boolean"
+          "const": true
         },
         "stream_transport": {
           "$ref": "#/$defs/streamTransport"
@@ -828,6 +794,84 @@
         },
         "binding": {
           "$ref": "#/$defs/bindingLayout"
+        }
+      }
+    },
+    "operationMetadataV3": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "source_operation",
+        "emitted_operation_id",
+        "representation",
+        "success_statuses",
+        "request_discriminators",
+        "stream_abi"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "call_shape",
+            "multipart_filenames"
+          ]
+        },
+        "source_operation": {
+          "$ref": "#/$defs/sourceOperation"
+        },
+        "emitted_operation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "representation": {
+          "$ref": "#/$defs/representation"
+        },
+        "success_statuses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "request_discriminators": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/requestDiscriminator"
+          }
+        },
+        "stream_abi": {
+          "$ref": "#/$defs/streamAbi"
+        },
+        "parameter_wires": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "rust_name",
+              "location",
+              "wire_name"
+            ],
+            "properties": {
+              "rust_name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "location": {
+                "enum": [
+                  "query",
+                  "header"
+                ]
+              },
+              "wire_name": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "request_discriminator_unproven": {
+          "const": true
         }
       }
     }
