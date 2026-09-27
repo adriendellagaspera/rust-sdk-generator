@@ -9,9 +9,9 @@ use serde::{Deserialize, Serialize};
 
 use super::{Result, err, run, write_if_changed};
 
-pub const BACKEND_ID: &str = "openapi-to-rust/upstream-v1";
+pub const BACKEND_ID: &str = "openapi-to-rust/upstream-bindings-v1";
 pub const REPOSITORY: &str = "gpu-cli/openapi-to-rust";
-pub const ADAPTER_ID: &str = "openapi-to-rust-bindings/manifest-free-v3";
+pub const ADAPTER_ID: &str = "openapi-to-rust-bindings/upstream-metadata-v1-to-v3";
 pub const TEMPLATE_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -199,7 +199,7 @@ impl BackendDriver for UpstreamDriver {
     ) -> Result<DriverOutput> {
         fs::create_dir_all(work.join("raw")).map_err(|e| err("raw.output", e))?;
         let config = format!(
-            "[generator]\nspec_path = \"effective-openapi.json\"\noutput_dir = \"raw\"\nmodule_name = \"{}\"\n\n[features]\nenable_async_client = true\n\n[http_client]\nbase_url = \"{}\"\n\n[http_client.retry]\nmax_retries = {}\n\n[client]\nprune_models = {}\n",
+            "[generator]\nspec_path = \"effective-openapi.json\"\noutput_dir = \"raw\"\nmodule_name = \"{}\"\nbindings_metadata = \"bindings.json\"\n\n[features]\nenable_async_client = true\n\n[http_client]\nbase_url = \"{}\"\n\n[http_client.retry]\nmax_retries = {}\n\n[client]\nprune_models = {}\n",
             lock.module_name, lock.base_url, lock.retry_max, lock.prune_models
         );
         write_if_changed(
@@ -229,6 +229,12 @@ impl BackendDriver for UpstreamDriver {
             return Err(err(
                 "raw.manifest",
                 "the selected upstream driver must not emit or consume a fork-only binding manifest",
+            ));
+        }
+        if !raw.join("bindings.json").is_file() {
+            return Err(err(
+                "raw.metadata",
+                "the selected upstream driver must emit versioned bindings.json metadata",
             ));
         }
         let mut rust = BTreeMap::new();
