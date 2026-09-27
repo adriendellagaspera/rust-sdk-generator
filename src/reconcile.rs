@@ -1563,34 +1563,37 @@ mod tests {
                 }}
             }
         }));
-        let bindings = v3_bindings(BTreeMap::from([
-            (
-                "opaque_a".into(),
-                v3_operation(
-                    "opaque_a",
-                    "health_a",
-                    "GET",
-                    "/health-a",
-                    OperationBindingKind::CallShape,
+        for schema_version in [3, 4] {
+            let mut bindings = v3_bindings(BTreeMap::from([
+                (
+                    "opaque_a".into(),
+                    v3_operation(
+                        "opaque_a",
+                        "health_a",
+                        "GET",
+                        "/health-a",
+                        OperationBindingKind::CallShape,
+                    ),
                 ),
-            ),
-            (
-                "opaque_b".into(),
-                v3_operation(
-                    "opaque_b",
-                    "health_b",
-                    "GET",
-                    "/health-b",
-                    OperationBindingKind::CallShape,
+                (
+                    "opaque_b".into(),
+                    v3_operation(
+                        "opaque_b",
+                        "health_b",
+                        "GET",
+                        "/health-b",
+                        OperationBindingKind::CallShape,
+                    ),
                 ),
-            ),
-        ]));
+            ]));
+            bindings.schema_version = schema_version;
 
-        let result = reconcile(&openapi, &bindings).expect("reconcile");
-        assert_eq!(result["health_a"].binding.as_deref(), Some("opaque_a"));
-        assert_eq!(result["health_b"].binding.as_deref(), Some("opaque_b"));
-        assert_eq!(result["health_a"].reason, None);
-        assert_eq!(result["health_b"].reason, None);
+            let result = reconcile(&openapi, &bindings).expect("reconcile");
+            assert_eq!(result["health_a"].binding.as_deref(), Some("opaque_a"));
+            assert_eq!(result["health_b"].binding.as_deref(), Some("opaque_b"));
+            assert_eq!(result["health_a"].reason, None);
+            assert_eq!(result["health_b"].reason, None);
+        }
     }
 
     #[test]
