@@ -707,7 +707,6 @@ fn words(value: &str) -> BTreeSet<&str> {
 
 use quote::ToTokens;
 
-
 #[cfg(test)]
 mod status_selector_tests {
     use super::status_selector_matches_exact;
