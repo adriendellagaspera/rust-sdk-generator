@@ -268,6 +268,17 @@ pub fn extract_bindings(
     let details = inspect_details(&generated, &effective_openapi, &structural, &semantic)?;
 
     let canonical = upstream.normalize_structural()?;
+    let ast_canonical = normalize_structural(&structural)?;
+    if canonical.structs != ast_canonical.structs
+        || canonical.enums != ast_canonical.enums
+        || canonical.aliases != ast_canonical.aliases
+        || canonical.symbols != ast_canonical.symbols
+    {
+        return Err(extraction_error(
+            "metadata.structural_drift",
+            "upstream bindings metadata disagrees with the emitted Rust model surface",
+        ));
+    }
     let metadata_operations = upstream.operations()?;
 
     let mut operations = Map::new();
