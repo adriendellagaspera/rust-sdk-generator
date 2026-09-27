@@ -1,4 +1,4 @@
-use openapi_to_rust_bindings::{RepresentationEvidence, extract_bindings, inspect_semantics};
+use openapi_to_rust_bindings::{RepresentationEvidence, extract_bindings_from_rust, inspect_semantics};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -197,7 +197,7 @@ fn exact_route_and_body_evidence_select_the_emitted_representation() {
 #[test]
 fn proved_non_streaming_semantics_normalize_to_bindings_v3() {
     let root = fixture(CLIENT);
-    let bindings = extract_bindings(root.path(), root.path().join("openapi.json"))
+    let bindings = extract_bindings_from_rust(root.path(), root.path().join("openapi.json"))
         .expect("canonical bindings");
     let value = bindings.as_value();
 
@@ -307,7 +307,7 @@ fn source_operations_without_emitted_methods_fail_closed() {
         "openapi.json",
         &serde_json::to_string_pretty(&openapi).expect("serialize OpenAPI"),
     );
-    let error = extract_bindings(root.path(), root.path().join("openapi.json"))
+    let error = extract_bindings_from_rust(root.path(), root.path().join("openapi.json"))
         .expect_err("unemitted source operation must be rejected");
     assert!(
         error
@@ -387,13 +387,13 @@ impl HttpClient {
     root.file("types.rs", "");
     root.file("client.rs", STREAM_CLIENT);
     root.file("openapi.json", STREAM_OPENAPI);
-    let error = extract_bindings(root.path(), root.path().join("openapi.json"))
+    let error = extract_bindings_from_rust(root.path(), root.path().join("openapi.json"))
         .expect_err("anonymous streams have no proven native/WASM alias ABI");
     assert!(error.to_string().contains("extract.stream_abi_unproven"));
 }
 
 fn assert_extract_error(root: &Scratch, code: &str, context: &str) {
-    let error = extract_bindings(root.path(), root.path().join("openapi.json"))
+    let error = extract_bindings_from_rust(root.path(), root.path().join("openapi.json"))
         .expect_err("fixture must fail closed");
     let message = error.to_string();
     assert!(message.contains(code), "{message}");
@@ -401,7 +401,7 @@ fn assert_extract_error(root: &Scratch, code: &str, context: &str) {
 }
 
 fn assert_unproven_request_discriminator(root: &Scratch) {
-    let bindings = extract_bindings(root.path(), root.path().join("openapi.json"))
+    let bindings = extract_bindings_from_rust(root.path(), root.path().join("openapi.json"))
         .expect("operation-specific discriminator uncertainty must not abort SDK extraction");
     let metadata = &bindings.as_value()["operations"]["render"]["metadata"];
     assert_eq!(metadata["request_discriminator_unproven"], true);
@@ -750,7 +750,7 @@ fn multipart_fixture(client: &str) -> Scratch {
 #[test]
 fn multipart_filename_helper_requires_observable_filename_application() {
     let root = multipart_fixture(MULTIPART_CLIENT);
-    let bindings = extract_bindings(root.path(), root.path().join("openapi.json"))
+    let bindings = extract_bindings_from_rust(root.path(), root.path().join("openapi.json"))
         .expect("filename lookup must be tied to emitted multipart part construction");
     assert_eq!(
         bindings.as_value()["operations"]["upload_with_multipart_filenames"]["metadata"]["kind"],
@@ -926,7 +926,7 @@ fn discriminator_fixture(client: &str) -> Scratch {
 #[test]
 fn discriminator_evidence_proves_scope_value_type_and_field_semantics() {
     let root = discriminator_fixture(DISCRIMINATOR_CLIENT);
-    let bindings = extract_bindings(root.path(), root.path().join("openapi.json"))
+    let bindings = extract_bindings_from_rust(root.path(), root.path().join("openapi.json"))
         .expect("direct pre-serialization discriminator assignments are observable");
     let discriminators =
         bindings.as_value()["operations"]["render"]["metadata"]["request_discriminators"]
@@ -1120,7 +1120,7 @@ fn stream_alias_fixture(native: &str, wasm: Option<&str>) -> Scratch {
 #[test]
 fn owned_native_and_wasm_stream_aliases_are_proved_exactly() {
     let root = stream_alias_fixture(NATIVE_STREAM, Some(WASM_STREAM));
-    let bindings = extract_bindings(root.path(), root.path().join("openapi.json"))
+    let bindings = extract_bindings_from_rust(root.path(), root.path().join("openapi.json"))
         .expect("owned cross-target byte stream ABI");
     let stream = &bindings.as_value()["operations"]["events"]["stream"];
     assert_eq!(stream["item_type"], "bytes::Bytes");
@@ -1135,7 +1135,7 @@ fn emitted_stream_transport_is_preserved_when_source_media_disagrees() {
         "openapi.json",
         &STREAM_ALIAS_OPENAPI.replace("text/event-stream", "application/json"),
     );
-    let bindings = extract_bindings(root.path(), root.path().join("openapi.json"))
+    let bindings = extract_bindings_from_rust(root.path(), root.path().join("openapi.json"))
         .expect("unique HTTP route can be identified independently of response media");
     assert_eq!(
         bindings.as_value()["operations"]["events"]["metadata"]["representation"]["media_type"],
