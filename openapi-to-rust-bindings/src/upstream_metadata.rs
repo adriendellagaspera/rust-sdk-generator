@@ -75,37 +75,37 @@ struct BindingVariant {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct BindingSignature {
+pub(crate) struct BindingSignature {
     rust: String,
     asynchronous: bool,
     receiver: Option<String>,
-    arguments: Vec<BindingArgument>,
-    return_type: String,
+    pub(crate) arguments: Vec<BindingArgument>,
+    pub(crate) return_type: String,
     generics: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct BindingArgument {
-    name: String,
-    rust_type: String,
+pub(crate) struct BindingArgument {
+    pub(crate) name: String,
+    pub(crate) rust_type: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct BindingOperation {
-    operation_id: String,
-    source_json_pointer: String,
-    source_method: String,
-    source_path: String,
-    source_operation_id: Option<String>,
-    webhook: bool,
-    response_statuses: Vec<String>,
-    response_excluded_statuses: Vec<String>,
-    response_media_type: Option<String>,
-    response_kind: String,
-    consumption: String,
-    multipart_filenames: bool,
+pub(crate) struct BindingOperation {
+    pub(crate) operation_id: String,
+    pub(crate) source_json_pointer: String,
+    pub(crate) source_method: String,
+    pub(crate) source_path: String,
+    pub(crate) source_operation_id: Option<String>,
+    pub(crate) webhook: bool,
+    pub(crate) response_statuses: Vec<String>,
+    pub(crate) response_excluded_statuses: Vec<String>,
+    pub(crate) response_media_type: Option<String>,
+    pub(crate) response_kind: String,
+    pub(crate) consumption: String,
+    pub(crate) multipart_filenames: bool,
 }
 
 pub(crate) struct CanonicalMetadata {
