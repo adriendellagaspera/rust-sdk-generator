@@ -3,8 +3,8 @@
 use crate::details::{OperationKindEvidence, inspect_details, prove_client_layout};
 use crate::rust_type::canonical_rust_type;
 use crate::semantic::{RepresentationEvidence, inspect_semantics};
-use crate::upstream_metadata::UpstreamMetadata;
 use crate::structural::{EnumEvidence, StructuralEvidence, inspect_generated};
+use crate::upstream_metadata::UpstreamMetadata;
 use crate::{Bindings, Error};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
