@@ -609,7 +609,7 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                 ));
             }
             let ambiguous_canonical_representations = matched.binding.is_none()
-                && bindings.schema_version == 3
+                && bindings.schema_version >= 3
                 && matched.candidates.len() > 1
                 && matched.reason == Some("bindings.source_operation_identity_required");
 
