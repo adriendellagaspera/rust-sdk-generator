@@ -280,6 +280,18 @@ pub fn extract_bindings(
         ));
     }
     let metadata_operations = upstream.operations()?;
+    let non_stream_sources = semantic
+        .operations
+        .values()
+        .filter(|operation| {
+            !matches!(
+                operation.representation,
+                RepresentationEvidence::EventStream { .. }
+                    | RepresentationEvidence::BinaryStream { .. }
+            )
+        })
+        .map(|operation| operation.source_operation.clone())
+        .collect::<BTreeSet<_>>();
 
     let mut operations = Map::new();
     for (name, semantics) in &semantic.operations {
@@ -317,15 +329,26 @@ pub fn extract_bindings(
         let detail = details
             .get(name)
             .ok_or_else(|| extraction_error("extract.operation_details_missing", name))?;
+        let streaming = matches!(
+            semantics.representation,
+            RepresentationEvidence::EventStream { .. }
+                | RepresentationEvidence::BinaryStream { .. }
+        );
+        if streaming
+            && detail.stream.is_none()
+            && non_stream_sources.contains(&semantics.source_operation)
+        {
+            // v0.19 may emit an anonymous live-stream helper in addition to a
+            // fully representable buffered method for the same source operation.
+            // Bindings v3 cannot prove that anonymous transport yet; preserve
+            // the supported source operation and omit only the extra helper.
+            continue;
+        }
         let kind = match detail.kind {
             OperationKindEvidence::CallShape => "call_shape",
             OperationKindEvidence::MultipartFilenames => "multipart_filenames",
         };
-        let (stream, stream_abi) = if matches!(
-            semantics.representation,
-            RepresentationEvidence::EventStream { .. }
-                | RepresentationEvidence::BinaryStream { .. }
-        ) {
+        let (stream, stream_abi) = if streaming {
             let abi = detail
                 .stream
                 .as_ref()
