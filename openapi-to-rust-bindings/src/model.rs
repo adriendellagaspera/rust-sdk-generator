@@ -132,7 +132,7 @@ fn validate_name_type(value: &Value, context: &str) -> Result<(), Error> {
 
 fn validate_field(value: &Value, context: &str, version: u64) -> Result<(), Error> {
     let value = object(value, context)?;
-    if version == 3 {
+    if matches!(version, 3 | 4) {
         exact_keys(value, &["name", "wire_name", "type"], &[], context)?;
     } else {
         exact_keys(value, &["name", "type"], &["wire_name"], context)?;
