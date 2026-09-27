@@ -2975,7 +2975,8 @@ mod stream_abi_tests {
     use super::validate_owned_byte_stream;
     use crate::contracts::{
         OperationBinding, OperationBindingKind, OperationMetadataBinding,
-        ResponseRepresentationBinding, SourceOperationBinding, StreamAbiBinding,
+        ResponseRepresentationBinding, SourceOperationBinding, StreamAbiBinding, StreamBinding,
+        StreamTransportBinding,
     };
 
     fn v3_binding() -> OperationBinding {
@@ -3012,6 +3013,61 @@ mod stream_abi_tests {
                 stream_transport: None,
             }),
         }
+    }
+
+    fn v4_anonymous_binding() -> OperationBinding {
+        let rust_type = "impl futures_util::Stream<Item = Result<bytes::Bytes, reqwest::Error>> + 'static + use<>".to_owned();
+        OperationBinding {
+            name: "stream_events".into(),
+            parameters: Vec::new(),
+            return_type: format!("Result<{rust_type}, ApiOpError<serde_json::Value>>"),
+            success_type: rust_type.clone(),
+            stream: Some(StreamBinding {
+                item_type: "bytes::Bytes".into(),
+                error_type: "reqwest::Error".into(),
+                lifetime: "'static".into(),
+            }),
+            metadata: Some(OperationMetadataBinding {
+                kind: OperationBindingKind::CallShape,
+                source_operation: SourceOperationBinding {
+                    operation_id: "stream_events".into(),
+                    method: "GET".into(),
+                    path: "/events".into(),
+                },
+                emitted_operation_id: "stream_events".into(),
+                representation: ResponseRepresentationBinding::EventStream {
+                    media_type: "text/event-stream".into(),
+                },
+                success_statuses: vec!["200".into()],
+                request_discriminators: Vec::new(),
+                request_discriminator_unproven: false,
+                parameter_wires: Vec::new(),
+                stream_abi: None,
+                stream_transport: Some(StreamTransportBinding::AnonymousImplTrait { rust_type }),
+            }),
+        }
+    }
+
+    #[test]
+    fn canonical_v4_anonymous_stream_allows_owned_transport() {
+        let binding = v4_anonymous_binding();
+        validate_owned_byte_stream("stream_events", &binding)
+            .expect("v4 anonymous stream should use canonical stream semantics");
+    }
+
+    #[test]
+    fn canonical_v4_anonymous_stream_rejects_borrowed_or_non_byte_semantics() {
+        let mut binding = v4_anonymous_binding();
+        binding.stream.as_mut().expect("stream").lifetime = "'a".into();
+        let error = validate_owned_byte_stream("stream_events", &binding)
+            .expect_err("borrowed anonymous stream must be rejected");
+        assert_eq!(error.diagnostic.code, "lower.stream_ownership");
+
+        let mut binding = v4_anonymous_binding();
+        binding.stream.as_mut().expect("stream").item_type = "String".into();
+        let error = validate_owned_byte_stream("stream_events", &binding)
+            .expect_err("non-byte anonymous stream must be rejected");
+        assert_eq!(error.diagnostic.code, "lower.stream_bytes");
     }
 
     #[test]
