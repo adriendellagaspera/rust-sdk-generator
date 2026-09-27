@@ -1851,3 +1851,43 @@ mod tests {
         );
     }
 }
+
+
+#[cfg(test)]
+mod status_selector_tests {
+    use super::selected_success_responses;
+
+    #[test]
+    fn selects_exact_and_class_success_responses() {
+        let operation = serde_json::json!({
+            "responses": {
+                "200": {"description": "ok"},
+                "201": {"description": "created"},
+                "400": {"description": "bad"}
+            }
+        });
+        let exact = selected_success_responses(&operation, &["201".into()])
+            .expect("exact success");
+        assert_eq!(exact.len(), 1);
+        assert_eq!(exact[0].0.as_str(), "201");
+
+        let class = selected_success_responses(&operation, &["2XX".into()])
+            .expect("class success");
+        assert_eq!(class.len(), 2);
+        assert!(class.iter().all(|(status, _)| status.starts_with('2')));
+    }
+
+    #[test]
+    fn exact_success_matches_source_status_class() {
+        let operation = serde_json::json!({
+            "responses": {
+                "2XX": {"description": "any success"},
+                "400": {"description": "bad"}
+            }
+        });
+        let selected = selected_success_responses(&operation, &["200".into()])
+            .expect("exact selector is covered by source 2XX");
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].0.as_str(), "2XX");
+    }
+}
