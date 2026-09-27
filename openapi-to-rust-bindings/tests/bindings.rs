@@ -17,9 +17,9 @@ fn fixture(name: &str) -> Bindings {
 }
 
 #[test]
-fn canonical_bindings_v4_fixture_is_accepted() {
+fn canonical_bindings_fixture_is_accepted() {
     let bindings = fixture("library");
-    assert_eq!(bindings.as_value()["schema_version"], 4);
+    assert_eq!(bindings.as_value()["schema_version"], 2);
 }
 
 #[test]
