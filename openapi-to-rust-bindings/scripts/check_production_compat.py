@@ -147,7 +147,7 @@ def load_tracker(repo_root: Path, tracker_path: Path) -> dict[str, Any]:
     boundary = tracker.get("boundary")
     if (
         tracker.get("schema_version") != 3
-        or tracker.get("bindings_schema_version") != 3
+        or tracker.get("bindings_schema_version") != 4
         or not isinstance(backend, dict)
         or not isinstance(boundary, dict)
         or backend.get("repository") != "gpu-cli/openapi-to-rust"
@@ -226,7 +226,7 @@ def openapi_operations(spec: dict[str, Any]) -> list[dict[str, str]]:
 def bindings_sources(bindings: dict[str, Any]) -> list[dict[str, str]]:
     operations = bindings.get("operations")
     if not isinstance(operations, dict):
-        raise ValueError("Bindings v3 operations must be an object")
+        raise ValueError("Bindings v4 operations must be an object")
     output: list[dict[str, str]] = []
     for name, operation in operations.items():
         if not isinstance(operation, dict):
@@ -312,10 +312,10 @@ def run_adapter(
         bindings = parse_json(
             "adapter_evidence", default.stdout, "openapi-to-rust-bindings"
         )
-        if bindings.get("schema_version") != 3:
+        if bindings.get("schema_version") != 4:
             raise StageFailure(
                 "adapter_evidence",
-                f"expected Bindings v3, got {bindings.get('schema_version')!r}",
+                f"expected Bindings v4, got {bindings.get('schema_version')!r}",
             )
         return bindings, None
     if default.returncode != explicit.returncode or default.stderr != explicit.stderr:

@@ -126,6 +126,23 @@ pub struct StreamAbiBinding {
     pub wasm_type: String,
 }
 
+/// Backend-emitted transport shape for canonical Bindings v4 streams.
+///
+/// The common stream semantics live in `OperationBinding::stream`; this enum
+/// only describes how the raw backend exposes that stream.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum StreamTransportBinding {
+    NamedAlias {
+        alias: String,
+        native_type: String,
+        wasm_type: String,
+    },
+    AnonymousImplTrait {
+        rust_type: String,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ParameterWireBinding {
@@ -150,6 +167,8 @@ pub struct OperationMetadataBinding {
     pub parameter_wires: Vec<ParameterWireBinding>,
     #[serde(default)]
     pub stream_abi: Option<StreamAbiBinding>,
+    #[serde(default)]
+    pub stream_transport: Option<StreamTransportBinding>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

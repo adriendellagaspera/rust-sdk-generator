@@ -62,7 +62,7 @@ fn derives_canonical_binary_stream_from_binding_representation_and_abi() {
 
     let types = &generated.files["facade_types.rs"];
     assert!(types.contains(
-        "pub type BinaryStream = Pin<Box<dyn Stream<Item = Result<bytes::Bytes, SdkError>> + Send + 'static>>;"
+        "pub type BinaryStream = Pin<Box<dyn Stream<Item = Result<bytes::Bytes, SdkError>> + 'static>>;"
     ));
     assert!(generated.files.values().any(|source| {
         source.contains("pub async fn stream(&self) -> Result<BinaryStream, SdkError>")

@@ -9,7 +9,7 @@ pinned upstream -> ordinary Rust + exact effective OpenAPI     |
                           |                                     |
            openapi-to-rust-bindings                              |
                           |                                     |
-                  canonical Bindings v3 ------------------------+
+                  canonical Bindings v4 ------------------------+
                           |                                     |
          optional public surface / explicit overrides          |
                           +---------------------+---------------+

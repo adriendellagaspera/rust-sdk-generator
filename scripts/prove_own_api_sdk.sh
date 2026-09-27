@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+trap 'status=$?; echo "own-api proof failed at line $LINENO: $BASH_COMMAND (status $status)" >&2; if [[ -n "${work:-}" && -f "${work}/cold-start.txt" ]]; then echo "--- cold-start stderr ---" >&2; cat "${work}/cold-start.txt" >&2; fi; exit $status' ERR
 cd "$(dirname "$0")/.."
 repo="$PWD"
 fixture="$repo/tests/fixtures/own-api-stations"
@@ -19,7 +20,7 @@ test -f "$crate/src/generated/client.rs"
 test -f "$crate/src/sdk/mod.rs"
 test ! -e "$crate/src/generated/binding-manifest.json"
 # Architectural boundary: the actual pinned driver produces canonical Bindings
-# v3 with preserved source operation identity; root derive/generate consumes only
+# v4 with preserved source operation identity; root derive/generate consumes only
 # this data, without any backend/adapter dependency in the standalone crate.
 python3 - "$crate" <<'PY'
 import json, pathlib, sys
@@ -27,7 +28,7 @@ crate = pathlib.Path(sys.argv[1])
 bindings = json.loads((crate / ".sdkgen/work/rust-bindings.json").read_text())
 definition = json.loads((crate / ".sdkgen/work/definition.json").read_text())
 inventory = json.loads((crate / ".sdkgen/inventory.json").read_text())
-assert bindings["schema_version"] == 3, bindings
+assert bindings["schema_version"] == 4, bindings
 source = {entry["metadata"]["source_operation"]["operation_id"]
           for entry in bindings["operations"].values()}
 assert source == {"read_station"}, source
@@ -113,7 +114,7 @@ test ! -e "$work/invalid-sdk"
 if cargo run --locked --bin rust-sdk -- init   --openapi "$repo/openapi-to-rust-bindings/tests/fixtures/capability-v1/sse/openapi.json"   --output "$work/unsupported-sdk" --name unsupported-sdk   > "$work/unsupported.out" 2> "$work/unsupported.err"; then
   echo 'unproven SSE operation accepted as an SDK' >&2; exit 1
 fi
-grep -Eq '(raw.generate|adapter.extract|derive.unsupported|derive.contract|bindings.v3)' "$work/unsupported.err"
+grep -Eq '(raw.generate|adapter.extract|derive.unsupported|derive.contract|bindings.v4)' "$work/unsupported.err"
 test ! -e "$work/unsupported-sdk"
 
 # No producer manifest or fabricated Bindings from absent ordinary Rust.

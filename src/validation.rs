@@ -46,7 +46,7 @@ fn require_unique(path: &str, values: &[String]) -> Result<()> {
 impl Bindings {
     /// Validate the versioned backend-neutral sidecar independently of any SDK definition.
     pub fn validate(&self) -> Result<()> {
-        if !matches!(self.schema_version, 2 | 3) {
+        if !matches!(self.schema_version, 2..=4) {
             return Err(invalid(
                 "bindings.schema_version",
                 format!(
@@ -136,6 +136,10 @@ impl Bindings {
                 })?;
             }
             if let Some(stream) = &operation.stream {
+                require_nonempty(
+                    &format!("bindings.operations.{key}.stream.lifetime"),
+                    &stream.lifetime,
+                )?;
                 parse_type(&stream.item_type).map_err(|error| {
                     invalid(
                         format!("bindings.operations.{key}.stream.item_type"),
@@ -155,20 +159,26 @@ impl Bindings {
                 (2, Some(_)) => {
                     return Err(invalid(
                         format!("bindings.operations.{key}.metadata"),
-                        "operation metadata requires Bindings schema version 3",
+                        "operation metadata requires Bindings schema version 3 or 4",
                     ));
                 }
-                (3, None) => {
+                (3 | 4, None) => {
                     return Err(invalid(
                         format!("bindings.operations.{key}.metadata"),
-                        "Bindings v3 operation is missing canonical identity metadata",
+                        format!(
+                            "Bindings v{} operation is missing canonical identity metadata",
+                            self.schema_version
+                        ),
                     ));
                 }
-                (3, Some(metadata)) => {
+                (3 | 4, Some(metadata)) => {
                     if operation.name != *key {
                         return Err(invalid(
                             format!("bindings.operations.{key}.name"),
-                            "Bindings v3 operation name must equal its raw Rust method key",
+                            format!(
+                                "Bindings v{} operation name must equal its raw Rust method key",
+                                self.schema_version
+                            ),
                         ));
                     }
                     require_nonempty(
@@ -224,52 +234,122 @@ impl Bindings {
                         crate::ResponseRepresentationBinding::EventStream { .. }
                             | crate::ResponseRepresentationBinding::BinaryStream { .. }
                     );
-                    if representation_streams != metadata.stream_abi.is_some() {
-                        return Err(invalid(
-                            format!("bindings.operations.{key}.metadata.stream_abi"),
-                            "stream ABI presence must match response representation",
-                        ));
-                    }
                     if representation_streams != operation.stream.is_some() {
                         return Err(invalid(
                             format!("bindings.operations.{key}.stream"),
-                            "legacy/common stream view must match response representation",
+                            "common stream view must match response representation",
                         ));
                     }
-                    if let Some(abi) = &metadata.stream_abi {
-                        for (field, spelling) in [
-                            ("item_type", abi.item_type.as_str()),
-                            ("error_type", abi.error_type.as_str()),
-                            ("native_type", abi.native_type.as_str()),
-                            ("wasm_type", abi.wasm_type.as_str()),
-                        ] {
-                            parse_type(spelling).map_err(|error| {
-                                invalid(
-                                    format!(
-                                        "bindings.operations.{key}.metadata.stream_abi.{field}"
+
+                    match self.schema_version {
+                        3 => {
+                            if metadata.stream_transport.is_some() {
+                                return Err(invalid(
+                                    format!("bindings.operations.{key}.metadata.stream_transport"),
+                                    "Bindings v3 cannot contain a v4 stream transport",
+                                ));
+                            }
+                            if representation_streams != metadata.stream_abi.is_some() {
+                                return Err(invalid(
+                                    format!("bindings.operations.{key}.metadata.stream_abi"),
+                                    "stream ABI presence must match response representation",
+                                ));
+                            }
+                            if let Some(abi) = &metadata.stream_abi {
+                                for (field, spelling) in [
+                                    ("item_type", abi.item_type.as_str()),
+                                    ("error_type", abi.error_type.as_str()),
+                                    ("native_type", abi.native_type.as_str()),
+                                    ("wasm_type", abi.wasm_type.as_str()),
+                                ] {
+                                    parse_type(spelling).map_err(|error| {
+                                        invalid(
+                                            format!(
+                                                "bindings.operations.{key}.metadata.stream_abi.{field}"
+                                            ),
+                                            error.to_string(),
+                                        )
+                                    })?;
+                                }
+                                require_nonempty(
+                                    &format!("bindings.operations.{key}.metadata.stream_abi.alias"),
+                                    &abi.alias,
+                                )?;
+                                require_nonempty(
+                                    &format!(
+                                        "bindings.operations.{key}.metadata.stream_abi.lifetime"
                                     ),
-                                    error.to_string(),
-                                )
-                            })?;
+                                    &abi.lifetime,
+                                )?;
+                                let stream =
+                                    operation.stream.as_ref().expect("checked stream presence");
+                                if stream.item_type != abi.item_type
+                                    || stream.error_type != abi.error_type
+                                    || stream.lifetime != abi.lifetime
+                                {
+                                    return Err(invalid(
+                                        format!("bindings.operations.{key}.metadata.stream_abi"),
+                                        "stream ABI common view disagrees with operation.stream",
+                                    ));
+                                }
+                            }
                         }
-                        require_nonempty(
-                            &format!("bindings.operations.{key}.metadata.stream_abi.alias"),
-                            &abi.alias,
-                        )?;
-                        require_nonempty(
-                            &format!("bindings.operations.{key}.metadata.stream_abi.lifetime"),
-                            &abi.lifetime,
-                        )?;
-                        let stream = operation.stream.as_ref().expect("checked stream presence");
-                        if stream.item_type != abi.item_type
-                            || stream.error_type != abi.error_type
-                            || stream.lifetime != abi.lifetime
-                        {
-                            return Err(invalid(
-                                format!("bindings.operations.{key}.metadata.stream_abi"),
-                                "stream ABI common view disagrees with operation.stream",
-                            ));
+                        4 => {
+                            if metadata.stream_abi.is_some() {
+                                return Err(invalid(
+                                    format!("bindings.operations.{key}.metadata.stream_abi"),
+                                    "Bindings v4 uses stream_transport instead of stream_abi",
+                                ));
+                            }
+                            if representation_streams != metadata.stream_transport.is_some() {
+                                return Err(invalid(
+                                    format!("bindings.operations.{key}.metadata.stream_transport"),
+                                    "stream transport presence must match response representation",
+                                ));
+                            }
+                            if let Some(transport) = &metadata.stream_transport {
+                                match transport {
+                                    crate::StreamTransportBinding::NamedAlias {
+                                        alias,
+                                        native_type,
+                                        wasm_type,
+                                    } => {
+                                        require_nonempty(
+                                            &format!(
+                                                "bindings.operations.{key}.metadata.stream_transport.alias"
+                                            ),
+                                            alias,
+                                        )?;
+                                        for (field, spelling) in [
+                                            ("native_type", native_type.as_str()),
+                                            ("wasm_type", wasm_type.as_str()),
+                                        ] {
+                                            parse_type(spelling).map_err(|error| {
+                                                invalid(
+                                                    format!(
+                                                        "bindings.operations.{key}.metadata.stream_transport.{field}"
+                                                    ),
+                                                    error.to_string(),
+                                                )
+                                            })?;
+                                        }
+                                    }
+                                    crate::StreamTransportBinding::AnonymousImplTrait {
+                                        rust_type,
+                                    } => {
+                                        parse_type(rust_type).map_err(|error| {
+                                            invalid(
+                                                format!(
+                                                    "bindings.operations.{key}.metadata.stream_transport.rust_type"
+                                                ),
+                                                error.to_string(),
+                                            )
+                                        })?;
+                                    }
+                                }
+                            }
                         }
+                        _ => unreachable!("schema version validated above"),
                     }
 
                     let identity = (
@@ -785,6 +865,129 @@ mod tests {
                 .message
                 .contains("duplicate canonical source-operation/representation identity")
         );
+    }
+
+    #[test]
+    fn bindings_v4_accepts_anonymous_owned_stream_transport() {
+        let value = serde_json::json!({
+            "schema_version": 4,
+            "structs": {},
+            "enums": {},
+            "aliases": {},
+            "operations": {
+                "events": {
+                    "name": "events",
+                    "parameters": [],
+                    "return_type": "Result<impl futures_util::Stream<Item = Result<bytes::Bytes, reqwest::Error>> + 'static + use<>, Error>",
+                    "success_type": "impl futures_util::Stream<Item = Result<bytes::Bytes, reqwest::Error>> + 'static + use<>",
+                    "stream": {
+                        "item_type": "bytes::Bytes",
+                        "error_type": "reqwest::Error",
+                        "lifetime": "'static"
+                    },
+                    "metadata": {
+                        "kind": "call_shape",
+                        "source_operation": {
+                            "operation_id": "events",
+                            "method": "GET",
+                            "path": "/events"
+                        },
+                        "emitted_operation_id": "events",
+                        "representation": {
+                            "kind": "event_stream",
+                            "media_type": "text/event-stream"
+                        },
+                        "success_statuses": ["200"],
+                        "request_discriminators": [],
+                        "stream_transport": {
+                            "kind": "anonymous_impl_trait",
+                            "rust_type": "impl futures_util::Stream<Item = Result<bytes::Bytes, reqwest::Error>> + 'static + use<>"
+                        }
+                    }
+                }
+            },
+            "symbol_paths": {},
+            "binding": {
+                "client": {
+                    "type_path": "crate::generated::client::HttpClient",
+                    "constructor": "new",
+                    "api_key_builder": "with_api_key",
+                    "base_url_builder": "with_base_url"
+                },
+                "type_preludes": []
+            }
+        });
+        let bindings: Bindings = serde_json::from_value(value).expect("deserialize Bindings v4");
+        bindings.validate().expect("valid anonymous v4 stream");
+    }
+
+    #[test]
+    fn bindings_versions_reject_mixed_stream_contracts() {
+        let mut value = serde_json::json!({
+            "schema_version": 4,
+            "structs": {},
+            "enums": {},
+            "aliases": {},
+            "operations": {
+                "events": {
+                    "name": "events",
+                    "parameters": [],
+                    "return_type": "Result<HttpResponseByteStream, Error>",
+                    "success_type": "HttpResponseByteStream",
+                    "stream": {
+                        "item_type": "bytes::Bytes",
+                        "error_type": "reqwest::Error",
+                        "lifetime": "'static"
+                    },
+                    "metadata": {
+                        "kind": "call_shape",
+                        "source_operation": {
+                            "operation_id": "events",
+                            "method": "GET",
+                            "path": "/events"
+                        },
+                        "emitted_operation_id": "events",
+                        "representation": {
+                            "kind": "event_stream",
+                            "media_type": "text/event-stream"
+                        },
+                        "success_statuses": ["200"],
+                        "request_discriminators": [],
+                        "stream_abi": {
+                            "alias": "HttpResponseByteStream",
+                            "item_type": "bytes::Bytes",
+                            "error_type": "reqwest::Error",
+                            "lifetime": "'static",
+                            "native_type": "futures_util::stream::BoxStream<'static, Result<bytes::Bytes, reqwest::Error>>",
+                            "wasm_type": "futures_util::stream::LocalBoxStream<'static, Result<bytes::Bytes, reqwest::Error>>"
+                        }
+                    }
+                }
+            },
+            "symbol_paths": {},
+            "binding": {
+                "client": {
+                    "type_path": "crate::generated::client::HttpClient",
+                    "constructor": "new",
+                    "api_key_builder": "with_api_key",
+                    "base_url_builder": "with_base_url"
+                },
+                "type_preludes": []
+            }
+        });
+        let mixed_v4 =
+            serde_json::from_value::<Bindings>(value.clone()).expect("deserialize mixed v4");
+        assert!(mixed_v4.validate().is_err());
+
+        value["schema_version"] = serde_json::json!(3);
+        value["operations"]["events"]["metadata"]["stream_transport"] = serde_json::json!({
+            "kind": "named_alias",
+            "alias": "HttpResponseByteStream",
+            "native_type": "futures_util::stream::BoxStream<'static, Result<bytes::Bytes, reqwest::Error>>",
+            "wasm_type": "futures_util::stream::LocalBoxStream<'static, Result<bytes::Bytes, reqwest::Error>>"
+        });
+        let mixed_v3 = serde_json::from_value::<Bindings>(value).expect("deserialize mixed v3");
+        assert!(mixed_v3.validate().is_err());
     }
 
     #[test]

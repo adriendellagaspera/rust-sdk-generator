@@ -427,7 +427,7 @@ impl UpstreamMetadata {
                 return Err(failure(
                     "metadata.status_exclusions_unsupported",
                     format!(
-                        "{name}: status exclusions {relevant_exclusions:?} affect the selected success class and are not representable in Bindings v3"
+                        "{name}: status exclusions {relevant_exclusions:?} affect the selected success class and are not representable in Bindings v4"
                     ),
                 ));
             }

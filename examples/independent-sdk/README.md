@@ -47,7 +47,7 @@ adapt the pipeline to another OpenAPI document.
 | Stage prefix | Responsible boundary | Inspect |
 | --- | --- | --- |
 | `[backend checkout]`, `[backend pin]`, `[backend build]`, `[raw backend]` | Pinned unmodified upstream and its ordinary generated Rust | `_backend/`, `first/raw/`, `first/openapi-to-rust.toml`, `first/openapi.json` |
-| `[bindings adapter]` | Generated Rust + exact effective OpenAPI to Bindings v3 | `first/raw/`, `first/openapi.json`, `first/rust-bindings.json` |
+| `[bindings adapter]` | Generated Rust + exact effective OpenAPI to Bindings v4 | `first/raw/`, `first/openapi.json`, `first/rust-bindings.json` |
 | `[generator derive]`, `[generator report]`, `[generator generate]`, `[generator freshness]` | Backend-neutral derivation, structural evidence, emission and freshness | `first/derivation.json`, `first/definition.json`, `first/sdk/` |
 | `[two independent complete generations]` | Repeatability across two complete passes | Compare `first/` and `second/` |
 | `[consumer compile and HTTP tests]` | Standalone crate integration, raw HTTP transport, minimal runtime and tests | `consumer/Cargo.toml`, `consumer/src/`, `consumer/tests/http.rs` |

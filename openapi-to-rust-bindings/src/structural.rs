@@ -1,6 +1,6 @@
 //! Structural evidence from ordinary, unmodified openapi-to-rust output.
 //!
-//! This is NOT a Bindings v3 producer. Source-operation identity, response
+//! This is NOT a canonical Bindings producer. Source-operation identity, response
 //! representation, successful status selection and request discriminators
 //! require semantic proof (#150). Never fabricate those fields from names.
 use crate::Error;

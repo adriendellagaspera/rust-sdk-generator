@@ -865,7 +865,7 @@ pub(crate) fn reconcile(
                 continue;
             }
         };
-        let response = if bindings.schema_version == 3 {
+        let response = if bindings.schema_version >= 3 {
             None
         } else {
             match response_shape(operation) {
@@ -884,7 +884,7 @@ pub(crate) fn reconcile(
                 canonical_source_identity_matches(operation_id, canonical_operation, binding)
             })
             .collect();
-        if bindings.schema_version == 3
+        if bindings.schema_version >= 3
             && has_source_operation_id(bindings, operation_id)
             && source_candidates.is_empty()
         {
@@ -1059,6 +1059,7 @@ mod tests {
                 request_discriminator_unproven: false,
                 parameter_wires: Vec::new(),
                 stream_abi: None,
+                stream_transport: None,
             }),
         }
     }
@@ -1562,34 +1563,37 @@ mod tests {
                 }}
             }
         }));
-        let bindings = v3_bindings(BTreeMap::from([
-            (
-                "opaque_a".into(),
-                v3_operation(
-                    "opaque_a",
-                    "health_a",
-                    "GET",
-                    "/health-a",
-                    OperationBindingKind::CallShape,
+        for schema_version in [3, 4] {
+            let mut bindings = v3_bindings(BTreeMap::from([
+                (
+                    "opaque_a".into(),
+                    v3_operation(
+                        "opaque_a",
+                        "health_a",
+                        "GET",
+                        "/health-a",
+                        OperationBindingKind::CallShape,
+                    ),
                 ),
-            ),
-            (
-                "opaque_b".into(),
-                v3_operation(
-                    "opaque_b",
-                    "health_b",
-                    "GET",
-                    "/health-b",
-                    OperationBindingKind::CallShape,
+                (
+                    "opaque_b".into(),
+                    v3_operation(
+                        "opaque_b",
+                        "health_b",
+                        "GET",
+                        "/health-b",
+                        OperationBindingKind::CallShape,
+                    ),
                 ),
-            ),
-        ]));
+            ]));
+            bindings.schema_version = schema_version;
 
-        let result = reconcile(&openapi, &bindings).expect("reconcile");
-        assert_eq!(result["health_a"].binding.as_deref(), Some("opaque_a"));
-        assert_eq!(result["health_b"].binding.as_deref(), Some("opaque_b"));
-        assert_eq!(result["health_a"].reason, None);
-        assert_eq!(result["health_b"].reason, None);
+            let result = reconcile(&openapi, &bindings).expect("reconcile");
+            assert_eq!(result["health_a"].binding.as_deref(), Some("opaque_a"));
+            assert_eq!(result["health_b"].binding.as_deref(), Some("opaque_b"));
+            assert_eq!(result["health_a"].reason, None);
+            assert_eq!(result["health_b"].reason, None);
+        }
     }
 
     #[test]

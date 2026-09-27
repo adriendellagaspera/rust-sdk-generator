@@ -2,7 +2,7 @@
   "schema": "rust-sdk-generator.call-shape-capability-matrix",
   "schema_version": 1,
   "fixture_version": 1,
-  "bindings_schema_version": 3,
+  "bindings_schema_version": 4,
   "pins": {
     "upstream": {
       "repository": "gpu-cli/openapi-to-rust",
@@ -206,6 +206,6 @@
         "wasm": "library_compiled"
       }
     },
-    "evidence": "Upstream v0.19 evidence: pinned unmodified generator emits ordinary Rust plus bindings.json; the adapter normalizes metadata-backed Bindings v3 and generated standalone consumers are compiled/tested for supported shapes. Anonymous upstream SSE/binary streams remain fail-closed pending #197; the historical fork oracle is separate."
+    "evidence": "Upstream v0.19 evidence: pinned unmodified generator emits ordinary Rust plus bindings.json; the adapter normalizes metadata-backed Bindings v4 and generated standalone consumers are compiled/tested for supported shapes. Anonymous streams are accepted only with an explicit static/precise-capture ownership proof; unpatched v0.19 streams therefore remain fail-closed. The historical fork oracle is separate."
   }
 }

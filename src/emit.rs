@@ -866,7 +866,7 @@ fn emit_facade_types(ir: &FacadeIr, binding: &BindingLayout, runtime: &Runtime) 
             .any(|operation| matches!(operation.response_projection, ResponseProjection::Binary))
     }) {
         aliases.push(format!(
-            "pub type BinaryStream = Pin<Box<dyn Stream<Item = Result<bytes::Bytes, {}>> + Send + 'static>>;",
+            "pub type BinaryStream = Pin<Box<dyn Stream<Item = Result<bytes::Bytes, {}>> + 'static>>;",
             runtime.error_type
         ));
     }
@@ -874,7 +874,7 @@ fn emit_facade_types(ir: &FacadeIr, binding: &BindingLayout, runtime: &Runtime) 
         for operation in &resource.operations {
             if let ResponseProjection::Sse(stream) = &operation.response_projection {
                 aliases.push(format!(
-                    "pub type {} = Pin<Box<dyn Stream<Item = Result<{}, {}>> + Send + 'static>>;",
+                    "pub type {} = Pin<Box<dyn Stream<Item = Result<{}, {}>> + 'static>>;",
                     stream.type_name, stream.wrapper, runtime.error_type
                 ));
             }
