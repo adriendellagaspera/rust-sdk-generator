@@ -1,30 +1,23 @@
-//! Normalize `openapi-to-rust` output into the versioned Rust Bindings contract.
+//! Thin compatibility shim from openapi-to-rust bindings metadata to the
+//! backend-neutral Bindings contract consumed by rust-sdk-generator.
 
 mod details;
 mod extract;
-mod manifest;
 mod model;
-mod reader;
 mod rust_type;
 mod semantic;
 mod structural;
 mod upstream_metadata;
 
-pub use extract::{extract_bindings, extract_bindings_from_rust};
-pub use manifest::{MANIFEST_NAME, parse_binding_manifest};
+pub use extract::extract_bindings;
 pub use model::{Bindings, Error};
-pub use reader::{SIDECAR_NAME, read_legacy_metadata};
 
-/// Default production loader: only proven generated Rust and the exact effective OpenAPI.
-/// Historical manifests and sidecars are never consulted or used as a fallback.
+/// Normalize the current openapi-to-rust output using its bindings metadata,
+/// the exact effective OpenAPI document, and only the residual generated-code
+/// evidence not yet exposed by upstream metadata.
 pub fn read_bindings(
     generated: impl AsRef<std::path::Path>,
     effective_openapi: impl AsRef<std::path::Path>,
 ) -> Result<Bindings, Error> {
     extract_bindings(generated, effective_openapi)
 }
-pub use semantic::{
-    OperationSemanticEvidence, RepresentationEvidence, SemanticEvidence, SourceOperationEvidence,
-    inspect_semantics,
-};
-pub use structural::{EvidenceLocation, StructuralEvidence, inspect_generated};

@@ -9,7 +9,6 @@ on:
       - "examples/independent-sdk/**"
       - "openapi-to-rust-bindings/COMPATIBILITY.json"
       - "openapi-to-rust-bindings/DEFAULT_BACKEND.json"
-      - "openapi-to-rust-bindings/LEGACY_COMPATIBILITY.json"
       - "openapi-to-rust-bindings/capabilities/**"
       - "openapi-to-rust-bindings/scripts/**"
       - "openapi-to-rust-bindings/src/**"
@@ -24,11 +23,6 @@ on:
         required: true
         default: main
         type: string
-      run_historical_oracle:
-        description: Also run the optional manifest-era fork oracle
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: read
@@ -124,67 +118,5 @@ jobs:
             ${{ runner.temp }}/production-compatibility.json
             ${{ runner.temp }}/production-compatibility.md
             ${{ runner.temp }}/pin-update.json
-          if-no-files-found: error
-          retention-days: 30
-
-  historical-oracle:
-    name: optional-historical-manifest-oracle
-    if: github.event_name == 'workflow_dispatch' && inputs.run_historical_oracle
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    env:
-      PACKAGE_ROOT: openapi-to-rust-bindings
-      HISTORICAL_ORACLE_SHA: 9fee7af67c05d896da86e41d326b067312120c53
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Read isolated historical tracker
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          tracker = json.loads(
-              (Path(os.environ["PACKAGE_ROOT"]) / "LEGACY_COMPATIBILITY.json").read_text()
-          )
-          backend = tracker["backend"]
-          with open(os.environ["GITHUB_ENV"], "a") as env:
-              print(f"LEGACY_REPOSITORY={backend['repository']}", file=env)
-              print(f"LEGACY_BASELINE_COMMIT={backend['baseline']['commit']}", file=env)
-          PY
-
-      - name: Resolve immutable manifest-era revisions
-        shell: bash
-        run: |
-          set -euo pipefail
-          acquire="$PACKAGE_ROOT/scripts/acquire_backend.py"
-          python3 "$acquire"             --repository "$LEGACY_REPOSITORY"             --ref "$LEGACY_BASELINE_COMMIT"             --expected-sha "$LEGACY_BASELINE_COMMIT"             --destination "$RUNNER_TEMP/legacy-baseline-source"
-          python3 "$acquire"             --repository "$LEGACY_REPOSITORY"             --ref "$HISTORICAL_ORACLE_SHA"             --expected-sha "$HISTORICAL_ORACLE_SHA"             --destination "$RUNNER_TEMP/legacy-candidate-source"
-
-      - name: Build legacy adapter and manifest-era generators
-        shell: bash
-        run: |
-          cargo build --locked -p openapi-to-rust-bindings --bin openapi-to-rust-bindings
-          CARGO_TARGET_DIR="$RUNNER_TEMP/legacy-baseline-target"             cargo build --locked --release             --manifest-path "$RUNNER_TEMP/legacy-baseline-source/Cargo.toml"             --bin openapi-to-rust
-          CARGO_TARGET_DIR="$RUNNER_TEMP/legacy-candidate-target"             cargo build --locked --release             --manifest-path "$RUNNER_TEMP/legacy-candidate-source/Cargo.toml"             --bin openapi-to-rust
-
-      - name: Compare historical manifest oracle
-        shell: bash
-        run: |
-          python3 "$PACKAGE_ROOT/scripts/check_backend_compat.py"             --package-root "$PACKAGE_ROOT"             --tracker "$PACKAGE_ROOT/LEGACY_COMPATIBILITY.json"             --bindings-adapter target/debug/openapi-to-rust-bindings             --baseline-generator "$RUNNER_TEMP/legacy-baseline-target/release/openapi-to-rust"             --candidate-generator "$RUNNER_TEMP/legacy-candidate-target/release/openapi-to-rust"             --candidate-commit "$HISTORICAL_ORACLE_SHA"             --report "$RUNNER_TEMP/historical-oracle.md"             --report-json "$RUNNER_TEMP/historical-oracle.json"
-          cat "$RUNNER_TEMP/historical-oracle.md" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Publish historical oracle evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: historical-manifest-oracle
-          path: |
-            ${{ runner.temp }}/historical-oracle.json
-            ${{ runner.temp }}/historical-oracle.md
           if-no-files-found: error
           retention-days: 30
