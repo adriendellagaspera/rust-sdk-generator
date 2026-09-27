@@ -2,7 +2,7 @@
 //! evidence. The CLI uses this as its default; the legacy metadata reader is explicit.
 use crate::details::{OperationKindEvidence, inspect_details, prove_client_layout};
 use crate::rust_type::canonical_rust_type;
-use crate::semantic::RepresentationEvidence;
+use crate::semantic::{RepresentationEvidence, inspect_semantics};
 use crate::upstream_metadata::UpstreamMetadata;
 use crate::structural::{EnumEvidence, StructuralEvidence, inspect_generated};
 use crate::{Bindings, Error};
@@ -400,6 +400,161 @@ pub fn extract_bindings(
                 "parameters": parameters,
                 "return_type": canonical_rust_type(&metadata_operation.signature.return_type)?,
                 "success_type": success_type,
+                "stream": stream,
+                "metadata": metadata,
+            }),
+        );
+    }
+
+    Bindings::from_value(json!({
+        "schema_version": 3,
+        "structs": canonical.structs,
+        "enums": canonical.enums,
+        "aliases": canonical.aliases,
+        "operations": operations,
+        "symbol_paths": canonical.symbols,
+        "binding": client_layout(&structural)?,
+    }))
+    .map_err(|error| extraction_error("extract.canonical_bindings_invalid", error))
+}
+
+
+/// Explicit historical/source-inspection path retained for adapter proof tests.
+/// Production generation uses upstream bindings metadata through `extract_bindings`.
+pub fn extract_bindings_from_rust(
+    generated: impl AsRef<Path>,
+    effective_openapi: impl AsRef<Path>,
+) -> Result<Bindings, Error> {
+    let structural = inspect_generated(&generated)?;
+    prove_client_layout(&generated, &structural)?;
+    let semantic = inspect_semantics(&generated, &effective_openapi)?;
+
+    if !semantic.unmatched_source_operations.is_empty() {
+        return Err(extraction_error(
+            "extract.source_operation_unemitted",
+            semantic
+                .unmatched_source_operations
+                .iter()
+                .map(|operation| format!("{} {}", operation.method, operation.path))
+                .collect::<Vec<_>>()
+                .join(", "),
+        ));
+    }
+    let details = inspect_details(&generated, &effective_openapi, &structural, &semantic)?;
+
+    let canonical = normalize_structural(&structural)?;
+    let signatures: BTreeMap<_, _> = structural
+        .client
+        .methods
+        .iter()
+        .map(|method| (method.name.as_str(), method))
+        .collect();
+
+    let mut operations = Map::new();
+    for (name, semantics) in &semantic.operations {
+        let signature = signatures
+            .get(name.as_str())
+            .ok_or_else(|| extraction_error("extract.signature_missing", name))?;
+        let success_type = signature
+            .success_type
+            .as_ref()
+            .ok_or_else(|| extraction_error("extract.success_type_unproven", name))?;
+        let parameters = signature
+            .parameters
+            .iter()
+            .map(|parameter| {
+                Ok(json!({
+                    "name": parameter.name,
+                    "type": canonical_rust_type(&parameter.rust_type)?,
+                }))
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        let detail = details
+            .get(name)
+            .ok_or_else(|| extraction_error("extract.operation_details_missing", name))?;
+        let kind = match detail.kind {
+            OperationKindEvidence::CallShape => "call_shape",
+            OperationKindEvidence::MultipartFilenames => "multipart_filenames",
+        };
+        let (stream, stream_abi) = if matches!(
+            semantics.representation,
+            RepresentationEvidence::EventStream { .. }
+                | RepresentationEvidence::BinaryStream { .. }
+        ) {
+            let abi = detail
+                .stream
+                .as_ref()
+                .ok_or_else(|| extraction_error("extract.stream_abi_unproven", name))?;
+            (
+                json!({
+                    "item_type": abi.item_type,
+                    "error_type": abi.error_type,
+                    "lifetime": abi.lifetime,
+                }),
+                json!({
+                    "alias": abi.alias,
+                    "item_type": abi.item_type,
+                    "error_type": abi.error_type,
+                    "lifetime": abi.lifetime,
+                    "native_type": abi.native_type,
+                    "wasm_type": abi.wasm_type,
+                }),
+            )
+        } else {
+            (Value::Null, Value::Null)
+        };
+        let parameter_wires = detail
+            .parameter_wires
+            .iter()
+            .map(|wire| {
+                json!({
+                    "rust_name": wire.rust_name,
+                    "location": wire.location,
+                    "wire_name": wire.wire_name,
+                })
+            })
+            .collect::<Vec<_>>();
+        let request_discriminators = detail
+            .request_discriminators
+            .iter()
+            .map(|discriminator| {
+                json!({
+                    "wire_name": discriminator.wire_name,
+                    "rust_access_path": discriminator.rust_access_path,
+                    "rust_value_type": discriminator.rust_value_type,
+                    "value": discriminator.value,
+                    "field_required": discriminator.field_required,
+                    "field_nullable": discriminator.field_nullable,
+                    "field_tri_state": discriminator.field_tri_state,
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut metadata = json!({
+            "kind": kind,
+            "source_operation": {
+                "operation_id": semantics.source_operation.operation_id,
+                "method": semantics.source_operation.method,
+                "path": semantics.source_operation.path,
+            },
+            "emitted_operation_id": semantics.emitted_operation_id,
+            "representation": representation_json(&semantics.representation)?,
+            "success_statuses": semantics.success_statuses,
+            "request_discriminators": request_discriminators,
+            "stream_abi": stream_abi,
+        });
+        if !parameter_wires.is_empty() {
+            metadata["parameter_wires"] = json!(parameter_wires);
+        }
+        if detail.request_discriminator_unproven {
+            metadata["request_discriminator_unproven"] = Value::Bool(true);
+        }
+        operations.insert(
+            name.clone(),
+            json!({
+                "name": name,
+                "parameters": parameters,
+                "return_type": canonical_rust_type(&signature.return_type)?,
+                "success_type": canonical_rust_type(success_type)?,
                 "stream": stream,
                 "metadata": metadata,
             }),
