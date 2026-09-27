@@ -514,7 +514,9 @@ pub fn extract_bindings_from_rust(
         };
         let (stream, stream_transport) = if matches!(
             semantics.representation,
-            RepresentationEvidence::EventStream {
+            RepresentationEvidence::EventStream { .. }
+                | RepresentationEvidence::BinaryStream { .. }
+        ) {
             let evidence = detail
                 .stream
                 .as_ref()
