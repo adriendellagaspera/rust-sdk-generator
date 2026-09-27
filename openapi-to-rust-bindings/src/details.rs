@@ -2097,15 +2097,6 @@ fn inspect_details_inner(
     Ok(output)
 }
 
-pub(crate) fn inspect_details(
-    generated: impl AsRef<Path>,
-    effective_openapi: impl AsRef<Path>,
-    structural: &StructuralEvidence,
-    semantic: &SemanticEvidence,
-) -> Result<BTreeMap<String, OperationDetails>, Error> {
-    inspect_details_inner(generated, effective_openapi, structural, semantic, true)
-}
-
 pub(crate) fn inspect_metadata_backed_details(
     generated: impl AsRef<Path>,
     effective_openapi: impl AsRef<Path>,
