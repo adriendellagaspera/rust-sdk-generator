@@ -1404,7 +1404,6 @@ mod inline_json_response_tests {
     }
 }
 
-
 #[cfg(test)]
 mod status_guard_tests {
     use super::*;
