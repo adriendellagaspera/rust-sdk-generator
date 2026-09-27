@@ -865,7 +865,7 @@ pub(crate) fn reconcile(
                 continue;
             }
         };
-        let response = if bindings.schema_version == 3 {
+        let response = if bindings.schema_version >= 3 {
             None
         } else {
             match response_shape(operation) {
@@ -884,7 +884,7 @@ pub(crate) fn reconcile(
                 canonical_source_identity_matches(operation_id, canonical_operation, binding)
             })
             .collect();
-        if bindings.schema_version == 3
+        if bindings.schema_version >= 3
             && has_source_operation_id(bindings, operation_id)
             && source_candidates.is_empty()
         {
