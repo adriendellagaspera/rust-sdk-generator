@@ -413,12 +413,21 @@ impl UpstreamMetadata {
                     format!("{name}: webhook operations are outside the current Bindings envelope"),
                 ));
             }
-            if !operation.response_excluded_statuses.is_empty() {
+            let relevant_exclusions = operation
+                .response_excluded_statuses
+                .iter()
+                .filter(|excluded| {
+                    operation
+                        .response_statuses
+                        .iter()
+                        .any(|selected| status_selector_matches_exact(selected, excluded))
+                })
+                .collect::<Vec<_>>();
+            if !relevant_exclusions.is_empty() {
                 return Err(failure(
                     "metadata.status_exclusions_unsupported",
                     format!(
-                        "{name}: status exclusions {:?} are not representable in Bindings v3",
-                        operation.response_excluded_statuses
+                        "{name}: status exclusions {relevant_exclusions:?} affect the selected success class and are not representable in Bindings v3"
                     ),
                 ));
             }
@@ -634,6 +643,18 @@ impl UpstreamMetadata {
         }
         Ok(())
     }
+}
+
+fn status_selector_matches_exact(selector: &str, exact: &str) -> bool {
+    if selector.len() != 3 || exact.len() != 3 || !exact.bytes().all(|byte| byte.is_ascii_digit()) {
+        return false;
+    }
+    let selector = selector.as_bytes();
+    let exact = exact.as_bytes();
+    selector
+        .iter()
+        .zip(exact)
+        .all(|(selected, actual)| selected.eq_ignore_ascii_case(&b'X') || selected == actual)
 }
 
 fn equivalent_type_spelling(left: &str, right: &str) -> bool {
