@@ -46,7 +46,7 @@ fn require_unique(path: &str, values: &[String]) -> Result<()> {
 impl Bindings {
     /// Validate the versioned backend-neutral sidecar independently of any SDK definition.
     pub fn validate(&self) -> Result<()> {
-        if !matches!(self.schema_version, 2 | 3 | 4) {
+        if !matches!(self.schema_version, 2..=4) {
             return Err(invalid(
                 "bindings.schema_version",
                 format!(
