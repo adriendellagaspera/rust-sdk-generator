@@ -40,8 +40,7 @@ pub use contracts::{
     ResponseRepresentationBinding, ResponseRepresentationDefinition, Runtime, ScalarEnumDefinition,
     SdkDefinition, SimpleUnionDefinition, SimpleUnionVariant, SourceOperationBinding,
     StreamAbiBinding, StreamBinding, StreamDefinition, StreamTransportBinding, UnionDefinition,
-    UnionFactoryDefinition,
-    VariantBinding,
+    UnionFactoryDefinition, VariantBinding,
 };
 pub use derivation::{
     Derivation, DerivationError, DerivationReason, DerivationReport, DerivationStatus, DeriveInput,
