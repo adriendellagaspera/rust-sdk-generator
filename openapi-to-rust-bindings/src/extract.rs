@@ -1,7 +1,8 @@
-//! Canonical Bindings v3 normalization from proved structural + semantic
+//! Canonical Bindings v4 normalization from proved structural + semantic
 //! evidence. The CLI uses this as its default; the legacy metadata reader is explicit.
 use crate::details::{
-    OperationKindEvidence, inspect_details, inspect_metadata_backed_details, prove_client_layout,
+    OperationKindEvidence, StreamTransportEvidence, inspect_details, inspect_metadata_backed_details,
+    prove_client_layout,
 };
 use crate::rust_type::canonical_rust_type;
 use crate::semantic::{RepresentationEvidence, inspect_semantics};
@@ -343,7 +344,7 @@ pub fn extract_bindings(
         {
             // v0.19 may emit an anonymous live-stream helper in addition to a
             // fully representable buffered method for the same source operation.
-            // Bindings v3 cannot prove that anonymous transport yet; preserve
+            // An unpatched backend may still omit the explicit ownership proof required by v4; preserve
             // the supported source operation and omit only the extra helper.
             continue;
         }
@@ -352,25 +353,34 @@ pub fn extract_bindings(
         } else {
             "call_shape"
         };
-        let (stream, stream_abi) = if streaming {
-            let abi = detail
+        let (stream, stream_transport) = if streaming {
+            let evidence = detail
                 .stream
                 .as_ref()
                 .ok_or_else(|| extraction_error("extract.stream_abi_unproven", name))?;
+            let transport = match &evidence.transport {
+                StreamTransportEvidence::NamedAlias {
+                    alias,
+                    native_type,
+                    wasm_type,
+                } => json!({
+                    "kind": "named_alias",
+                    "alias": alias,
+                    "native_type": native_type,
+                    "wasm_type": wasm_type,
+                }),
+                StreamTransportEvidence::AnonymousImplTrait { rust_type } => json!({
+                    "kind": "anonymous_impl_trait",
+                    "rust_type": rust_type,
+                }),
+            };
             (
                 json!({
-                    "item_type": abi.item_type,
-                    "error_type": abi.error_type,
-                    "lifetime": abi.lifetime,
+                    "item_type": evidence.item_type,
+                    "error_type": evidence.error_type,
+                    "lifetime": evidence.lifetime,
                 }),
-                json!({
-                    "alias": abi.alias,
-                    "item_type": abi.item_type,
-                    "error_type": abi.error_type,
-                    "lifetime": abi.lifetime,
-                    "native_type": abi.native_type,
-                    "wasm_type": abi.wasm_type,
-                }),
+                transport,
             )
         } else {
             (Value::Null, Value::Null)
@@ -412,7 +422,7 @@ pub fn extract_bindings(
             "representation": representation_json(&semantics.representation)?,
             "success_statuses": semantics.success_statuses,
             "request_discriminators": request_discriminators,
-            "stream_abi": stream_abi,
+            "stream_transport": stream_transport,
         });
         if !parameter_wires.is_empty() {
             metadata["parameter_wires"] = json!(parameter_wires);
@@ -434,7 +444,7 @@ pub fn extract_bindings(
     }
 
     Bindings::from_value(json!({
-        "schema_version": 3,
+        "schema_version": 4,
         "structs": canonical.structs,
         "enums": canonical.enums,
         "aliases": canonical.aliases,
@@ -502,29 +512,36 @@ pub fn extract_bindings_from_rust(
             OperationKindEvidence::CallShape => "call_shape",
             OperationKindEvidence::MultipartFilenames => "multipart_filenames",
         };
-        let (stream, stream_abi) = if matches!(
+        let (stream, stream_transport) = if matches!(
             semantics.representation,
-            RepresentationEvidence::EventStream { .. }
-                | RepresentationEvidence::BinaryStream { .. }
-        ) {
-            let abi = detail
+            RepresentationEvidence::EventStream {
+            let evidence = detail
                 .stream
                 .as_ref()
                 .ok_or_else(|| extraction_error("extract.stream_abi_unproven", name))?;
+            let transport = match &evidence.transport {
+                StreamTransportEvidence::NamedAlias {
+                    alias,
+                    native_type,
+                    wasm_type,
+                } => json!({
+                    "kind": "named_alias",
+                    "alias": alias,
+                    "native_type": native_type,
+                    "wasm_type": wasm_type,
+                }),
+                StreamTransportEvidence::AnonymousImplTrait { rust_type } => json!({
+                    "kind": "anonymous_impl_trait",
+                    "rust_type": rust_type,
+                }),
+            };
             (
                 json!({
-                    "item_type": abi.item_type,
-                    "error_type": abi.error_type,
-                    "lifetime": abi.lifetime,
+                    "item_type": evidence.item_type,
+                    "error_type": evidence.error_type,
+                    "lifetime": evidence.lifetime,
                 }),
-                json!({
-                    "alias": abi.alias,
-                    "item_type": abi.item_type,
-                    "error_type": abi.error_type,
-                    "lifetime": abi.lifetime,
-                    "native_type": abi.native_type,
-                    "wasm_type": abi.wasm_type,
-                }),
+                transport,
             )
         } else {
             (Value::Null, Value::Null)
@@ -566,7 +583,7 @@ pub fn extract_bindings_from_rust(
             "representation": representation_json(&semantics.representation)?,
             "success_statuses": semantics.success_statuses,
             "request_discriminators": request_discriminators,
-            "stream_abi": stream_abi,
+            "stream_transport": stream_transport,
         });
         if !parameter_wires.is_empty() {
             metadata["parameter_wires"] = json!(parameter_wires);
@@ -588,7 +605,7 @@ pub fn extract_bindings_from_rust(
     }
 
     Bindings::from_value(json!({
-        "schema_version": 3,
+        "schema_version": 4,
         "structs": canonical.structs,
         "enums": canonical.enums,
         "aliases": canonical.aliases,
