@@ -63,10 +63,15 @@ jobs:
           )
           backend = tracker["backend"]
           requested = os.environ["REQUESTED_CANDIDATE_REF"].strip()
+          event = os.environ["GITHUB_EVENT_NAME"]
+          candidate = (
+              requested
+              or (backend["baseline"]["commit"] if event == "pull_request" else backend["candidate_ref"])
+          )
           with open(os.environ["GITHUB_ENV"], "a") as env:
               print(f"BACKEND_REPOSITORY={backend['repository']}", file=env)
               print(f"BASELINE_COMMIT={backend['baseline']['commit']}", file=env)
-              print(f"CANDIDATE_REF={requested or backend['candidate_ref']}", file=env)
+              print(f"CANDIDATE_REF={candidate}", file=env)
           PY
 
       - name: Resolve baseline and candidate to immutable upstream revisions
