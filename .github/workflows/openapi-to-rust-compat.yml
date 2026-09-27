@@ -39,7 +39,7 @@ concurrency:
 
 jobs:
   production:
-    name: production-manifest-free-compatibility
+    name: production-metadata-backed-compatibility
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
