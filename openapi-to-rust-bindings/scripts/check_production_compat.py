@@ -656,7 +656,8 @@ def check_expected(actual: dict[str, Any], expected: Any, label: str) -> None:
     if actual.get("status") != status:
         raise StageFailure(
             "supported_envelope",
-            f"{label}: expected status {status!r}, got {actual.get('status')!r}",
+            f"{label}: expected status {status!r}, got {actual.get('status')!r} "
+            f"(diagnostic={actual.get('diagnostic')!r})",
         )
     if diagnostic is not None and actual.get("diagnostic") != diagnostic:
         raise StageFailure(
