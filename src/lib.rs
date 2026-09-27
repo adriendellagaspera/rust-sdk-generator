@@ -39,7 +39,8 @@ pub use contracts::{
     RequestDiscriminatorValue, RequestMediaDefinition, ResourceDefinition, ResourceInventory,
     ResponseRepresentationBinding, ResponseRepresentationDefinition, Runtime, ScalarEnumDefinition,
     SdkDefinition, SimpleUnionDefinition, SimpleUnionVariant, SourceOperationBinding,
-    StreamAbiBinding, StreamBinding, StreamDefinition, UnionDefinition, UnionFactoryDefinition,
+    StreamAbiBinding, StreamBinding, StreamDefinition, StreamTransportBinding, UnionDefinition,
+    UnionFactoryDefinition,
     VariantBinding,
 };
 pub use derivation::{
