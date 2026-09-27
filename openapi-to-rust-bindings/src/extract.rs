@@ -1,194 +1,20 @@
-//! Canonical Bindings v4 normalization from proved structural + semantic
-//! evidence. The CLI uses this as its default; the legacy metadata reader is explicit.
+//! Canonical Bindings v4 normalization from upstream bindings metadata plus
+//! the residual invocation evidence that metadata v1 does not expose yet.
+
 use crate::details::{
-    OperationKindEvidence, StreamTransportEvidence, inspect_details,
-    inspect_metadata_backed_details, prove_client_layout,
+    StreamTransportEvidence, inspect_metadata_backed_details, prove_client_layout,
 };
 use crate::rust_type::canonical_rust_type;
-use crate::semantic::{RepresentationEvidence, inspect_semantics};
-use crate::structural::{EnumEvidence, StructuralEvidence, inspect_generated};
+use crate::semantic::RepresentationEvidence;
+use crate::structural::StructuralEvidence;
 use crate::upstream_metadata::UpstreamMetadata;
 use crate::{Bindings, Error};
 use serde_json::{Map, Value, json};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::Path;
 
 fn extraction_error(code: &str, detail: impl std::fmt::Display) -> Error {
     Error::new(format!("{code}: {detail}"))
-}
-
-fn short_symbol(path: &str) -> Result<&str, Error> {
-    path.rsplit("::")
-        .next()
-        .filter(|name| !name.is_empty())
-        .ok_or_else(|| extraction_error("extract.symbol_unresolved", path))
-}
-
-fn model_symbol(path: &str) -> bool {
-    path.starts_with("crate::generated::types::")
-}
-
-fn words(value: &str) -> BTreeSet<&str> {
-    value
-        .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
-        .filter(|word| !word.is_empty())
-        .collect()
-}
-
-fn referenced_client_enum_names(structural: &StructuralEvidence) -> BTreeSet<String> {
-    let mut names = BTreeSet::new();
-    for method in &structural.client.methods {
-        for parameter in &method.parameters {
-            names.extend(
-                words(&parameter.rust_type)
-                    .into_iter()
-                    .map(ToOwned::to_owned),
-            );
-        }
-    }
-    names
-}
-
-fn insert_symbol(symbols: &mut Map<String, Value>, name: &str, path: &str) -> Result<(), Error> {
-    if let Some(previous) = symbols.insert(name.to_owned(), Value::String(path.to_owned())) {
-        return Err(extraction_error(
-            "extract.symbol_collision",
-            format!("{name}: {previous} conflicts with {path}"),
-        ));
-    }
-    Ok(())
-}
-
-fn enum_json(item: &EnumEvidence, name: &str) -> Result<Value, Error> {
-    let mut variants = Vec::new();
-    for variant in &item.variants {
-        if !variant.named_payload.is_empty() {
-            return Err(extraction_error(
-                "extract.enum_encoding_unproven",
-                format!("{name}::{} has named payload fields", variant.name),
-            ));
-        }
-        let payload = match variant.payload.as_slice() {
-            [] => Value::Null,
-            [payload] => Value::String(payload.clone()),
-            _ => {
-                return Err(extraction_error(
-                    "extract.enum_encoding_unproven",
-                    format!("{name}::{} has multiple positional payloads", variant.name),
-                ));
-            }
-        };
-        let wire_name = if payload.is_null() {
-            Value::String(variant.wire_name.clone())
-        } else {
-            Value::Null
-        };
-        variants.push(json!({
-            "name": variant.name,
-            "payload": if let Value::String(value) = payload {
-                Value::String(canonical_rust_type(&value)?)
-            } else {
-                payload
-            },
-            "wire_name": wire_name,
-        }));
-    }
-    Ok(Value::Array(variants))
-}
-
-struct CanonicalStructural {
-    structs: Map<String, Value>,
-    enums: Map<String, Value>,
-    aliases: Map<String, Value>,
-    symbols: Map<String, Value>,
-}
-
-fn normalize_structural(structural: &StructuralEvidence) -> Result<CanonicalStructural, Error> {
-    let mut structs = Map::new();
-    let mut enums = Map::new();
-    let mut aliases = Map::new();
-    let mut symbols = Map::new();
-
-    for (path, item) in &structural.structs {
-        if !model_symbol(path) {
-            continue;
-        }
-        let name = short_symbol(path)?;
-        if item.has_private_fields {
-            let is_builder = name.strip_suffix("Builder").is_some_and(|model| {
-                structural
-                    .structs
-                    .contains_key(&format!("crate::generated::types::{model}"))
-            });
-            if is_builder {
-                continue;
-            }
-            return Err(extraction_error(
-                "extract.unhandled_model_shape",
-                format!("{path} contains private fields"),
-            ));
-        }
-        if structs.contains_key(name) || enums.contains_key(name) || aliases.contains_key(name) {
-            return Err(extraction_error("extract.symbol_collision", name));
-        }
-        let fields = item
-            .fields
-            .iter()
-            .map(|field| {
-                Ok(json!({
-                    "name": field.name,
-                    "wire_name": field.wire_name,
-                    "type": canonical_rust_type(&field.rust_type)?,
-                }))
-            })
-            .collect::<Result<Vec<_>, Error>>()?;
-        structs.insert(name.to_owned(), Value::Array(fields));
-        insert_symbol(&mut symbols, name, path)?;
-    }
-
-    let referenced_client_enums = referenced_client_enum_names(structural);
-    for (path, item) in &structural.enums {
-        let name = short_symbol(path)?;
-        let include = model_symbol(path)
-            || (path.starts_with("crate::generated::client::")
-                && referenced_client_enums.contains(name));
-        if !include {
-            continue;
-        }
-        if structs.contains_key(name) || enums.contains_key(name) || aliases.contains_key(name) {
-            return Err(extraction_error("extract.symbol_collision", name));
-        }
-        enums.insert(name.to_owned(), enum_json(item, name)?);
-        insert_symbol(&mut symbols, name, path)?;
-    }
-
-    for (path, definitions) in &structural.aliases {
-        if !model_symbol(path) {
-            continue;
-        }
-        let name = short_symbol(path)?;
-        if definitions.len() != 1 || !definitions[0].cfg.is_empty() {
-            return Err(extraction_error(
-                "extract.alias_target_unproven",
-                format!("{path} has target-conditional or duplicate definitions"),
-            ));
-        }
-        if structs.contains_key(name) || enums.contains_key(name) || aliases.contains_key(name) {
-            return Err(extraction_error("extract.symbol_collision", name));
-        }
-        aliases.insert(
-            name.to_owned(),
-            Value::String(canonical_rust_type(&definitions[0].rust_type)?),
-        );
-        insert_symbol(&mut symbols, name, path)?;
-    }
-
-    Ok(CanonicalStructural {
-        structs,
-        enums,
-        aliases,
-        symbols,
-    })
 }
 
 fn representation_json(value: &RepresentationEvidence) -> Result<Value, Error> {
@@ -197,41 +23,19 @@ fn representation_json(value: &RepresentationEvidence) -> Result<Value, Error> {
 }
 
 fn client_layout(structural: &StructuralEvidence) -> Result<Value, Error> {
-    if !structural
-        .client
-        .constructors
-        .iter()
-        .any(|name| name == "new")
-    {
+    if !structural.client.constructors.iter().any(|name| name == "new") {
         return Err(extraction_error(
             "extract.client_layout_unproven",
             "openapi-to-rust client has no public new constructor",
         ));
     }
     for required in ["with_api_key", "with_base_url"] {
-        if !structural
-            .client
-            .builders
-            .iter()
-            .any(|name| name == required)
-        {
+        if !structural.client.builders.iter().any(|name| name == required) {
             return Err(extraction_error(
                 "extract.client_layout_unproven",
                 format!("openapi-to-rust client has no {required} builder"),
             ));
         }
-    }
-    if !structural
-        .client
-        .imports
-        .iter()
-        .map(|value| value.replace(' ', ""))
-        .any(|value| value == "super::types::*")
-    {
-        return Err(extraction_error(
-            "extract.client_layout_unproven",
-            "client does not import the generated types prelude",
-        ));
     }
     Ok(json!({
         "client": {
@@ -244,17 +48,18 @@ fn client_layout(structural: &StructuralEvidence) -> Result<Value, Error> {
     }))
 }
 
-/// Produce canonical Bindings v4 only for call shapes whose complete required
-/// semantics are directly observable. Streaming shapes require a proven owned
-/// transport; anonymous transports without explicit static/capture proof fail closed.
+/// Normalize current openapi-to-rust bindings metadata into canonical Bindings v4.
+///
+/// Upstream metadata is authoritative for emitted symbols, signatures, source
+/// identities and response planning. Generated client source is inspected only
+/// for residual invocation details not represented by metadata v1.
 pub fn extract_bindings(
     generated: impl AsRef<Path>,
     effective_openapi: impl AsRef<Path>,
 ) -> Result<Bindings, Error> {
-    let structural = inspect_generated(&generated)?;
-    prove_client_layout(&generated, &structural)?;
     let upstream = UpstreamMetadata::load(&generated)?;
-    upstream.verify_client_signatures(&structural)?;
+    let structural = upstream.structural_evidence()?;
+    prove_client_layout(&generated, &structural)?;
     let semantic = upstream.semantic_evidence(&effective_openapi)?;
 
     if !semantic.unmatched_source_operations.is_empty() {
@@ -268,21 +73,10 @@ pub fn extract_bindings(
                 .join(", "),
         ));
     }
+
     let details =
         inspect_metadata_backed_details(&generated, &effective_openapi, &structural, &semantic)?;
-
     let canonical = upstream.normalize_structural()?;
-    let ast_canonical = normalize_structural(&structural)?;
-    if canonical.structs != ast_canonical.structs
-        || canonical.enums != ast_canonical.enums
-        || canonical.aliases != ast_canonical.aliases
-        || canonical.symbols != ast_canonical.symbols
-    {
-        return Err(extraction_error(
-            "metadata.structural_drift",
-            "upstream bindings metadata disagrees with the emitted Rust model surface",
-        ));
-    }
     let metadata_operations = upstream.operations()?;
     let non_stream_sources = semantic
         .operations
@@ -302,23 +96,7 @@ pub fn extract_bindings(
         let metadata_operation = metadata_operations
             .get(name)
             .ok_or_else(|| extraction_error("metadata.operation_missing", name))?;
-        let success_type = match &semantics.representation {
-            RepresentationEvidence::Json { schema_name, .. } => schema_name.clone(),
-            RepresentationEvidence::Text { .. } => "String".to_owned(),
-            RepresentationEvidence::BinaryBuffered { .. } => "bytes::Bytes".to_owned(),
-            RepresentationEvidence::Empty => "()".to_owned(),
-            RepresentationEvidence::EventStream { .. }
-            | RepresentationEvidence::BinaryStream { .. } => {
-                let structural_method = structural
-                    .client
-                    .methods
-                    .iter()
-                    .find(|method| method.name == *name)
-                    .and_then(|method| method.success_type.as_ref())
-                    .ok_or_else(|| extraction_error("extract.success_type_unproven", name))?;
-                canonical_rust_type(structural_method)?
-            }
-        };
+        let success_type = metadata_operation.success_type()?;
         let parameters = metadata_operation
             .signature
             .arguments
@@ -342,12 +120,12 @@ pub fn extract_bindings(
             && detail.stream.is_none()
             && non_stream_sources.contains(&semantics.source_operation)
         {
-            // v0.19 may emit an anonymous live-stream helper in addition to a
-            // fully representable buffered method for the same source operation.
-            // An unpatched backend may still omit the explicit ownership proof required by v4; preserve
-            // the supported source operation and omit only the extra helper.
             continue;
         }
+
+        // Operation kind is already producer-owned metadata. Keep the residual
+        // detail read until the source-only kind probe is removed from details.rs.
+        let _ = &detail.kind;
         let kind = if metadata_operation.operation.multipart_filenames {
             "multipart_filenames"
         } else {
@@ -385,6 +163,7 @@ pub fn extract_bindings(
         } else {
             (Value::Null, Value::Null)
         };
+
         let parameter_wires = detail
             .parameter_wires
             .iter()

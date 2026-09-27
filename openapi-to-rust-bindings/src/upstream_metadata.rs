@@ -8,8 +8,11 @@ use crate::rust_type::canonical_rust_type;
 use crate::semantic::{
     OperationSemanticEvidence, RepresentationEvidence, SemanticEvidence, SourceOperationEvidence,
 };
-use crate::structural::EvidenceLocation;
-use crate::{Error, structural::StructuralEvidence};
+use crate::structural::{
+    AliasEvidence, ClientEvidence, EvidenceLocation, FieldEvidence, MethodEvidence,
+    ParameterEvidence, StructEvidence, StructuralEvidence,
+};
+use crate::Error;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -118,6 +121,12 @@ pub(crate) struct CanonicalMetadata {
 pub(crate) struct MetadataOperation<'a> {
     pub signature: &'a BindingSignature,
     pub operation: &'a BindingOperation,
+}
+
+impl MetadataOperation<'_> {
+    pub(crate) fn success_type(&self) -> Result<String, Error> {
+        success_type(&self.signature.return_type)
+    }
 }
 
 impl UpstreamMetadata {
@@ -235,6 +244,170 @@ impl UpstreamMetadata {
             }
         }
         Ok(output)
+    }
+
+    pub(crate) fn structural_evidence(&self) -> Result<StructuralEvidence, Error> {
+        let location = |module: &str| EvidenceLocation {
+            file: METADATA_NAME.into(),
+            line: 1,
+            module: module.into(),
+        };
+
+        let operation_owners = self
+            .symbols
+            .iter()
+            .filter(|symbol| symbol.operation.is_some())
+            .map(|symbol| {
+                symbol
+                    .path
+                    .strip_suffix(&format!("::{}", symbol.name))
+                    .map(ToOwned::to_owned)
+                    .ok_or_else(|| {
+                        failure(
+                            "metadata.client_layout",
+                            format!("cannot resolve owner for {}", symbol.path),
+                        )
+                    })
+            })
+            .collect::<Result<BTreeSet<_>, Error>>()?;
+        if operation_owners.len() != 1 {
+            return Err(failure(
+                "metadata.client_layout",
+                format!(
+                    "expected one HTTP client owner for operation methods, found {operation_owners:?}"
+                ),
+            ));
+        }
+        let client_owner = operation_owners
+            .iter()
+            .next()
+            .expect("checked one client owner");
+        let client_path = format!("crate::generated::{client_owner}");
+
+        let mut structs = BTreeMap::new();
+        let mut aliases: BTreeMap<String, Vec<AliasEvidence>> = BTreeMap::new();
+        let mut constructors = Vec::new();
+        let mut builders = Vec::new();
+        let mut methods = Vec::new();
+
+        for symbol in &self.symbols {
+            if symbol.kind == "struct" && symbol.path.starts_with("types::") {
+                let path = format!("crate::generated::{}", symbol.path);
+                let fields = symbol
+                    .fields
+                    .iter()
+                    .filter(|field| field.public)
+                    .map(|field| {
+                        let name = field.name.clone().ok_or_else(|| {
+                            failure(
+                                "metadata.unhandled_model_shape",
+                                format!("{} has an unnamed public field", symbol.path),
+                            )
+                        })?;
+                        Ok(FieldEvidence {
+                            name,
+                            rust_type: field.rust_type.clone(),
+                            wire_name: field.wire_name.clone(),
+                            serde_skip: false,
+                            location: location("types"),
+                        })
+                    })
+                    .collect::<Result<Vec<_>, Error>>()?;
+                structs.insert(
+                    path.clone(),
+                    StructEvidence {
+                        path,
+                        fields,
+                        has_private_fields: symbol.fields.iter().any(|field| !field.public),
+                        location: location("types"),
+                    },
+                );
+            }
+
+            if symbol.kind == "alias" {
+                let Some(rust_type) = symbol.rust_type.clone() else {
+                    continue;
+                };
+                let path = format!("crate::generated::{}", symbol.path);
+                aliases.entry(path.clone()).or_default().push(AliasEvidence {
+                    path,
+                    rust_type,
+                    cfg: symbol
+                        .attributes
+                        .iter()
+                        .filter(|attribute| attribute.replace(' ', "").starts_with("#[cfg("))
+                        .cloned()
+                        .collect(),
+                    location: location(
+                        symbol.path.split("::").next().unwrap_or("generated"),
+                    ),
+                });
+            }
+
+            if symbol.kind != "method" {
+                continue;
+            }
+            let Some(owner) = symbol
+                .path
+                .strip_suffix(&format!("::{}", symbol.name))
+            else {
+                continue;
+            };
+            if owner != client_owner {
+                continue;
+            }
+            if symbol.name == "new" {
+                constructors.push(symbol.name.clone());
+            }
+            if matches!(symbol.name.as_str(), "with_api_key" | "with_base_url") {
+                builders.push(symbol.name.clone());
+            }
+            if symbol.operation.is_none() {
+                continue;
+            }
+            let signature = symbol.signature.as_ref().ok_or_else(|| {
+                failure(
+                    "metadata.signature",
+                    format!("{} has operation metadata but no signature", symbol.path),
+                )
+            })?;
+            methods.push(MethodEvidence {
+                name: symbol.name.clone(),
+                parameters: signature
+                    .arguments
+                    .iter()
+                    .map(|argument| ParameterEvidence {
+                        name: argument.name.clone(),
+                        rust_type: argument.rust_type.clone(),
+                    })
+                    .collect(),
+                return_type: signature.return_type.clone(),
+                success_type: Some(success_type(&signature.return_type)?),
+                location: location("client"),
+            });
+        }
+
+        constructors.sort();
+        builders.sort();
+        methods.sort_by(|left, right| left.name.cmp(&right.name));
+        for definitions in aliases.values_mut() {
+            definitions.sort_by(|left, right| left.cfg.cmp(&right.cfg));
+        }
+
+        Ok(StructuralEvidence {
+            structs,
+            enums: BTreeMap::new(),
+            aliases,
+            client: ClientEvidence {
+                path: client_path,
+                constructors,
+                builders,
+                methods,
+                imports: Vec::new(),
+                location: location("client"),
+            },
+            semantics: "metadata-backed; generated source is consulted only for residual invocation proofs",
+        })
     }
 
     pub(crate) fn normalize_structural(&self) -> Result<CanonicalMetadata, Error> {
@@ -594,55 +767,7 @@ impl UpstreamMetadata {
         })
     }
 
-    pub(crate) fn verify_client_signatures(
-        &self,
-        structural: &StructuralEvidence,
-    ) -> Result<(), Error> {
-        let structural_methods = structural
-            .client
-            .methods
-            .iter()
-            .map(|method| (method.name.as_str(), method))
-            .collect::<BTreeMap<_, _>>();
-        for (name, operation) in self.operations()? {
-            let method = structural_methods.get(name.as_str()).ok_or_else(|| {
-                failure(
-                    "metadata.signature_drift",
-                    format!("{name}: generated Rust method is missing"),
-                )
-            })?;
-            let metadata_return = canonical_rust_type(&operation.signature.return_type)?;
-            let structural_return = canonical_rust_type(&method.return_type)?;
-            if !equivalent_type_spelling(&metadata_return, &structural_return) {
-                return Err(failure(
-                    "metadata.signature_drift",
-                    format!(
-                        "{name}: metadata return {metadata_return} != generated Rust {structural_return}"
-                    ),
-                ));
-            }
-            if operation.signature.arguments.len() != method.parameters.len() {
-                return Err(failure(
-                    "metadata.signature_drift",
-                    format!("{name}: parameter count disagrees with generated Rust"),
-                ));
-            }
-            for (metadata, actual) in operation.signature.arguments.iter().zip(&method.parameters) {
-                if metadata.name != actual.name
-                    || !equivalent_type_spelling(
-                        &canonical_rust_type(&metadata.rust_type)?,
-                        &canonical_rust_type(&actual.rust_type)?,
-                    )
-                {
-                    return Err(failure(
-                        "metadata.signature_drift",
-                        format!("{name}: parameter metadata disagrees with generated Rust"),
-                    ));
-                }
-            }
-        }
-        Ok(())
-    }
+
 }
 
 fn status_selector_matches_exact(selector: &str, exact: &str) -> bool {
