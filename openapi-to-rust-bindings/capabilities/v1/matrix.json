@@ -206,6 +206,6 @@
         "wasm": "library_compiled"
       }
     },
-    "evidence": "Upstream semantic evidence workflow: pinned fork ordinary Rust -> manifest-free Bindings v3 -> generated standalone consumers (core/sse/discriminator); native Cargo test plus wasm32-unknown-unknown cargo check --lib; no WASM runtime HTTP assertion."
+    "evidence": "Upstream v0.19 evidence: pinned unmodified generator emits ordinary Rust plus bindings.json; the adapter normalizes metadata-backed Bindings v3 and generated standalone consumers are compiled/tested for supported shapes. Anonymous upstream SSE/binary streams remain fail-closed pending #197; the historical fork oracle is separate."
   }
 }
