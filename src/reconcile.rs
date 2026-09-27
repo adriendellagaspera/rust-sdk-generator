@@ -363,6 +363,23 @@ fn response_shape(operation: &Value) -> std::result::Result<ResponseShape, &'sta
     Err("response.non_json_success")
 }
 
+fn status_selector_matches_source(selector: &str, source: &str) -> bool {
+    if selector.eq_ignore_ascii_case("2XX") {
+        return source.len() == 3
+            && source.as_bytes()[0] == b'2'
+            && source.as_bytes()[1..]
+                .iter()
+                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'X' | b'x'));
+    }
+    if selector.len() == 3
+        && selector.as_bytes()[0] == b'2'
+        && selector.as_bytes()[1..].iter().all(u8::is_ascii_digit)
+    {
+        return source == selector || source.eq_ignore_ascii_case("2XX");
+    }
+    false
+}
+
 fn selected_success_responses<'a>(
     operation: &'a Value,
     statuses: &[String],
@@ -372,14 +389,24 @@ fn selected_success_responses<'a>(
         return (!success.is_empty()).then_some(success);
     }
     let expected: BTreeSet<_> = statuses.iter().map(String::as_str).collect();
-    if expected.len() != statuses.len() {
+    if expected.len() != statuses.len()
+        || expected.iter().any(|selector| {
+            !success
+                .iter()
+                .any(|(source, _)| status_selector_matches_source(selector, source))
+        })
+    {
         return None;
     }
-    let selected: Vec<_> = success
+    let selected = success
         .into_iter()
-        .filter(|(status, _)| expected.contains(status.as_str()))
-        .collect();
-    (selected.len() == expected.len()).then_some(selected)
+        .filter(|(source, _)| {
+            expected
+                .iter()
+                .any(|selector| status_selector_matches_source(selector, source))
+        })
+        .collect::<Vec<_>>();
+    (!selected.is_empty()).then_some(selected)
 }
 
 fn response_payload<'a>(response: &'a Value, media_type: &str) -> Option<&'a Value> {
@@ -1822,5 +1849,42 @@ mod tests {
             result["export"].reason,
             Some("transport.source_operation_identity_required")
         );
+    }
+}
+
+#[cfg(test)]
+mod status_selector_tests {
+    use super::selected_success_responses;
+
+    #[test]
+    fn selects_exact_and_class_success_responses() {
+        let operation = serde_json::json!({
+            "responses": {
+                "200": {"description": "ok"},
+                "201": {"description": "created"},
+                "400": {"description": "bad"}
+            }
+        });
+        let exact = selected_success_responses(&operation, &["201".into()]).expect("exact success");
+        assert_eq!(exact.len(), 1);
+        assert_eq!(exact[0].0.as_str(), "201");
+
+        let class = selected_success_responses(&operation, &["2XX".into()]).expect("class success");
+        assert_eq!(class.len(), 2);
+        assert!(class.iter().all(|(status, _)| status.starts_with('2')));
+    }
+
+    #[test]
+    fn exact_success_matches_source_status_class() {
+        let operation = serde_json::json!({
+            "responses": {
+                "2XX": {"description": "any success"},
+                "400": {"description": "bad"}
+            }
+        });
+        let selected = selected_success_responses(&operation, &["200".into()])
+            .expect("exact selector is covered by source 2XX");
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].0.as_str(), "2XX");
     }
 }

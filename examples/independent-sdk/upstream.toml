@@ -2,6 +2,7 @@
 spec_path = "openapi.json"
 output_dir = "raw"
 module_name = "notebook"
+bindings_metadata = "bindings.json"
 
 [features]
 enable_async_client = true

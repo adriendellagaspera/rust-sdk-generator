@@ -7,13 +7,13 @@
     "name": "openapi-to-rust",
     "repository": "gpu-cli/openapi-to-rust",
     "baseline": {
-      "version": "0.17.0",
-      "commit": "5a3487edbe27cfd4efb32dda893774e23d7fa195"
+      "version": "0.19.0",
+      "commit": "e5fc983c02dae5a09bcb08ebdf5669f6ae1f624f"
     },
     "candidate_ref": "main"
   },
   "boundary": {
-    "adapter_contract": "ordinary_rust_plus_exact_effective_openapi",
+    "adapter_contract": "upstream_bindings_metadata_plus_emitted_rust_and_effective_openapi",
     "producer_manifest_required": false,
     "effective_openapi": "examples/independent-sdk/openapi.json",
     "generation_config": "examples/independent-sdk/upstream.toml",

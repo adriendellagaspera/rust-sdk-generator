@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed production compatibility at the manifest-free upstream boundary."""
+"""Fail-closed production compatibility at the metadata-backed upstream boundary."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from typing import Any
 
@@ -151,7 +152,7 @@ def load_tracker(repo_root: Path, tracker_path: Path) -> dict[str, Any]:
         or not isinstance(boundary, dict)
         or backend.get("repository") != "gpu-cli/openapi-to-rust"
         or boundary.get("adapter_contract")
-        != "ordinary_rust_plus_exact_effective_openapi"
+        != "upstream_bindings_metadata_plus_emitted_rust_and_effective_openapi"
         or boundary.get("producer_manifest_required") is not False
     ):
         raise ValueError(f"{tracker_path} is not a production manifest-free v3 tracker")
@@ -250,14 +251,14 @@ def bindings_sources(bindings: dict[str, Any]) -> list[dict[str, str]]:
 def assert_source_coverage(spec: dict[str, Any], bindings: dict[str, Any]) -> None:
     declared = openapi_operations(spec)
     observed = bindings_sources(bindings)
-    if declared == observed:
-        return
     declared_set = {
         (item["operation_id"], item["method"], item["path"]) for item in declared
     }
     observed_set = {
         (item["operation_id"], item["method"], item["path"]) for item in observed
     }
+    if declared_set == observed_set:
+        return
     raise ValueError(
         "source coverage mismatch: "
         f"unemitted={sorted(declared_set - observed_set)}; "
@@ -266,7 +267,7 @@ def assert_source_coverage(spec: dict[str, Any], bindings: dict[str, Any]) -> No
 
 
 def diagnostic_code(stderr: str) -> str | None:
-    match = re.search(r"\b(extract\.[A-Za-z0-9_.-]+)\b", stderr)
+    match = re.search(r"\b((?:extract|metadata)\.[A-Za-z0-9_.-]+)\b", stderr)
     return match.group(1) if match else None
 
 
@@ -278,6 +279,11 @@ def ensure_raw(raw: Path) -> None:
         raise StageFailure(
             "raw_generation",
             "production upstream unexpectedly emitted binding-manifest.json",
+        )
+    if not (raw / "bindings.json").is_file():
+        raise StageFailure(
+            "raw_generation",
+            "production upstream did not emit bindings.json metadata",
         )
 
 
@@ -568,10 +574,49 @@ def expected_status(expected: Any, label: str) -> tuple[str, str | None]:
     return expected["status"], diagnostic
 
 
+def raw_metadata_matches_capability(
+    raw_metadata: dict[str, Any] | None, capability: dict[str, Any]
+) -> bool:
+    if not isinstance(raw_metadata, dict):
+        return False
+    symbols = raw_metadata.get("symbols")
+    if not isinstance(symbols, list):
+        return False
+    selector = capability["selector"]
+    for symbol in symbols:
+        if not isinstance(symbol, dict):
+            continue
+        operation = symbol.get("operation")
+        if not isinstance(operation, dict):
+            continue
+        source_id = operation.get("source_operation_id") or operation.get("operation_id")
+        if source_id != capability["operation_id"]:
+            continue
+        representation = selector.get("representation")
+        if representation == "binary_stream":
+            if operation.get("response_kind") == "binary" and operation.get("consumption") == "binary_stream":
+                return True
+            continue
+        if representation == "event_stream":
+            if operation.get("response_kind") == "event_stream":
+                return True
+            continue
+        if representation in {"json", "text", "empty"}:
+            if operation.get("response_kind") == representation:
+                return True
+            continue
+        if selector.get("kind") == "multipart_filenames":
+            if operation.get("multipart_filenames") is True:
+                return True
+            continue
+    return False
+
+
 def capability_observation(
     bindings: dict[str, Any] | None,
     extraction_diagnostic: str | None,
     capability: dict[str, Any],
+    raw_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if extraction_diagnostic is not None:
         return {
@@ -593,6 +638,12 @@ def capability_observation(
     )
     if found:
         return {"status": "supported", "diagnostic": None, "failure_owner": None}
+    if raw_metadata_matches_capability(raw_metadata, capability):
+        return {
+            "status": "adapter_evidence_gap",
+            "diagnostic": "extract.stream_abi_unproven",
+            "failure_owner": "adapter",
+        }
     return {
         "status": "raw_generation_gap",
         "diagnostic": f"raw.{capability['id']}_not_emitted",
@@ -605,7 +656,8 @@ def check_expected(actual: dict[str, Any], expected: Any, label: str) -> None:
     if actual.get("status") != status:
         raise StageFailure(
             "supported_envelope",
-            f"{label}: expected status {status!r}, got {actual.get('status')!r}",
+            f"{label}: expected status {status!r}, got {actual.get('status')!r} "
+            f"(diagnostic={actual.get('diagnostic')!r})",
         )
     if diagnostic is not None and actual.get("diagnostic") != diagnostic:
         raise StageFailure(
@@ -688,6 +740,7 @@ def envelope_pass(
         bindings, extraction_diagnostic = run_adapter(
             adapter, raw, spec, allow_failure=True
         )
+        raw_metadata = file_json(raw / "bindings.json")
 
         actual_scenario = (
             {"status": "supported", "diagnostic": None, "failure_owner": None}
@@ -730,7 +783,7 @@ def envelope_pass(
             if not isinstance(capability, dict) or capability.get("scenario") != scenario_id:
                 continue
             actual = capability_observation(
-                bindings, extraction_diagnostic, capability
+                bindings, extraction_diagnostic, capability, raw_metadata
             )
             check_expected(
                 actual,
@@ -918,7 +971,7 @@ def markdown(report: dict[str, Any]) -> str:
             f"- Repository: {backend.get('repository', 'unavailable')}",
             f"- Baseline: {baseline.get('version', 'unavailable')} / {baseline.get('commit', 'unavailable')}",
             f"- Candidate: {candidate.get('version', 'unavailable')} / {candidate.get('commit', 'unavailable')}",
-            "- Contract: unmodified upstream ordinary Rust + exact effective OpenAPI + default adapter",
+            "- Contract: unmodified upstream bindings metadata + emitted Rust + exact effective OpenAPI",
             "- Producer manifest required: no",
             f"- Last stage: {report['last_stage']}",
             f"- Default boundary drift-free: {default.get('compatible', False)}",
@@ -956,7 +1009,7 @@ def main() -> int:
     )
     report: dict[str, Any] = {
         "schema_version": 1,
-        "profile": "production_manifest_free_upstream",
+        "profile": "production_upstream_bindings_metadata",
         "compatible": False,
         "last_stage": "configuration",
     }
@@ -1089,6 +1142,8 @@ def main() -> int:
         args.update_data.write_text(
             json.dumps(report["pin_update"], indent=2, sort_keys=True) + "\n"
         )
+    if not report["compatible"]:
+        print(json.dumps(report, indent=2, sort_keys=True), file=sys.stderr)
     return 0 if report["compatible"] else 1
 
 

@@ -8,8 +8,9 @@ mod reader;
 mod rust_type;
 mod semantic;
 mod structural;
+mod upstream_metadata;
 
-pub use extract::extract_bindings;
+pub use extract::{extract_bindings, extract_bindings_from_rust};
 pub use manifest::{MANIFEST_NAME, parse_binding_manifest};
 pub use model::{Bindings, Error};
 pub use reader::{SIDECAR_NAME, read_legacy_metadata};
