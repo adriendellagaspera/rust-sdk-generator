@@ -6,7 +6,7 @@
   "pins": {
     "upstream": {
       "repository": "gpu-cli/openapi-to-rust",
-      "commit": "5a3487edbe27cfd4efb32dda893774e23d7fa195"
+      "commit": "e5fc983c02dae5a09bcb08ebdf5669f6ae1f624f"
     },
     "fork_oracle": {
       "repository": "adriendellagaspera/openapi-to-rust",
@@ -114,8 +114,8 @@
         "representation": "binary_stream"
       },
       "upstream": {
-        "status": "raw_generation_gap",
-        "diagnostic": "raw.binary_stream_not_emitted"
+        "status": "adapter_evidence_gap",
+        "diagnostic": "extract.stream_abi_unproven"
       },
       "fork_oracle": {
         "status": "supported"
@@ -144,8 +144,7 @@
         "kind": "multipart_filenames"
       },
       "upstream": {
-        "status": "raw_generation_gap",
-        "diagnostic": "raw.multipart_filename_helper_not_emitted"
+        "status": "supported"
       },
       "fork_oracle": {
         "status": "supported"
@@ -189,8 +188,8 @@
         "wasm": "rejected_anonymous_stream_abi"
       },
       "binary_stream": {
-        "native": "raw_method_not_emitted",
-        "wasm": "raw_method_not_emitted"
+        "native": "rejected_anonymous_stream_abi",
+        "wasm": "rejected_anonymous_stream_abi"
       }
     },
     "fork_oracle": {
