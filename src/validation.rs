@@ -876,6 +876,132 @@ mod tests {
     }
 
     #[test]
+    fn bindings_v4_accepts_anonymous_owned_stream_transport() {
+        let value = serde_json::json!({
+            "schema_version": 4,
+            "structs": {},
+            "enums": {},
+            "aliases": {},
+            "operations": {
+                "events": {
+                    "name": "events",
+                    "parameters": [],
+                    "return_type": "Result<impl futures_util::Stream<Item = Result<bytes::Bytes, reqwest::Error>> + 'static + use<>, Error>",
+                    "success_type": "impl futures_util::Stream<Item = Result<bytes::Bytes, reqwest::Error>> + 'static + use<>",
+                    "stream": {
+                        "item_type": "bytes::Bytes",
+                        "error_type": "reqwest::Error",
+                        "lifetime": "'static"
+                    },
+                    "metadata": {
+                        "kind": "call_shape",
+                        "source_operation": {
+                            "operation_id": "events",
+                            "method": "GET",
+                            "path": "/events"
+                        },
+                        "emitted_operation_id": "events",
+                        "representation": {
+                            "kind": "event_stream",
+                            "media_type": "text/event-stream"
+                        },
+                        "success_statuses": ["200"],
+                        "request_discriminators": [],
+                        "stream_transport": {
+                            "kind": "anonymous_impl_trait",
+                            "rust_type": "impl futures_util::Stream<Item = Result<bytes::Bytes, reqwest::Error>> + 'static + use<>"
+                        }
+                    }
+                }
+            },
+            "symbol_paths": {},
+            "binding": {
+                "client": {
+                    "type_path": "crate::generated::client::HttpClient",
+                    "constructor": "new",
+                    "api_key_builder": "with_api_key",
+                    "base_url_builder": "with_base_url"
+                },
+                "type_preludes": []
+            }
+        });
+        let bindings: Bindings =
+            serde_json::from_value(value).expect("deserialize Bindings v4");
+        bindings.validate().expect("valid anonymous v4 stream");
+    }
+
+    #[test]
+    fn bindings_versions_reject_mixed_stream_contracts() {
+        let mut value = serde_json::json!({
+            "schema_version": 4,
+            "structs": {},
+            "enums": {},
+            "aliases": {},
+            "operations": {
+                "events": {
+                    "name": "events",
+                    "parameters": [],
+                    "return_type": "Result<HttpResponseByteStream, Error>",
+                    "success_type": "HttpResponseByteStream",
+                    "stream": {
+                        "item_type": "bytes::Bytes",
+                        "error_type": "reqwest::Error",
+                        "lifetime": "'static"
+                    },
+                    "metadata": {
+                        "kind": "call_shape",
+                        "source_operation": {
+                            "operation_id": "events",
+                            "method": "GET",
+                            "path": "/events"
+                        },
+                        "emitted_operation_id": "events",
+                        "representation": {
+                            "kind": "event_stream",
+                            "media_type": "text/event-stream"
+                        },
+                        "success_statuses": ["200"],
+                        "request_discriminators": [],
+                        "stream_abi": {
+                            "alias": "HttpResponseByteStream",
+                            "item_type": "bytes::Bytes",
+                            "error_type": "reqwest::Error",
+                            "lifetime": "'static",
+                            "native_type": "futures_util::stream::BoxStream<'static, Result<bytes::Bytes, reqwest::Error>>",
+                            "wasm_type": "futures_util::stream::LocalBoxStream<'static, Result<bytes::Bytes, reqwest::Error>>"
+                        }
+                    }
+                }
+            },
+            "symbol_paths": {},
+            "binding": {
+                "client": {
+                    "type_path": "crate::generated::client::HttpClient",
+                    "constructor": "new",
+                    "api_key_builder": "with_api_key",
+                    "base_url_builder": "with_base_url"
+                },
+                "type_preludes": []
+            }
+        });
+        let mixed_v4 = serde_json::from_value::<Bindings>(value.clone())
+            .expect("deserialize mixed v4");
+        assert!(mixed_v4.validate().is_err());
+
+        value["schema_version"] = serde_json::json!(3);
+        value["operations"]["events"]["metadata"]["stream_transport"] =
+            serde_json::json!({
+                "kind": "named_alias",
+                "alias": "HttpResponseByteStream",
+                "native_type": "futures_util::stream::BoxStream<'static, Result<bytes::Bytes, reqwest::Error>>",
+                "wasm_type": "futures_util::stream::LocalBoxStream<'static, Result<bytes::Bytes, reqwest::Error>>"
+            });
+        let mixed_v3 = serde_json::from_value::<Bindings>(value)
+            .expect("deserialize mixed v3");
+        assert!(mixed_v3.validate().is_err());
+    }
+
+    #[test]
     fn qualifies_only_leaf_symbols() {
         let bindings: Bindings = serde_json::from_str(include_str!(
             "../tests/fixtures/menagerie/rust-bindings.json"
