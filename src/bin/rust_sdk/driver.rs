@@ -11,7 +11,7 @@ use super::{Result, err, run, write_if_changed};
 
 pub const BACKEND_ID: &str = "openapi-to-rust/upstream-bindings-v1";
 pub const REPOSITORY: &str = "gpu-cli/openapi-to-rust";
-pub const ADAPTER_ID: &str = "openapi-to-rust-bindings/upstream-metadata-v1-to-v3";
+pub const ADAPTER_ID: &str = "openapi-to-rust-bindings/upstream-metadata-v1-to-v4";
 pub const TEMPLATE_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -55,7 +55,7 @@ pub fn default_lock(pin: &str) -> BackendLock {
         repository: REPOSITORY.into(),
         revision: pin.into(),
         adapter: ADAPTER_ID.into(),
-        bindings_version: 3,
+        bindings_version: 4,
         config_version: 1,
         generated_layout: vec![
             "client.rs".into(),
@@ -76,7 +76,7 @@ pub fn verify_lock(lock: &BackendLock, default_pin: &str) -> Result<()> {
     if lock != &default_lock(default_pin) {
         return Err(err(
             "recipe.backend_contract",
-            "unsupported/migrated backend recipe; the pinned upstream driver requires exactly the recorded v1 layout, adapter v3, raw options and immutable default revision",
+            "unsupported/migrated backend recipe; the pinned upstream driver requires exactly the recorded v1 layout, adapter v4, raw options and immutable default revision",
         ));
     }
     Ok(())
