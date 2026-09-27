@@ -1968,13 +1968,7 @@ pub(crate) fn inspect_details(
     structural: &StructuralEvidence,
     semantic: &SemanticEvidence,
 ) -> Result<BTreeMap<String, OperationDetails>, Error> {
-    inspect_details_inner(
-        generated,
-        effective_openapi,
-        structural,
-        semantic,
-        true,
-    )
+    inspect_details_inner(generated, effective_openapi, structural, semantic, true)
 }
 
 pub(crate) fn inspect_metadata_backed_details(
@@ -1983,13 +1977,7 @@ pub(crate) fn inspect_metadata_backed_details(
     structural: &StructuralEvidence,
     semantic: &SemanticEvidence,
 ) -> Result<BTreeMap<String, OperationDetails>, Error> {
-    inspect_details_inner(
-        generated,
-        effective_openapi,
-        structural,
-        semantic,
-        false,
-    )
+    inspect_details_inner(generated, effective_openapi, structural, semantic, false)
 }
 
 #[cfg(test)]
