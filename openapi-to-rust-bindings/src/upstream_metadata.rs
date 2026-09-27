@@ -189,7 +189,11 @@ impl UpstreamMetadata {
                         format!("{} has an incomplete signature", symbol.path),
                     ));
                 }
-                let _ = (&signature.generics, signature.asynchronous, &signature.receiver);
+                let _ = (
+                    &signature.generics,
+                    signature.asynchronous,
+                    &signature.receiver,
+                );
             }
             let _ = (&symbol.generics, &symbol.impl_generics);
         }
@@ -249,10 +253,9 @@ impl UpstreamMetadata {
 
         for symbol in &self.symbols {
             let is_model = symbol.path.starts_with("types::");
-            let is_client_enum =
-                symbol.path.starts_with("client::")
-                    && symbol.kind == "enum"
-                    && referenced_client_enums.contains(&symbol.name);
+            let is_client_enum = symbol.path.starts_with("client::")
+                && symbol.kind == "enum"
+                && referenced_client_enums.contains(&symbol.name);
             if !is_model && !is_client_enum {
                 continue;
             }
@@ -273,7 +276,10 @@ impl UpstreamMetadata {
                         if base.is_some_and(|base| {
                             self.symbols.iter().any(|candidate| {
                                 candidate.path == format!("types::{base}")
-                                    && matches!(candidate.kind.as_str(), "struct" | "enum" | "alias")
+                                    && matches!(
+                                        candidate.kind.as_str(),
+                                        "struct" | "enum" | "alias"
+                                    )
                             })
                         }) {
                             continue;
@@ -416,15 +422,17 @@ impl UpstreamMetadata {
                     ),
                 ));
             }
-            let source = openapi.pointer(&operation.source_json_pointer).ok_or_else(|| {
-                failure(
-                    "metadata.source_pointer",
-                    format!(
-                        "{name}: source pointer {} is absent from the effective OpenAPI",
-                        operation.source_json_pointer
-                    ),
-                )
-            })?;
+            let source = openapi
+                .pointer(&operation.source_json_pointer)
+                .ok_or_else(|| {
+                    failure(
+                        "metadata.source_pointer",
+                        format!(
+                            "{name}: source pointer {} is absent from the effective OpenAPI",
+                            operation.source_json_pointer
+                        ),
+                    )
+                })?;
             let source_operation_id = operation
                 .source_operation_id
                 .as_deref()
@@ -445,17 +453,26 @@ impl UpstreamMetadata {
                 "json" => RepresentationEvidence::Json {
                     schema_name: success_type,
                     media_type: media_type.ok_or_else(|| {
-                        failure("metadata.response_media", format!("{name}: JSON media is missing"))
+                        failure(
+                            "metadata.response_media",
+                            format!("{name}: JSON media is missing"),
+                        )
                     })?,
                 },
                 "text" => RepresentationEvidence::Text {
                     media_type: media_type.ok_or_else(|| {
-                        failure("metadata.response_media", format!("{name}: text media is missing"))
+                        failure(
+                            "metadata.response_media",
+                            format!("{name}: text media is missing"),
+                        )
                     })?,
                 },
                 "binary" if operation.consumption == "binary_stream" => {
                     let media_type = media_type.ok_or_else(|| {
-                        failure("metadata.response_media", format!("{name}: binary media is missing"))
+                        failure(
+                            "metadata.response_media",
+                            format!("{name}: binary media is missing"),
+                        )
                     })?;
                     RepresentationEvidence::BinaryStream {
                         wildcard: media_type.contains('*'),
@@ -464,7 +481,10 @@ impl UpstreamMetadata {
                 }
                 "binary" => {
                     let media_type = media_type.ok_or_else(|| {
-                        failure("metadata.response_media", format!("{name}: binary media is missing"))
+                        failure(
+                            "metadata.response_media",
+                            format!("{name}: binary media is missing"),
+                        )
                     })?;
                     RepresentationEvidence::BinaryBuffered {
                         wildcard: media_type.contains('*'),
@@ -473,7 +493,10 @@ impl UpstreamMetadata {
                 }
                 "event_stream" => RepresentationEvidence::EventStream {
                     media_type: media_type.ok_or_else(|| {
-                        failure("metadata.response_media", format!("{name}: SSE media is missing"))
+                        failure(
+                            "metadata.response_media",
+                            format!("{name}: SSE media is missing"),
+                        )
                     })?,
                 },
                 "empty" => RepresentationEvidence::Empty,
@@ -517,10 +540,15 @@ impl UpstreamMetadata {
 
         let mut unmatched_source_operations = Vec::new();
         let Some(paths) = openapi.get("paths").and_then(Value::as_object) else {
-            return Err(failure("metadata.openapi_paths", "effective OpenAPI has no paths object"));
+            return Err(failure(
+                "metadata.openapi_paths",
+                "effective OpenAPI has no paths object",
+            ));
         };
         for (path, item) in paths {
-            let Some(item) = item.as_object() else { continue };
+            let Some(item) = item.as_object() else {
+                continue;
+            };
             for (method, operation) in item {
                 if !matches!(
                     method.as_str(),
@@ -528,10 +556,15 @@ impl UpstreamMetadata {
                 ) {
                     continue;
                 }
-                let Some(operation_id) = operation.get("operationId").and_then(Value::as_str) else {
+                let Some(operation_id) = operation.get("operationId").and_then(Value::as_str)
+                else {
                     return Err(failure(
                         "metadata.source_operation_id",
-                        format!("{} {} has no operationId", method.to_ascii_uppercase(), path),
+                        format!(
+                            "{} {} has no operationId",
+                            method.to_ascii_uppercase(),
+                            path
+                        ),
                     ));
                 };
                 let identity = SourceOperationEvidence {
@@ -585,12 +618,7 @@ impl UpstreamMetadata {
                     format!("{name}: parameter count disagrees with generated Rust"),
                 ));
             }
-            for (metadata, actual) in operation
-                .signature
-                .arguments
-                .iter()
-                .zip(&method.parameters)
-            {
+            for (metadata, actual) in operation.signature.arguments.iter().zip(&method.parameters) {
                 if metadata.name != actual.name
                     || canonical_rust_type(&metadata.rust_type)?
                         != canonical_rust_type(&actual.rust_type)?
@@ -616,7 +644,10 @@ fn success_type(return_type: &str) -> Result<String, Error> {
         ));
     };
     let segment = path.path.segments.last().ok_or_else(|| {
-        failure("metadata.return_type", format!("empty return path {return_type}"))
+        failure(
+            "metadata.return_type",
+            format!("empty return path {return_type}"),
+        )
     })?;
     if segment.ident != "Result" {
         return Err(failure(
