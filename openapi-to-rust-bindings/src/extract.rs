@@ -418,7 +418,6 @@ pub fn extract_bindings(
     .map_err(|error| extraction_error("extract.canonical_bindings_invalid", error))
 }
 
-
 /// Explicit historical/source-inspection path retained for adapter proof tests.
 /// Production generation uses upstream bindings metadata through `extract_bindings`.
 pub fn extract_bindings_from_rust(
