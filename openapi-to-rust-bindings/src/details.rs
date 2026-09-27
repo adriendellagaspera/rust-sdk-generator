@@ -15,13 +15,23 @@ use syn::{
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct StreamAbiEvidence {
-    pub alias: String,
+pub(crate) enum StreamTransportEvidence {
+    NamedAlias {
+        alias: String,
+        native_type: String,
+        wasm_type: String,
+    },
+    AnonymousImplTrait {
+        rust_type: String,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct StreamEvidence {
     pub item_type: String,
     pub error_type: String,
     pub lifetime: String,
-    pub native_type: String,
-    pub wasm_type: String,
+    pub transport: StreamTransportEvidence,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -52,7 +62,7 @@ pub(crate) struct ParameterWireEvidence {
 pub(crate) struct OperationDetails {
     pub parameter_wires: Vec<ParameterWireEvidence>,
     pub kind: OperationKindEvidence,
-    pub stream: Option<StreamAbiEvidence>,
+    pub stream: Option<StreamEvidence>,
     pub request_discriminators: Vec<RequestDiscriminatorEvidence>,
     pub request_discriminator_unproven: bool,
 }
@@ -143,65 +153,192 @@ fn stream_parts(rust_type: &str, outer: &str) -> Result<(String, String, String)
     Ok((tokens(item), tokens(error), tokens(lifetime)))
 }
 
-fn stream_abi(
-    structural: &StructuralEvidence,
-    success_type: &str,
-) -> Result<Option<StreamAbiEvidence>, Error> {
-    let alias = compact(success_type);
-    let path = format!("crate::generated::client::{alias}");
-    let Some(definitions) = structural.aliases.get(&path) else {
+fn anonymous_stream_parts(
+    rust_type: &str,
+) -> Result<Option<(String, String, String)>, Error> {
+    let parsed: Type =
+        syn::parse_str(rust_type).map_err(|error| failure("extract.stream_abi_unproven", error))?;
+    let Type::ImplTrait(opaque) = parsed else {
         return Ok(None);
     };
-    if definitions.len() != 2 {
-        return Err(failure(
-            "extract.stream_abi_unproven",
-            format!("{path} must have exactly native and wasm definitions"),
-        ));
-    }
-    let mut native = None;
-    let mut wasm = None;
-    for definition in definitions {
-        match cfg_kind(definition) {
-            Some("native") if native.is_none() => native = Some(definition),
-            Some("wasm") if wasm.is_none() => wasm = Some(definition),
-            _ => {
-                return Err(failure(
-                    "extract.stream_abi_unproven",
-                    format!("{path} has ambiguous cfg variants"),
-                ));
+
+    let mut item_error = None;
+    let mut static_lifetime = false;
+    let mut precise_capture = false;
+    for bound in &opaque.bounds {
+        match bound {
+            syn::TypeParamBound::Lifetime(lifetime) if lifetime.ident == "static" => {
+                static_lifetime = true;
             }
+            syn::TypeParamBound::Trait(trait_bound) => {
+                let Some(segment) = trait_bound.path.segments.last() else {
+                    continue;
+                };
+                if segment.ident != "Stream" {
+                    continue;
+                }
+                let PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+                    return Err(failure(
+                        "extract.stream_abi_unproven",
+                        "Stream bound has no associated Item",
+                    ));
+                };
+                for argument in &arguments.args {
+                    let GenericArgument::AssocType(assoc) = argument else {
+                        continue;
+                    };
+                    if assoc.ident != "Item" {
+                        continue;
+                    }
+                    let Type::Path(result) = &assoc.ty else {
+                        return Err(failure(
+                            "extract.stream_abi_unproven",
+                            "stream Item is not Result",
+                        ));
+                    };
+                    let segment = result.path.segments.last().ok_or_else(|| {
+                        failure("extract.stream_abi_unproven", "stream Item has no path")
+                    })?;
+                    if segment.ident != "Result" {
+                        return Err(failure(
+                            "extract.stream_abi_unproven",
+                            "stream Item is not Result",
+                        ));
+                    }
+                    let PathArguments::AngleBracketed(result_args) = &segment.arguments else {
+                        return Err(failure(
+                            "extract.stream_abi_unproven",
+                            "stream Result has no arguments",
+                        ));
+                    };
+                    let mut result_args = result_args.args.iter();
+                    let Some(GenericArgument::Type(item)) = result_args.next() else {
+                        return Err(failure(
+                            "extract.stream_abi_unproven",
+                            "stream Result item type is missing",
+                        ));
+                    };
+                    let Some(GenericArgument::Type(error)) = result_args.next() else {
+                        return Err(failure(
+                            "extract.stream_abi_unproven",
+                            "stream Result error type is missing",
+                        ));
+                    };
+                    if result_args.next().is_some() {
+                        return Err(failure(
+                            "extract.stream_abi_unproven",
+                            "stream Result has unexpected arguments",
+                        ));
+                    }
+                    item_error = Some((tokens(item), tokens(error)));
+                }
+            }
+            _ => {}
+        }
+        if compact(&tokens(bound)).starts_with("use<") {
+            precise_capture = true;
         }
     }
-    let native =
-        native.ok_or_else(|| failure("extract.stream_abi_unproven", "native alias missing"))?;
-    let wasm = wasm.ok_or_else(|| failure("extract.stream_abi_unproven", "wasm alias missing"))?;
-    let native_parts = stream_parts(&native.rust_type, "BoxStream")?;
-    let wasm_parts = stream_parts(&wasm.rust_type, "LocalBoxStream")?;
-    if native_parts != wasm_parts {
+
+    let Some((item, error)) = item_error else {
         return Err(failure(
             "extract.stream_abi_unproven",
-            format!("{path} native and wasm item ABI disagree"),
+            "anonymous stream has no Stream<Item = Result<...>> bound",
         ));
+    };
+    if !static_lifetime || !precise_capture {
+        return Ok(None);
     }
-    let item_type = canonical_rust_type(&native_parts.0)?;
-    let error_type = canonical_rust_type(&native_parts.1)?;
-    if item_type != "bytes::Bytes" || error_type != "reqwest::Error" || native_parts.2 != "'static"
-    {
+    Ok(Some((
+        canonical_rust_type(&item)?,
+        canonical_rust_type(&error)?,
+        "'static".into(),
+    )))
+}
+
+fn stream_evidence(
+    structural: &StructuralEvidence,
+    success_type: &str,
+) -> Result<Option<StreamEvidence>, Error> {
+    let alias = compact(success_type);
+    let path = format!("crate::generated::client::{alias}");
+    if let Some(definitions) = structural.aliases.get(&path) {
+        if definitions.len() != 2 {
+            return Err(failure(
+                "extract.stream_abi_unproven",
+                format!("{path} must have exactly native and wasm definitions"),
+            ));
+        }
+        let mut native = None;
+        let mut wasm = None;
+        for definition in definitions {
+            match cfg_kind(definition) {
+                Some("native") if native.is_none() => native = Some(definition),
+                Some("wasm") if wasm.is_none() => wasm = Some(definition),
+                _ => {
+                    return Err(failure(
+                        "extract.stream_abi_unproven",
+                        format!("{path} has ambiguous cfg variants"),
+                    ));
+                }
+            }
+        }
+        let native =
+            native.ok_or_else(|| failure("extract.stream_abi_unproven", "native alias missing"))?;
+        let wasm =
+            wasm.ok_or_else(|| failure("extract.stream_abi_unproven", "wasm alias missing"))?;
+        let native_parts = stream_parts(&native.rust_type, "BoxStream")?;
+        let wasm_parts = stream_parts(&wasm.rust_type, "LocalBoxStream")?;
+        if native_parts != wasm_parts {
+            return Err(failure(
+                "extract.stream_abi_unproven",
+                format!("{path} native and wasm item ABI disagree"),
+            ));
+        }
+        let item_type = canonical_rust_type(&native_parts.0)?;
+        let error_type = canonical_rust_type(&native_parts.1)?;
+        if item_type != "bytes::Bytes"
+            || error_type != "reqwest::Error"
+            || native_parts.2 != "'static"
+        {
+            return Err(failure(
+                "extract.stream_abi_unproven",
+                format!(
+                    "{path} must be an owned 'static Result<bytes::Bytes, reqwest::Error> stream, got lifetime {}, item {}, error {}",
+                    native_parts.2, item_type, error_type
+                ),
+            ));
+        }
+        return Ok(Some(StreamEvidence {
+            item_type,
+            error_type,
+            lifetime: native_parts.2,
+            transport: StreamTransportEvidence::NamedAlias {
+                alias,
+                native_type: canonical_rust_type(&native.rust_type)?,
+                wasm_type: canonical_rust_type(&wasm.rust_type)?,
+            },
+        }));
+    }
+
+    let Some((item_type, error_type, lifetime)) = anonymous_stream_parts(success_type)? else {
+        return Ok(None);
+    };
+    if item_type != "bytes::Bytes" || error_type != "reqwest::Error" {
         return Err(failure(
             "extract.stream_abi_unproven",
             format!(
-                "{path} must be an owned 'static Result<bytes::Bytes, reqwest::Error> stream, got lifetime {}, item {}, error {}",
-                native_parts.2, item_type, error_type
+                "anonymous stream must yield Result<bytes::Bytes, reqwest::Error>, got item {item_type}, error {error_type}"
             ),
         ));
     }
-    Ok(Some(StreamAbiEvidence {
-        alias,
+    Ok(Some(StreamEvidence {
         item_type,
         error_type,
-        lifetime: native_parts.2,
-        native_type: canonical_rust_type(&native.rust_type)?,
-        wasm_type: canonical_rust_type(&wasm.rust_type)?,
+        lifetime,
+        transport: StreamTransportEvidence::AnonymousImplTrait {
+            rust_type: canonical_rust_type(success_type)?,
+        },
     }))
 }
 
@@ -1917,7 +2054,7 @@ fn inspect_details_inner(
                     format!("{name} has no success type"),
                 )
             })?;
-            stream_abi(structural, success_type).map_err(|error| {
+            stream_evidence(structural, success_type).map_err(|error| {
                 failure("extract.stream_abi_unproven", format!("{name}: {error}"))
             })?
         } else {
