@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed production compatibility at the manifest-free upstream boundary."""
+"""Fail-closed production compatibility at the metadata-backed upstream boundary."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from typing import Any
 
@@ -1094,6 +1095,8 @@ def main() -> int:
         args.update_data.write_text(
             json.dumps(report["pin_update"], indent=2, sort_keys=True) + "\n"
         )
+    if not report["compatible"]:
+        print(json.dumps(report, indent=2, sort_keys=True), file=sys.stderr)
     return 0 if report["compatible"] else 1
 
 
