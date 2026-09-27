@@ -1,8 +1,8 @@
 //! Canonical Bindings v4 normalization from proved structural + semantic
 //! evidence. The CLI uses this as its default; the legacy metadata reader is explicit.
 use crate::details::{
-    OperationKindEvidence, StreamTransportEvidence, inspect_details, inspect_metadata_backed_details,
-    prove_client_layout,
+    OperationKindEvidence, StreamTransportEvidence, inspect_details,
+    inspect_metadata_backed_details, prove_client_layout,
 };
 use crate::rust_type::canonical_rust_type;
 use crate::semantic::{RepresentationEvidence, inspect_semantics};
