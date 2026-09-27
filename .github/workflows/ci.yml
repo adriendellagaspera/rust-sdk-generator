@@ -190,7 +190,7 @@ jobs:
           CARGO_TARGET_DIR="$RUNNER_TEMP/production-backend-target"             cargo build --locked --release             --manifest-path "$RUNNER_TEMP/production-backend/Cargo.toml"             --bin openapi-to-rust
       - name: Run fail-closed adapter regressions
         run: cargo test --locked -p openapi-to-rust-bindings --test semantic
-      - name: Exercise production manifest-free compatibility gate
+      - name: Exercise production metadata-backed compatibility gate
         shell: bash
         run: |
           python3 openapi-to-rust-bindings/scripts/check_production_compat.py             --repo-root "$PWD"             --baseline-generator "$RUNNER_TEMP/production-backend-target/release/openapi-to-rust"             --candidate-generator "$RUNNER_TEMP/production-backend-target/release/openapi-to-rust"             --baseline-commit "$BACKEND_COMMIT"             --candidate-commit "$BACKEND_COMMIT"             --adapter target/debug/openapi-to-rust-bindings             --root-generator target/debug/rust-sdk-generator             --report-json "$RUNNER_TEMP/ci-production-compatibility.json"             --report-md "$RUNNER_TEMP/ci-production-compatibility.md"
