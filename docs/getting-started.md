@@ -11,7 +11,7 @@ cargo run --locked --example independent-sdk-quickstart
 
 This **native Rust** example checks out the exact raw-backend commit from
 [`DEFAULT_BACKEND.json`](../openapi-to-rust-bindings/DEFAULT_BACKEND.json),
-builds the raw backend, adapter and generator from locked Cargo dependencies,
+builds the raw backend, compatibility shim and generator from locked Cargo dependencies,
 then runs the entire generation pipeline twice and compares its output
 byte-for-byte. Finally it compiles a standalone consumer crate and runs its
 local HTTP mock tests. The same command runs in the `independent-sdk` CI job;
@@ -87,7 +87,7 @@ and records backend configuration and consumer ownership in a versioned recipe.
 The explicit lower-level integration path below remains available for
 consumers that need more control. The versioned
 `examples/independent-sdk/upstream.toml` records this fixture's exact
-options. Supply the same **effective** OpenAPI JSON to the adapter and root
+options. Supply the same **effective** OpenAPI JSON to the compatibility shim and root
 `derive`/`generate`; if a producer applies transformations or overlays,
 use its resulting effective document, not the original source.
 
