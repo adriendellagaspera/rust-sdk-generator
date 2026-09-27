@@ -2,8 +2,9 @@
 //!
 //! The producer collects this artifact from the same AST and client method plans
 //! used to render Rust. Generated-source inspection remains a complementary
-//! proof for details metadata v1 does not expose yet (wire parameter mapping,
-//! request discriminator assignments and stream ownership).
+//! proof only for invocation details metadata v1 does not expose yet (wire
+//! parameter mappings, fixed request effects and client construction roles).
+use crate::Error;
 use crate::rust_type::canonical_rust_type;
 use crate::semantic::{
     OperationSemanticEvidence, RepresentationEvidence, SemanticEvidence, SourceOperationEvidence,
@@ -12,7 +13,6 @@ use crate::structural::{
     AliasEvidence, ClientEvidence, EvidenceLocation, FieldEvidence, MethodEvidence,
     ParameterEvidence, StructEvidence, StructuralEvidence,
 };
-use crate::Error;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -329,28 +329,26 @@ impl UpstreamMetadata {
                     continue;
                 };
                 let path = format!("crate::generated::{}", symbol.path);
-                aliases.entry(path.clone()).or_default().push(AliasEvidence {
-                    path,
-                    rust_type,
-                    cfg: symbol
-                        .attributes
-                        .iter()
-                        .filter(|attribute| attribute.replace(' ', "").starts_with("#[cfg("))
-                        .cloned()
-                        .collect(),
-                    location: location(
-                        symbol.path.split("::").next().unwrap_or("generated"),
-                    ),
-                });
+                aliases
+                    .entry(path.clone())
+                    .or_default()
+                    .push(AliasEvidence {
+                        path,
+                        rust_type,
+                        cfg: symbol
+                            .attributes
+                            .iter()
+                            .filter(|attribute| attribute.replace(' ', "").starts_with("#[cfg("))
+                            .cloned()
+                            .collect(),
+                        location: location(symbol.path.split("::").next().unwrap_or("generated")),
+                    });
             }
 
             if symbol.kind != "method" {
                 continue;
             }
-            let Some(owner) = symbol
-                .path
-                .strip_suffix(&format!("::{}", symbol.name))
-            else {
+            let Some(owner) = symbol.path.strip_suffix(&format!("::{}", symbol.name)) else {
                 continue;
             };
             if owner != client_owner {
@@ -766,8 +764,6 @@ impl UpstreamMetadata {
             unmatched_source_operations,
         })
     }
-
-
 }
 
 fn status_selector_matches_exact(selector: &str, exact: &str) -> bool {

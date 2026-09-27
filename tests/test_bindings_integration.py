@@ -1,4 +1,3 @@
-import json
 import os
 from pathlib import Path
 import subprocess
@@ -11,13 +10,7 @@ GENERATOR_FIXTURE = ROOT / "tests" / "fixtures" / "menagerie"
 BINDINGS_FIXTURE = (
     ROOT / "openapi-to-rust-bindings" / "tests" / "fixtures" / "menagerie"
 )
-GENERATOR = Path(
-    os.environ.get(
-        "RUST_SDK_GENERATOR_BIN",
-        ROOT / "target" / "debug" / "rust-sdk-generator",
-    )
-)
-BINDINGS_ADAPTER = Path(
+BINDINGS_SHIM = Path(
     os.environ.get(
         "OPENAPI_TO_RUST_BINDINGS_BIN",
         ROOT / "target" / "debug" / "openapi-to-rust-bindings",
@@ -26,78 +19,7 @@ BINDINGS_ADAPTER = Path(
 
 
 class BindingsIntegrationTests(unittest.TestCase):
-    def test_historical_manifest_oracle_drives_rust_cli_deterministically(self):
-        parsed_process = subprocess.run(
-            [str(BINDINGS_ADAPTER), "--legacy-metadata", str(BINDINGS_FIXTURE)],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(parsed_process.returncode, 0, parsed_process.stderr)
-        parsed = json.loads(parsed_process.stdout)
-        self.assertEqual(parsed["schema_version"], 3)
-        self.assertEqual(
-            parsed["operations"]["adopt"]["metadata"]["source_operation"],
-            {"operation_id": "adopt", "method": "POST", "path": "/animals"},
-        )
-
-        common = json.loads(json.dumps(parsed))
-        common["schema_version"] = 2
-        for fields in common["structs"].values():
-            for field in fields:
-                field.pop("wire_name", None)
-        for operation in common["operations"].values():
-            operation.pop("metadata", None)
-
-        expected = json.loads((GENERATOR_FIXTURE / "rust-bindings.json").read_text())
-        for operation in expected["operations"].values():
-            operation.setdefault("stream", None)
-        self.assertEqual(common, expected)
-
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            bindings = root / "rust-bindings.json"
-            bindings.write_text(json.dumps(parsed, sort_keys=True))
-
-            snapshots = []
-            inventories = []
-            for name in ("first", "second"):
-                output = root / name
-                result = subprocess.run(
-                    [
-                        str(GENERATOR),
-                        "generate",
-                        "--openapi",
-                        str(GENERATOR_FIXTURE / "openapi.json"),
-                        "--bindings",
-                        str(bindings),
-                        "--definition",
-                        str(GENERATOR_FIXTURE / "policy.json"),
-                        "--output",
-                        str(output),
-                    ],
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                )
-                self.assertEqual(result.returncode, 0, result.stderr)
-                inventories.append(json.loads(result.stdout))
-                snapshots.append(
-                    {
-                        path.relative_to(output).as_posix(): path.read_text()
-                        for path in sorted(output.rglob("*"))
-                        if path.is_file()
-                    }
-                )
-
-            self.assertEqual(inventories[0], inventories[1])
-            self.assertEqual(snapshots[0], snapshots[1])
-            self.assertEqual(
-                set(snapshots[0]), {"facade_types.rs", "zoo.rs", "mod.rs"}
-            )
-            self.assertIn("pub async fn adopt", snapshots[0]["zoo.rs"])
-
-    def test_default_requires_effective_openapi_and_never_reads_legacy_metadata(self):
+    def test_shim_requires_effective_openapi_and_never_reads_legacy_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
             raw = Path(directory)
             (raw / "binding-manifest.json").write_text(
@@ -106,16 +28,36 @@ class BindingsIntegrationTests(unittest.TestCase):
             (raw / "rust-bindings.json").write_text(
                 (BINDINGS_FIXTURE / "rust-bindings.json").read_text()
             )
+
             missing = subprocess.run(
-                [str(BINDINGS_ADAPTER), str(raw)],
-                check=False, capture_output=True, text=True,
+                [str(BINDINGS_SHIM), str(raw)],
+                check=False,
+                capture_output=True,
+                text=True,
             )
             self.assertNotEqual(missing.returncode, 0)
             self.assertIn("adapter.input.effective_openapi_required", missing.stderr)
             self.assertFalse(missing.stdout)
+
+            legacy_flag = subprocess.run(
+                [str(BINDINGS_SHIM), "--legacy-metadata", str(raw)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(legacy_flag.returncode, 0)
+            self.assertIn("usage:", legacy_flag.stderr)
+            self.assertFalse(legacy_flag.stdout)
+
             invalid = subprocess.run(
-                [str(BINDINGS_ADAPTER), str(raw), str(GENERATOR_FIXTURE / "openapi.json")],
-                check=False, capture_output=True, text=True,
+                [
+                    str(BINDINGS_SHIM),
+                    str(raw),
+                    str(GENERATOR_FIXTURE / "openapi.json"),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
             )
             self.assertNotEqual(invalid.returncode, 0)
             self.assertIn("adapter.extract:", invalid.stderr)

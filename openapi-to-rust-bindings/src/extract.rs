@@ -23,14 +23,24 @@ fn representation_json(value: &RepresentationEvidence) -> Result<Value, Error> {
 }
 
 fn client_layout(structural: &StructuralEvidence) -> Result<Value, Error> {
-    if !structural.client.constructors.iter().any(|name| name == "new") {
+    if !structural
+        .client
+        .constructors
+        .iter()
+        .any(|name| name == "new")
+    {
         return Err(extraction_error(
             "extract.client_layout_unproven",
             "openapi-to-rust client has no public new constructor",
         ));
     }
     for required in ["with_api_key", "with_base_url"] {
-        if !structural.client.builders.iter().any(|name| name == required) {
+        if !structural
+            .client
+            .builders
+            .iter()
+            .any(|name| name == required)
+        {
             return Err(extraction_error(
                 "extract.client_layout_unproven",
                 format!("openapi-to-rust client has no {required} builder"),
