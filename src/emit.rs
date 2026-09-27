@@ -511,6 +511,14 @@ fn emit_sse_union_raw(stream: &StreamPolicy) -> Option<String> {
     ))
 }
 
+fn emit_parameter_constructor_value(field_name: &str, value: Option<&str>) -> String {
+    match value {
+        None => format!("{field_name}: None"),
+        Some(value) if value == field_name => field_name.to_owned(),
+        Some(value) => format!("{field_name}: {value}"),
+    }
+}
+
 fn emit_parameter_request(operation: &OperationSpec) -> String {
     let Some(request) = &operation.parameter_request else {
         return String::new();
@@ -529,10 +537,7 @@ fn emit_parameter_request(operation: &OperationSpec) -> String {
         .fields
         .iter()
         .map(|field| {
-            field.constructor_value.as_ref().map_or_else(
-                || format!("{}: None", field.name),
-                |value| format!("{}: {value}", field.name),
-            )
+            emit_parameter_constructor_value(&field.name, field.constructor_value.as_deref())
         })
         .collect::<Vec<_>>();
     let setters = request
@@ -908,6 +913,27 @@ pub(crate) fn emit(
         );
     }
     Ok(files)
+}
+
+#[cfg(test)]
+mod parameter_request_tests {
+    use super::emit_parameter_constructor_value;
+
+    #[test]
+    fn constructor_uses_shorthand_only_for_identity_values() {
+        assert_eq!(
+            emit_parameter_constructor_value("start_time", Some("start_time")),
+            "start_time"
+        );
+        assert_eq!(
+            emit_parameter_constructor_value("workspace_id", None),
+            "workspace_id: None"
+        );
+        assert_eq!(
+            emit_parameter_constructor_value("name", Some("name.into()")),
+            "name: name.into()"
+        );
+    }
 }
 
 #[cfg(test)]
