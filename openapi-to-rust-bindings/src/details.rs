@@ -153,9 +153,7 @@ fn stream_parts(rust_type: &str, outer: &str) -> Result<(String, String, String)
     Ok((tokens(item), tokens(error), tokens(lifetime)))
 }
 
-fn anonymous_stream_parts(
-    rust_type: &str,
-) -> Result<Option<(String, String, String)>, Error> {
+fn anonymous_stream_parts(rust_type: &str) -> Result<Option<(String, String, String)>, Error> {
     let parsed: Type =
         syn::parse_str(rust_type).map_err(|error| failure("extract.stream_abi_unproven", error))?;
     let Type::ImplTrait(opaque) = parsed else {
