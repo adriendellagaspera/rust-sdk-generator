@@ -397,6 +397,7 @@ impl HttpClient {
 #[test]
 fn anonymous_static_stream_with_precise_capture_normalizes_to_bindings_v4() {
     const STREAM_CLIENT: &str = r#"
+use super::types::*;
 pub struct HttpClient {
     base_url: String,
     api_key: Option<String>,
