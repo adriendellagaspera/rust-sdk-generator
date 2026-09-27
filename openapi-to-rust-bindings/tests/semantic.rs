@@ -1223,10 +1223,21 @@ fn owned_native_and_wasm_stream_aliases_are_proved_exactly() {
     let root = stream_alias_fixture(NATIVE_STREAM, Some(WASM_STREAM));
     let bindings = extract_bindings_from_rust(root.path(), root.path().join("openapi.json"))
         .expect("owned cross-target byte stream ABI");
-    let stream = &bindings.as_value()["operations"]["events"]["stream"];
+    let value = bindings.as_value();
+    assert_eq!(value["schema_version"], 4);
+    let stream = &value["operations"]["events"]["stream"];
     assert_eq!(stream["item_type"], "bytes::Bytes");
     assert_eq!(stream["error_type"], "reqwest::Error");
     assert_eq!(stream["lifetime"], "'static");
+    assert_eq!(
+        value["operations"]["events"]["metadata"]["stream_transport"],
+        serde_json::json!({
+            "kind": "named_alias",
+            "alias": "HttpResponseByteStream",
+            "native_type": NATIVE_STREAM,
+            "wasm_type": WASM_STREAM
+        })
+    );
 }
 
 #[test]
