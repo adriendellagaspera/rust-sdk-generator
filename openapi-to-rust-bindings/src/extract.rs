@@ -123,9 +123,6 @@ pub fn extract_bindings(
             continue;
         }
 
-        // Operation kind is already producer-owned metadata. Keep the residual
-        // detail read until the source-only kind probe is removed from details.rs.
-        let _ = &detail.kind;
         let kind = if metadata_operation.operation.multipart_filenames {
             "multipart_filenames"
         } else {
