@@ -481,7 +481,7 @@ fn source_has_sse_success(operation: &OpenApiOperation) -> bool {
         })
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct StatusCondition {
     broad: bool,
     exact: BTreeSet<String>,
@@ -578,7 +578,7 @@ fn top_level_status_guard(block: &syn::Block) -> Result<Vec<String>, Error> {
         return Err(semantic_error(
             "extract.success_statuses_unproven",
             format!(
-                "expected one top-level generated success guard, found {}",
+                "expected one top-level generated success guard, found {}: {candidates:?}",
                 candidates.len()
             ),
         ));
