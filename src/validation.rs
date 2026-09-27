@@ -245,9 +245,7 @@ impl Bindings {
                         3 => {
                             if metadata.stream_transport.is_some() {
                                 return Err(invalid(
-                                    format!(
-                                        "bindings.operations.{key}.metadata.stream_transport"
-                                    ),
+                                    format!("bindings.operations.{key}.metadata.stream_transport"),
                                     "Bindings v3 cannot contain a v4 stream transport",
                                 ));
                             }
@@ -274,9 +272,7 @@ impl Bindings {
                                     })?;
                                 }
                                 require_nonempty(
-                                    &format!(
-                                        "bindings.operations.{key}.metadata.stream_abi.alias"
-                                    ),
+                                    &format!("bindings.operations.{key}.metadata.stream_abi.alias"),
                                     &abi.alias,
                                 )?;
                                 require_nonempty(
@@ -292,9 +288,7 @@ impl Bindings {
                                     || stream.lifetime != abi.lifetime
                                 {
                                     return Err(invalid(
-                                        format!(
-                                            "bindings.operations.{key}.metadata.stream_abi"
-                                        ),
+                                        format!("bindings.operations.{key}.metadata.stream_abi"),
                                         "stream ABI common view disagrees with operation.stream",
                                     ));
                                 }
@@ -925,8 +919,7 @@ mod tests {
                 "type_preludes": []
             }
         });
-        let bindings: Bindings =
-            serde_json::from_value(value).expect("deserialize Bindings v4");
+        let bindings: Bindings = serde_json::from_value(value).expect("deserialize Bindings v4");
         bindings.validate().expect("valid anonymous v4 stream");
     }
 
@@ -984,20 +977,18 @@ mod tests {
                 "type_preludes": []
             }
         });
-        let mixed_v4 = serde_json::from_value::<Bindings>(value.clone())
-            .expect("deserialize mixed v4");
+        let mixed_v4 =
+            serde_json::from_value::<Bindings>(value.clone()).expect("deserialize mixed v4");
         assert!(mixed_v4.validate().is_err());
 
         value["schema_version"] = serde_json::json!(3);
-        value["operations"]["events"]["metadata"]["stream_transport"] =
-            serde_json::json!({
-                "kind": "named_alias",
-                "alias": "HttpResponseByteStream",
-                "native_type": "futures_util::stream::BoxStream<'static, Result<bytes::Bytes, reqwest::Error>>",
-                "wasm_type": "futures_util::stream::LocalBoxStream<'static, Result<bytes::Bytes, reqwest::Error>>"
-            });
-        let mixed_v3 = serde_json::from_value::<Bindings>(value)
-            .expect("deserialize mixed v3");
+        value["operations"]["events"]["metadata"]["stream_transport"] = serde_json::json!({
+            "kind": "named_alias",
+            "alias": "HttpResponseByteStream",
+            "native_type": "futures_util::stream::BoxStream<'static, Result<bytes::Bytes, reqwest::Error>>",
+            "wasm_type": "futures_util::stream::LocalBoxStream<'static, Result<bytes::Bytes, reqwest::Error>>"
+        });
+        let mixed_v3 = serde_json::from_value::<Bindings>(value).expect("deserialize mixed v3");
         assert!(mixed_v3.validate().is_err());
     }
 
