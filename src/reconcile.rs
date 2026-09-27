@@ -390,11 +390,11 @@ fn selected_success_responses<'a>(
     }
     let expected: BTreeSet<_> = statuses.iter().map(String::as_str).collect();
     if expected.len() != statuses.len()
-        || expected
-            .iter()
-            .any(|selector| !success.iter().any(|(source, _)| {
-                status_selector_matches_source(selector, source)
-            }))
+        || expected.iter().any(|selector| {
+            !success
+                .iter()
+                .any(|(source, _)| status_selector_matches_source(selector, source))
+        })
     {
         return None;
     }
@@ -1852,7 +1852,6 @@ mod tests {
     }
 }
 
-
 #[cfg(test)]
 mod status_selector_tests {
     use super::selected_success_responses;
@@ -1866,13 +1865,11 @@ mod status_selector_tests {
                 "400": {"description": "bad"}
             }
         });
-        let exact = selected_success_responses(&operation, &["201".into()])
-            .expect("exact success");
+        let exact = selected_success_responses(&operation, &["201".into()]).expect("exact success");
         assert_eq!(exact.len(), 1);
         assert_eq!(exact[0].0.as_str(), "201");
 
-        let class = selected_success_responses(&operation, &["2XX".into()])
-            .expect("class success");
+        let class = selected_success_responses(&operation, &["2XX".into()]).expect("class success");
         assert_eq!(class.len(), 2);
         assert!(class.iter().all(|(status, _)| status.starts_with('2')));
     }
