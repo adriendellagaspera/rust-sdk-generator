@@ -516,10 +516,7 @@ fn validate_metadata(
                 )));
             }
             if streaming {
-                validate_stream_transport(
-                    transport,
-                    &format!("{context}.stream_transport"),
-                )?;
+                validate_stream_transport(transport, &format!("{context}.stream_transport"))?;
             }
         }
         _ => unreachable!("validated metadata version"),
