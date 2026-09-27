@@ -1869,11 +1869,12 @@ fn client_methods<'a>(
     Ok(methods)
 }
 
-pub(crate) fn inspect_details(
+fn inspect_details_inner(
     generated: impl AsRef<Path>,
     effective_openapi: impl AsRef<Path>,
     structural: &StructuralEvidence,
     semantic: &SemanticEvidence,
+    prove_operation_kind: bool,
 ) -> Result<BTreeMap<String, OperationDetails>, Error> {
     let generated = generated.as_ref();
     let client_path = generated.join("client.rs");
@@ -1941,13 +1942,17 @@ pub(crate) fn inspect_details(
                     &operation.source_operation.method,
                     &operation.source_operation.path,
                 ),
-                kind: multipart_kind(
-                    method,
-                    signature,
-                    &openapi,
-                    &operation.source_operation.method,
-                    &operation.source_operation.path,
-                )?,
+                kind: if prove_operation_kind {
+                    multipart_kind(
+                        method,
+                        signature,
+                        &openapi,
+                        &operation.source_operation.method,
+                        &operation.source_operation.path,
+                    )?
+                } else {
+                    OperationKindEvidence::CallShape
+                },
                 stream,
                 request_discriminators,
                 request_discriminator_unproven,
@@ -1955,6 +1960,36 @@ pub(crate) fn inspect_details(
         );
     }
     Ok(output)
+}
+
+pub(crate) fn inspect_details(
+    generated: impl AsRef<Path>,
+    effective_openapi: impl AsRef<Path>,
+    structural: &StructuralEvidence,
+    semantic: &SemanticEvidence,
+) -> Result<BTreeMap<String, OperationDetails>, Error> {
+    inspect_details_inner(
+        generated,
+        effective_openapi,
+        structural,
+        semantic,
+        true,
+    )
+}
+
+pub(crate) fn inspect_metadata_backed_details(
+    generated: impl AsRef<Path>,
+    effective_openapi: impl AsRef<Path>,
+    structural: &StructuralEvidence,
+    semantic: &SemanticEvidence,
+) -> Result<BTreeMap<String, OperationDetails>, Error> {
+    inspect_details_inner(
+        generated,
+        effective_openapi,
+        structural,
+        semantic,
+        false,
+    )
 }
 
 #[cfg(test)]
