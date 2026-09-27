@@ -782,17 +782,6 @@ fn status_selector_matches_exact(selector: &str, exact: &str) -> bool {
         .all(|(selected, actual)| selected.eq_ignore_ascii_case(&b'X') || selected == actual)
 }
 
-fn equivalent_type_spelling(left: &str, right: &str) -> bool {
-    fn normalize(value: &str) -> String {
-        let mut value = value.to_owned();
-        while value.contains(",>") {
-            value = value.replace(",>", ">");
-        }
-        value
-    }
-    normalize(left) == normalize(right)
-}
-
 fn success_type(return_type: &str) -> Result<String, Error> {
     let parsed: Type = syn::parse_str(return_type)
         .map_err(|error| failure("metadata.return_type", format!("{return_type:?}: {error}")))?;
