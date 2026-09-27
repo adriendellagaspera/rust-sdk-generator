@@ -13,7 +13,9 @@
             "name": "id",
             "in": "path",
             "required": true,
-            "schema": {"type": "string"}
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -21,7 +23,9 @@
             "description": "Inventory",
             "content": {
               "application/json": {
-                "schema": {"$ref": "#/components/schemas/Inventory"}
+                "schema": {
+                  "$ref": "#/components/schemas/Inventory"
+                }
               }
             }
           }
@@ -34,11 +38,15 @@
             "name": "id",
             "in": "path",
             "required": true,
-            "schema": {"type": "string"}
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
-          "204": {"description": "Deleted"}
+          "204": {
+            "description": "Deleted"
+          }
         }
       }
     },
@@ -49,19 +57,20 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": {"$ref": "#/components/schemas/Inventory"}
+              "schema": {
+                "$ref": "#/components/schemas/Inventory"
+              }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Backend selects JSON from multiple declarations",
+            "description": "Inventory",
             "content": {
               "application/json": {
-                "schema": {"$ref": "#/components/schemas/Inventory"}
-              },
-              "text/event-stream": {
-                "schema": {"type": "string"}
+                "schema": {
+                  "$ref": "#/components/schemas/Inventory"
+                }
               }
             }
           }
@@ -73,10 +82,16 @@
     "schemas": {
       "Inventory": {
         "type": "object",
-        "required": ["id"],
+        "required": [
+          "id"
+        ],
         "properties": {
-          "id": {"type": "string"},
-          "note": {"type": "string"}
+          "id": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
         }
       }
     }
