@@ -197,13 +197,13 @@ fn exact_route_and_body_evidence_select_the_emitted_representation() {
 }
 
 #[test]
-fn proved_non_streaming_semantics_normalize_to_bindings_v3() {
+fn proved_non_streaming_semantics_normalize_to_bindings_v4() {
     let root = fixture(CLIENT);
     let bindings = extract_bindings_from_rust(root.path(), root.path().join("openapi.json"))
         .expect("canonical bindings");
     let value = bindings.as_value();
 
-    assert_eq!(value["schema_version"], 3);
+    assert_eq!(value["schema_version"], 4);
     assert_eq!(
         value["binding"]["client"]["type_path"],
         "crate::generated::client::HttpClient"
@@ -392,6 +392,105 @@ impl HttpClient {
     let error = extract_bindings_from_rust(root.path(), root.path().join("openapi.json"))
         .expect_err("anonymous streams have no proven native/WASM alias ABI");
     assert!(error.to_string().contains("extract.stream_abi_unproven"));
+}
+
+#[test]
+fn anonymous_static_stream_with_precise_capture_normalizes_to_bindings_v4() {
+    const STREAM_CLIENT: &str = r#"
+pub struct HttpClient {
+    base_url: String,
+    api_key: Option<String>,
+    http_client: reqwest::Client,
+}
+impl HttpClient {
+    pub fn new() -> Self {
+        Self {
+            base_url: String::new(),
+            api_key: None,
+            http_client: todo!(),
+        }
+    }
+    pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
+        self.base_url = base_url.into();
+        self
+    }
+    pub fn with_api_key(mut self, api_key: impl Into<String>) -> Self {
+        self.api_key = Some(api_key.into());
+        self
+    }
+
+    /// GET /events
+    pub async fn events(
+        &self,
+    ) -> Result<
+        impl futures_util::Stream<Item = Result<bytes::Bytes, reqwest::Error>>
+            + 'static
+            + use<>,
+        Error,
+    > {
+        let request_url = format!("{}{}", self.base_url, "/events");
+        let mut req = self.http_client.get(request_url);
+        req = req.header(reqwest::header::ACCEPT, "text/event-stream");
+        let response = req.send().await?;
+        let status = response.status();
+        let status_code = status.as_u16();
+        if status_code == 200 {
+            Ok(response.bytes_stream())
+        } else {
+            todo!()
+        }
+    }
+}
+"#;
+    const STREAM_OPENAPI: &str = r#"{
+      "openapi": "3.1.0",
+      "info": {"title": "stream", "version": "1"},
+      "paths": {
+        "/events": {
+          "get": {
+            "operationId": "events",
+            "responses": {
+              "200": {
+                "description": "events",
+                "content": {
+                  "text/event-stream": {"schema": {"type": "string"}}
+                }
+              }
+            }
+          }
+        }
+      }
+    }"#;
+
+    let root = Scratch::new();
+    root.file("types.rs", "");
+    root.file("client.rs", STREAM_CLIENT);
+    root.file("openapi.json", STREAM_OPENAPI);
+    let bindings = extract_bindings_from_rust(root.path(), root.path().join("openapi.json"))
+        .expect("explicit static capture proves anonymous stream ownership");
+    let value = bindings.as_value();
+    assert_eq!(value["schema_version"], 4);
+    assert_eq!(
+        value["operations"]["events"]["stream"],
+        serde_json::json!({
+            "item_type": "bytes::Bytes",
+            "error_type": "reqwest::Error",
+            "lifetime": "'static"
+        })
+    );
+    assert_eq!(
+        value["operations"]["events"]["metadata"]["stream_transport"]["kind"],
+        "anonymous_impl_trait"
+    );
+    assert!(
+        value["operations"]["events"]["metadata"]["stream_transport"]["rust_type"]
+            .as_str()
+            .is_some_and(|rust_type| {
+                rust_type.contains("Stream<Item = Result<bytes::Bytes, reqwest::Error>>")
+                    && rust_type.contains("'static")
+                    && rust_type.contains("use<>")
+            })
+    );
 }
 
 fn assert_extract_error(root: &Scratch, code: &str, context: &str) {
