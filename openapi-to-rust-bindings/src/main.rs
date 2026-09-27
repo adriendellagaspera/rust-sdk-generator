@@ -35,7 +35,7 @@ fn run() -> Result<(), String> {
         .map_err(|error| format!("adapter.extract: {error}"))?;
     let stdout = io::stdout();
     let mut output = stdout.lock();
-    serde_json::to_writer_pretty(&mut output, bindings.as_value())
+    serde_json::to_writer_pretty(&mut output, &bindings)
         .map_err(|error| error.to_string())?;
     writeln!(output).map_err(|error| error.to_string())
 }

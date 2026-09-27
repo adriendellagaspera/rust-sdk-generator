@@ -229,7 +229,7 @@ pub fn extract_bindings(
         );
     }
 
-    Bindings::from_value(json!({
+    let bindings: Bindings = serde_json::from_value(json!({
         "schema_version": 4,
         "structs": canonical.structs,
         "enums": canonical.enums,
@@ -238,5 +238,15 @@ pub fn extract_bindings(
         "symbol_paths": canonical.symbols,
         "binding": client_layout(&structural)?,
     }))
-    .map_err(|error| extraction_error("extract.canonical_bindings_invalid", error))
+    .map_err(|error| extraction_error("extract.canonical_bindings_invalid", error))?;
+    if bindings.schema_version != 4 {
+        return Err(extraction_error(
+            "extract.canonical_bindings_invalid",
+            "compatibility shim must emit Bindings v4",
+        ));
+    }
+    bindings
+        .validate()
+        .map_err(|error| extraction_error("extract.canonical_bindings_invalid", error))?;
+    Ok(bindings)
 }
