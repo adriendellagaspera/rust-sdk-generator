@@ -574,10 +574,49 @@ def expected_status(expected: Any, label: str) -> tuple[str, str | None]:
     return expected["status"], diagnostic
 
 
+def raw_metadata_matches_capability(
+    raw_metadata: dict[str, Any] | None, capability: dict[str, Any]
+) -> bool:
+    if not isinstance(raw_metadata, dict):
+        return False
+    symbols = raw_metadata.get("symbols")
+    if not isinstance(symbols, list):
+        return False
+    selector = capability["selector"]
+    for symbol in symbols:
+        if not isinstance(symbol, dict):
+            continue
+        operation = symbol.get("operation")
+        if not isinstance(operation, dict):
+            continue
+        source_id = operation.get("source_operation_id") or operation.get("operation_id")
+        if source_id != capability["operation_id"]:
+            continue
+        representation = selector.get("representation")
+        if representation == "binary_stream":
+            if operation.get("response_kind") == "binary" and operation.get("consumption") == "binary_stream":
+                return True
+            continue
+        if representation == "event_stream":
+            if operation.get("response_kind") == "event_stream":
+                return True
+            continue
+        if representation in {"json", "text", "empty"}:
+            if operation.get("response_kind") == representation:
+                return True
+            continue
+        if selector.get("kind") == "multipart_filenames":
+            if operation.get("multipart_filenames") is True:
+                return True
+            continue
+    return False
+
+
 def capability_observation(
     bindings: dict[str, Any] | None,
     extraction_diagnostic: str | None,
     capability: dict[str, Any],
+    raw_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if extraction_diagnostic is not None:
         return {
@@ -599,6 +638,12 @@ def capability_observation(
     )
     if found:
         return {"status": "supported", "diagnostic": None, "failure_owner": None}
+    if raw_metadata_matches_capability(raw_metadata, capability):
+        return {
+            "status": "adapter_evidence_gap",
+            "diagnostic": "extract.stream_abi_unproven",
+            "failure_owner": "adapter",
+        }
     return {
         "status": "raw_generation_gap",
         "diagnostic": f"raw.{capability['id']}_not_emitted",
@@ -694,6 +739,7 @@ def envelope_pass(
         bindings, extraction_diagnostic = run_adapter(
             adapter, raw, spec, allow_failure=True
         )
+        raw_metadata = file_json(raw / "bindings.json")
 
         actual_scenario = (
             {"status": "supported", "diagnostic": None, "failure_owner": None}
@@ -736,7 +782,7 @@ def envelope_pass(
             if not isinstance(capability, dict) or capability.get("scenario") != scenario_id:
                 continue
             actual = capability_observation(
-                bindings, extraction_diagnostic, capability
+                bindings, extraction_diagnostic, capability, raw_metadata
             )
             check_expected(
                 actual,
