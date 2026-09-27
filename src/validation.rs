@@ -303,9 +303,7 @@ impl Bindings {
                             }
                             if representation_streams != metadata.stream_transport.is_some() {
                                 return Err(invalid(
-                                    format!(
-                                        "bindings.operations.{key}.metadata.stream_transport"
-                                    ),
+                                    format!("bindings.operations.{key}.metadata.stream_transport"),
                                     "stream transport presence must match response representation",
                                 ));
                             }
