@@ -961,7 +961,7 @@ def main() -> int:
     )
     report: dict[str, Any] = {
         "schema_version": 1,
-        "profile": "production_manifest_free_upstream",
+        "profile": "production_upstream_bindings_metadata",
         "compatible": False,
         "last_stage": "configuration",
     }
