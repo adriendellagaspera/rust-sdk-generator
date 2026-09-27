@@ -7,16 +7,18 @@ The producer-delta audit in [`FORK_CAPABILITIES.json`](FORK_CAPABILITIES.json) r
 ## Production input and explicit historical oracle
 
 The production CLI takes two arguments: the generated directory containing
-ordinary `client.rs` and `types.rs`, and the **exact effective** OpenAPI JSON
-used by the pinned raw backend. This is the only default loading path:
+ordinary `client.rs`, `types.rs` and upstream `bindings.json`, and the **exact effective** OpenAPI JSON
+used by the pinned raw backend. `bindings.json` is the primary source for emitted symbols,
+signatures, source-operation identity and response planning; Rust/body inspection remains a
+complementary proof only for contract fields not exposed by metadata v1.
 
 ```sh
 cargo run --locked -p openapi-to-rust-bindings -- \
   path/to/raw-output effective-openapi.json > rust-bindings.json
 ```
 
-The adapter inspects emitted Rust signatures, source identities and transport
-behavior, cross-checks the effective spec and emits validated Bindings v3.
+The adapter validates upstream metadata against emitted Rust and the effective spec, adds the
+remaining directly observable wire/discriminator/stream evidence, and emits validated Bindings v3.
 Missing or ambiguous identities, unemitted operations, unsupported stream ABIs
 and invalid structure fail closed with `adapter.extract:` and specific
 `extract.*` diagnostics. Supplying only the raw directory fails with
