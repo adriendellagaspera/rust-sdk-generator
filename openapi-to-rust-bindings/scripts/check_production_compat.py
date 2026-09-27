@@ -151,7 +151,7 @@ def load_tracker(repo_root: Path, tracker_path: Path) -> dict[str, Any]:
         or not isinstance(boundary, dict)
         or backend.get("repository") != "gpu-cli/openapi-to-rust"
         or boundary.get("adapter_contract")
-        != "ordinary_rust_plus_exact_effective_openapi"
+        != "upstream_bindings_metadata_plus_emitted_rust_and_effective_openapi"
         or boundary.get("producer_manifest_required") is not False
     ):
         raise ValueError(f"{tracker_path} is not a production manifest-free v3 tracker")
@@ -250,14 +250,14 @@ def bindings_sources(bindings: dict[str, Any]) -> list[dict[str, str]]:
 def assert_source_coverage(spec: dict[str, Any], bindings: dict[str, Any]) -> None:
     declared = openapi_operations(spec)
     observed = bindings_sources(bindings)
-    if declared == observed:
-        return
     declared_set = {
         (item["operation_id"], item["method"], item["path"]) for item in declared
     }
     observed_set = {
         (item["operation_id"], item["method"], item["path"]) for item in observed
     }
+    if declared_set == observed_set:
+        return
     raise ValueError(
         "source coverage mismatch: "
         f"unemitted={sorted(declared_set - observed_set)}; "
@@ -266,7 +266,7 @@ def assert_source_coverage(spec: dict[str, Any], bindings: dict[str, Any]) -> No
 
 
 def diagnostic_code(stderr: str) -> str | None:
-    match = re.search(r"\b(extract\.[A-Za-z0-9_.-]+)\b", stderr)
+    match = re.search(r"\b((?:extract|metadata)\.[A-Za-z0-9_.-]+)\b", stderr)
     return match.group(1) if match else None
 
 
@@ -278,6 +278,11 @@ def ensure_raw(raw: Path) -> None:
         raise StageFailure(
             "raw_generation",
             "production upstream unexpectedly emitted binding-manifest.json",
+        )
+    if not (raw / "bindings.json").is_file():
+        raise StageFailure(
+            "raw_generation",
+            "production upstream did not emit bindings.json metadata",
         )
 
 
@@ -918,7 +923,7 @@ def markdown(report: dict[str, Any]) -> str:
             f"- Repository: {backend.get('repository', 'unavailable')}",
             f"- Baseline: {baseline.get('version', 'unavailable')} / {baseline.get('commit', 'unavailable')}",
             f"- Candidate: {candidate.get('version', 'unavailable')} / {candidate.get('commit', 'unavailable')}",
-            "- Contract: unmodified upstream ordinary Rust + exact effective OpenAPI + default adapter",
+            "- Contract: unmodified upstream bindings metadata + emitted Rust + exact effective OpenAPI",
             "- Producer manifest required: no",
             f"- Last stage: {report['last_stage']}",
             f"- Default boundary drift-free: {default.get('compatible', False)}",
