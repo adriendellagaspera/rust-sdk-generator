@@ -1,6 +1,8 @@
 //! Canonical Bindings v3 normalization from proved structural + semantic
 //! evidence. The CLI uses this as its default; the legacy metadata reader is explicit.
-use crate::details::{OperationKindEvidence, inspect_details, prove_client_layout};
+use crate::details::{
+    OperationKindEvidence, inspect_details, inspect_metadata_backed_details, prove_client_layout,
+};
 use crate::rust_type::canonical_rust_type;
 use crate::semantic::{RepresentationEvidence, inspect_semantics};
 use crate::structural::{EnumEvidence, StructuralEvidence, inspect_generated};
@@ -265,7 +267,8 @@ pub fn extract_bindings(
                 .join(", "),
         ));
     }
-    let details = inspect_details(&generated, &effective_openapi, &structural, &semantic)?;
+    let details =
+        inspect_metadata_backed_details(&generated, &effective_openapi, &structural, &semantic)?;
 
     let canonical = upstream.normalize_structural()?;
     let ast_canonical = normalize_structural(&structural)?;
@@ -344,9 +347,10 @@ pub fn extract_bindings(
             // the supported source operation and omit only the extra helper.
             continue;
         }
-        let kind = match detail.kind {
-            OperationKindEvidence::CallShape => "call_shape",
-            OperationKindEvidence::MultipartFilenames => "multipart_filenames",
+        let kind = if metadata_operation.operation.multipart_filenames {
+            "multipart_filenames"
+        } else {
+            "call_shape"
         };
         let (stream, stream_abi) = if streaming {
             let abi = detail
