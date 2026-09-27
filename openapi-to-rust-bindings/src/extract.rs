@@ -2,7 +2,8 @@
 //! evidence. The CLI uses this as its default; the legacy metadata reader is explicit.
 use crate::details::{OperationKindEvidence, inspect_details, prove_client_layout};
 use crate::rust_type::canonical_rust_type;
-use crate::semantic::{RepresentationEvidence, inspect_semantics};
+use crate::semantic::RepresentationEvidence;
+use crate::upstream_metadata::UpstreamMetadata;
 use crate::structural::{EnumEvidence, StructuralEvidence, inspect_generated};
 use crate::{Bindings, Error};
 use serde_json::{Map, Value, json};
@@ -249,7 +250,9 @@ pub fn extract_bindings(
 ) -> Result<Bindings, Error> {
     let structural = inspect_generated(&generated)?;
     prove_client_layout(&generated, &structural)?;
-    let semantic = inspect_semantics(&generated, &effective_openapi)?;
+    let upstream = UpstreamMetadata::load(&generated)?;
+    upstream.verify_client_signatures(&structural)?;
+    let semantic = upstream.semantic_evidence(&effective_openapi)?;
 
     if !semantic.unmatched_source_operations.is_empty() {
         return Err(extraction_error(
@@ -264,25 +267,34 @@ pub fn extract_bindings(
     }
     let details = inspect_details(&generated, &effective_openapi, &structural, &semantic)?;
 
-    let canonical = normalize_structural(&structural)?;
-    let signatures: BTreeMap<_, _> = structural
-        .client
-        .methods
-        .iter()
-        .map(|method| (method.name.as_str(), method))
-        .collect();
+    let canonical = upstream.normalize_structural()?;
+    let metadata_operations = upstream.operations()?;
 
     let mut operations = Map::new();
     for (name, semantics) in &semantic.operations {
-        let signature = signatures
-            .get(name.as_str())
-            .ok_or_else(|| extraction_error("extract.signature_missing", name))?;
-        let success_type = signature
-            .success_type
-            .as_ref()
-            .ok_or_else(|| extraction_error("extract.success_type_unproven", name))?;
-        let parameters = signature
-            .parameters
+        let metadata_operation = metadata_operations
+            .get(name)
+            .ok_or_else(|| extraction_error("metadata.operation_missing", name))?;
+        let success_type = match &semantics.representation {
+            RepresentationEvidence::Json { schema_name, .. } => schema_name.clone(),
+            RepresentationEvidence::Text { .. } => "String".to_owned(),
+            RepresentationEvidence::BinaryBuffered { .. } => "bytes::Bytes".to_owned(),
+            RepresentationEvidence::Empty => "()".to_owned(),
+            RepresentationEvidence::EventStream { .. }
+            | RepresentationEvidence::BinaryStream { .. } => {
+                let structural_method = structural
+                    .client
+                    .methods
+                    .iter()
+                    .find(|method| method.name == *name)
+                    .and_then(|method| method.success_type.as_ref())
+                    .ok_or_else(|| extraction_error("extract.success_type_unproven", name))?;
+                canonical_rust_type(structural_method)?
+            }
+        };
+        let parameters = metadata_operation
+            .signature
+            .arguments
             .iter()
             .map(|parameter| {
                 Ok(json!({
@@ -375,8 +387,8 @@ pub fn extract_bindings(
             json!({
                 "name": name,
                 "parameters": parameters,
-                "return_type": canonical_rust_type(&signature.return_type)?,
-                "success_type": canonical_rust_type(success_type)?,
+                "return_type": canonical_rust_type(&metadata_operation.signature.return_type)?,
+                "success_type": success_type,
                 "stream": stream,
                 "metadata": metadata,
             }),
