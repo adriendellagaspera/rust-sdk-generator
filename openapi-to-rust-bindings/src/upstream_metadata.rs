@@ -344,10 +344,15 @@ impl UpstreamMetadata {
                             format!("{} has no alias target", symbol.path),
                         )
                     })?;
-                    if !symbol.attributes.is_empty() {
+                    if symbol
+                        .attributes
+                        .iter()
+                        .map(|attribute| attribute.replace(' ', ""))
+                        .any(|attribute| attribute.starts_with("#[cfg("))
+                    {
                         return Err(failure(
                             "metadata.alias_target_unproven",
-                            format!("{} is target/attribute conditional", symbol.path),
+                            format!("{} is target-conditional", symbol.path),
                         ));
                     }
                     aliases.insert(
