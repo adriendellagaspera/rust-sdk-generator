@@ -250,7 +250,7 @@ fn pass(backend: &Path, adapter: &Path, generator: &Path, destination: &Path) ->
     )?;
     write(&bindings_path, adapted.stdout)?;
     let bindings = json_file(&bindings_path)?;
-    assert_equal("bindings version", &bindings["schema_version"], &json!(3))?;
+    assert_equal("bindings version", &bindings["schema_version"], &json!(4))?;
 
     let found: BTreeSet<_> = bindings["operations"]
         .as_object()
@@ -522,7 +522,7 @@ fn main_inner() -> ProofResult<()> {
         )?;
     }
     println!(
-        "[pipeline] pinned unmodified upstream, manifest-free Bindings v3, derivation and byte-level determinism passed"
+        "[pipeline] pinned unmodified upstream, metadata-backed Bindings v4, derivation and byte-level determinism passed"
     );
     consumer(&work)?;
     println!(
