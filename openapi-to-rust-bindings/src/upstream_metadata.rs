@@ -706,3 +706,20 @@ fn words(value: &str) -> BTreeSet<&str> {
 }
 
 use quote::ToTokens;
+
+
+#[cfg(test)]
+mod status_selector_tests {
+    use super::status_selector_matches_exact;
+
+    #[test]
+    fn exact_success_ignores_unrelated_error_exclusion() {
+        assert!(!status_selector_matches_exact("201", "400"));
+    }
+
+    #[test]
+    fn class_success_detects_relevant_exclusion() {
+        assert!(status_selector_matches_exact("2XX", "204"));
+        assert!(!status_selector_matches_exact("2XX", "400"));
+    }
+}
