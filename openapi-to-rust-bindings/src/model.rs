@@ -550,7 +550,7 @@ fn validate_bindings(value: &Value) -> Result<(), Error> {
     let version = root["schema_version"]
         .as_u64()
         .ok_or_else(|| invalid("schema_version must be an integer"))?;
-    if !matches!(version, 2 | 3 | 4) {
+    if !matches!(version, 2..=4) {
         return Err(invalid(format!(
             "unsupported schema_version {version}; expected 2, 3, or 4"
         )));
