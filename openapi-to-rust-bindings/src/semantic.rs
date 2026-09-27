@@ -574,13 +574,15 @@ fn top_level_status_guard(block: &syn::Block) -> Result<Vec<String>, Error> {
             candidates.push(condition);
         }
     }
+    let repeated_broad_guard =
+        candidates.len() > 1 && candidates.iter().all(|candidate| candidate.broad);
     let mut unique = Vec::new();
     for candidate in candidates {
         if !unique.contains(&candidate) {
             unique.push(candidate);
         }
     }
-    if unique.len() != 1 {
+    if unique.len() != 1 || repeated_broad_guard {
         return Err(semantic_error(
             "extract.success_statuses_unproven",
             format!(
