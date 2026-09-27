@@ -481,7 +481,7 @@ fn source_has_sse_success(operation: &OpenApiOperation) -> bool {
         })
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Eq, PartialEq)]
 struct StatusCondition {
     broad: bool,
     exact: BTreeSet<String>,
@@ -574,16 +574,22 @@ fn top_level_status_guard(block: &syn::Block) -> Result<Vec<String>, Error> {
             candidates.push(condition);
         }
     }
-    if candidates.len() != 1 {
+    let mut unique = Vec::new();
+    for candidate in candidates {
+        if !unique.contains(&candidate) {
+            unique.push(candidate);
+        }
+    }
+    if unique.len() != 1 {
         return Err(semantic_error(
             "extract.success_statuses_unproven",
             format!(
-                "expected one top-level generated success guard, found {}: {candidates:?}",
-                candidates.len()
+                "expected one distinct top-level generated success guard, found {}",
+                unique.len()
             ),
         ));
     }
-    let condition = candidates.remove(0);
+    let condition = unique.remove(0);
     if condition.broad {
         if !condition.exact.is_empty() || !condition.classes.is_empty() {
             return Err(semantic_error(
@@ -1392,6 +1398,24 @@ mod inline_json_response_tests {
                 schema_name: "UnconstrainedResponse".into(),
                 media_type: "application/json".into(),
             }
+        );
+    }
+}
+
+
+#[cfg(test)]
+mod status_guard_tests {
+    use super::*;
+
+    #[test]
+    fn accepts_repeated_identical_finite_status_guards() {
+        let block: syn::Block = syn::parse_str(
+            "{ if status_code == 200 { Ok(()) } if status_code == 200 { Ok(()) } }",
+        )
+        .expect("valid generated method body");
+        assert_eq!(
+            top_level_status_guard(&block).expect("identical guards prove one selected status"),
+            vec!["200"]
         );
     }
 }
