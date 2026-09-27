@@ -6,7 +6,7 @@ use serde_json::Value;
 use crate::contracts::{
     AccessorKindDefinition, Bindings, FieldBinding, ModelDefinition, OpenApi, OperationBinding,
     RequestMediaDefinition, ResponseRepresentationBinding, ResponseRepresentationDefinition,
-    SdkDefinition, SimpleUnionVariant,
+    SdkDefinition, SimpleUnionVariant, StreamTransportBinding,
 };
 use crate::error::{GenerationError, Result};
 use crate::ir::*;
@@ -1017,10 +1017,74 @@ fn validate_stream_type(
 
 fn validate_owned_byte_stream(raw_method: &str, binding: &OperationBinding) -> Result<()> {
     if let Some(metadata) = &binding.metadata {
+        if let Some(transport) = &metadata.stream_transport {
+            let stream = binding.stream.as_ref().ok_or_else(|| {
+                error(
+                    "lower.stream_transport",
+                    format!("raw stream binding lacks canonical stream semantics: {raw_method}"),
+                )
+            })?;
+            if stream.item_type != "bytes::Bytes" {
+                return Err(error(
+                    "lower.stream_bytes",
+                    format!("raw stream response does not yield bytes: {raw_method}"),
+                ));
+            }
+            if stream.lifetime != "'static" {
+                return Err(error(
+                    "lower.stream_ownership",
+                    format!("raw stream response is not owned: {raw_method}"),
+                ));
+            }
+            match transport {
+                StreamTransportBinding::NamedAlias {
+                    alias,
+                    native_type,
+                    wasm_type,
+                } => {
+                    if binding.success_type != *alias {
+                        return Err(error(
+                            "lower.stream_transport",
+                            format!(
+                                "raw stream success type disagrees with canonical alias: {raw_method}"
+                            ),
+                        ));
+                    }
+                    validate_stream_type(
+                        raw_method,
+                        native_type,
+                        "futures_util::stream::BoxStream",
+                        &stream.item_type,
+                        &stream.error_type,
+                        &stream.lifetime,
+                    )?;
+                    validate_stream_type(
+                        raw_method,
+                        wasm_type,
+                        "futures_util::stream::LocalBoxStream",
+                        &stream.item_type,
+                        &stream.error_type,
+                        &stream.lifetime,
+                    )?;
+                }
+                StreamTransportBinding::AnonymousImplTrait { rust_type } => {
+                    if binding.success_type != *rust_type {
+                        return Err(error(
+                            "lower.stream_transport",
+                            format!(
+                                "raw stream success type disagrees with canonical anonymous transport: {raw_method}"
+                            ),
+                        ));
+                    }
+                }
+            }
+            return Ok(());
+        }
+
         let abi = metadata.stream_abi.as_ref().ok_or_else(|| {
             error(
                 "lower.stream_transport",
-                format!("raw stream binding lacks canonical stream ABI: {raw_method}"),
+                format!("raw stream binding lacks canonical stream transport: {raw_method}"),
             )
         })?;
         if binding.success_type != abi.alias {
@@ -1083,7 +1147,7 @@ fn validate_owned_byte_stream(raw_method: &str, binding: &OperationBinding) -> R
     if event.arguments[0].spelling != "bytes::Bytes" {
         return Err(error(
             "lower.stream_bytes",
-            format!("raw stream response does not yield bytes: {raw_method}"),
+            format!("raw stream response does not yield declared bytes: {raw_method}"),
         ));
     }
     Ok(())
