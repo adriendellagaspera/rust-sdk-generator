@@ -18,7 +18,7 @@ cargo run --locked -p openapi-to-rust-bindings -- \
 ```
 
 The adapter validates upstream metadata against emitted Rust and the effective spec, adds the
-remaining directly observable wire/discriminator/stream evidence, and emits validated Bindings v3.
+remaining directly observable wire/discriminator/stream evidence, and emits validated Bindings v4.
 Missing or ambiguous identities, unemitted operations, unsupported stream ABIs
 and invalid structure fail closed with `adapter.extract:` and specific
 `extract.*` diagnostics. Supplying only the raw directory fails with
@@ -53,14 +53,14 @@ cargo run --locked -p openapi-to-rust-bindings -- \
 
 `inspect_semantics` and `extract_bindings_from_rust` are retained as explicit proof/test tools for evidence that can be recovered from emitted Rust. They are not the production loader. Production `extract_bindings` starts from upstream `bindings.json`, cross-checks the emitted Rust and exact effective OpenAPI, then supplements only the evidence metadata v1 does not expose.
 
-The production CLI invokes metadata-backed `extract_bindings(directory, effective_openapi)` and emits validated canonical Bindings v3:
+The production CLI invokes metadata-backed `extract_bindings(directory, effective_openapi)` and emits validated canonical Bindings v4:
 
 ```sh
 cargo run --locked -p openapi-to-rust-bindings -- \
   --extract path/to/raw-output effective-openapi.json > rust-bindings.json
 ```
 
-The extractor fails closed when metadata/source/output evidence disagrees or required evidence is unavailable. Request discriminators and exact query/header wire mappings still require direct emitted-code evidence. The current Bindings v3 stream ABI still requires a named native/WASM alias; support for upstream anonymous owned streams is tracked separately in #197.
+The extractor fails closed when metadata/source/output evidence disagrees or required evidence is unavailable. Request discriminators and exact query/header wire mappings still require direct emitted-code evidence. Bindings v4 separates common stream semantics (`item_type`, `error_type`, lifetime) from the backend-emitted transport. Named native/WASM aliases remain supported, and anonymous `impl Stream` transports are accepted only when emitted Rust proves an explicit `'static` bound plus precise capture (`use<...>`). Otherwise extraction remains fail-closed.
 
 ## Explicit historical metadata loader
 
