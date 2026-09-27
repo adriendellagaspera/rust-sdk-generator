@@ -107,7 +107,7 @@ def one_pass(backend: Path, adapter: Path, generator: Path, root: Path) -> dict:
     bindings_path = root / "rust-bindings.json"
     bindings_path.write_text(run("historical manifest oracle adapter", adapter, "--legacy-metadata", raw))
     bindings = json_file(bindings_path)
-    assert_equal("bindings adapter", bindings["schema_version"], 3)
+    assert_equal("bindings adapter", bindings["schema_version"], 4)
     identities = {
         value["metadata"]["source_operation"]["operation_id"]
         for value in bindings["operations"].values()
