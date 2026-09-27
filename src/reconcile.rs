@@ -1059,6 +1059,7 @@ mod tests {
                 request_discriminator_unproven: false,
                 parameter_wires: Vec::new(),
                 stream_abi: None,
+                stream_transport: None,
             }),
         }
     }
