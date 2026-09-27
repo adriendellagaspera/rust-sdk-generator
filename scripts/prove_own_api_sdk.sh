@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-trap 'status=$?; echo "own-api proof failed at line $LINENO: $BASH_COMMAND (status $status)" >&2; exit $status' ERR
+trap 'status=$?; echo "own-api proof failed at line $LINENO: $BASH_COMMAND (status $status)" >&2; if [[ -n "${work:-}" && -f "${work}/cold-start.txt" ]]; then echo "--- cold-start stderr ---" >&2; cat "${work}/cold-start.txt" >&2; fi; exit $status' ERR
 cd "$(dirname "$0")/.."
 repo="$PWD"
 fixture="$repo/tests/fixtures/own-api-stations"
