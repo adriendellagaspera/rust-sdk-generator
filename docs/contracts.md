@@ -7,7 +7,7 @@ The Rust library exports `derive(DeriveInput) -> Result<Derivation, DerivationEr
 | Contract | Version / behavior |
 | --- | --- |
 | `OpenApi` | Published OpenAPI JSON supplied separately by the consumer |
-| `Bindings` | v4 is the canonical metadata-backed adapter output; the root generator and adapter also validate legacy v2/v3 inputs |
+| `Bindings` | v4 is the canonical metadata-backed shim output; the root generator alone retains legacy v2/v3 input compatibility |
 | `PublicSdkSurface` | v1: optional `client` and source operation ID → public-path list under `operations` |
 | `SdkOverrides` | v1: explicit exclusions and bounded operation overrides |
 | `SdkDefinition` | v2: complete public client, models and resources accepted by generation |
