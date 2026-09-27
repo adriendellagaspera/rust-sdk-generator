@@ -1,4 +1,6 @@
-use openapi_to_rust_bindings::{RepresentationEvidence, extract_bindings_from_rust, inspect_semantics};
+use openapi_to_rust_bindings::{
+    RepresentationEvidence, extract_bindings_from_rust, inspect_semantics,
+};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
