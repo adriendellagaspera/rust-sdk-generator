@@ -10,9 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 use syn::visit::{self, Visit};
-use syn::{
-    Expr, GenericArgument, ImplItem, Item, Lit, Pat, PathArguments, Stmt, Type,
-};
+use syn::{Expr, GenericArgument, ImplItem, Item, Lit, Pat, PathArguments, Stmt, Type};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum StreamTransportEvidence {
