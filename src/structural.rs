@@ -387,6 +387,28 @@ pub(crate) fn redundant_any_of_alternative(schema: &Value) -> Option<&Value> {
     (branches.len() >= 2 && branches.iter().all(|branch| branch == first)).then_some(first)
 }
 
+pub(crate) fn single_one_of_alternative(schema: &Value) -> Option<&Value> {
+    let object = schema.as_object()?;
+    if object.keys().any(|key| {
+        !matches!(
+            key.as_str(),
+            "oneOf"
+                | "title"
+                | "description"
+                | "default"
+                | "example"
+                | "examples"
+                | "deprecated"
+                | "discriminator"
+                | "$comment"
+        )
+    }) {
+        return None;
+    }
+    let branches = object.get("oneOf")?.as_array()?;
+    (branches.len() == 1).then(|| &branches[0])
+}
+
 fn type_matches_schema(
     schema: &Value,
     syntax: &Type,
@@ -431,6 +453,9 @@ fn type_matches_schema(
     if let Some(alternative) = redundant_any_of_alternative(schema) {
         return type_matches_schema(alternative, syntax, bindings, seen_aliases);
     }
+    if let Some(alternative) = single_one_of_alternative(schema) {
+        return type_matches_schema(alternative, syntax, bindings, seen_aliases);
+    }
 
     if let Some(object) = schema.as_object() {
         let union_keys =
@@ -452,16 +477,6 @@ fn type_matches_schema(
                 )
             });
         if annotation_only_union {
-            // Exactly one oneOf alternative has precisely that alternative's
-            // validation semantics. Keep all sibling constraints fail-closed.
-            if let Some(branch) = object
-                .get("oneOf")
-                .and_then(Value::as_array)
-                .filter(|branches| branches.len() == 1)
-                .and_then(|branches| branches.first())
-            {
-                return type_matches_schema(branch, syntax, bindings, seen_aliases);
-            }
             let branches = object
                 .get("oneOf")
                 .or_else(|| object.get("anyOf"))
