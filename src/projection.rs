@@ -846,6 +846,45 @@ fn request_object_models_value(
             continue;
         }
 
+        if wire.get("type").and_then(Value::as_str) == Some("string")
+            && wire.get("const").is_some_and(Value::is_string)
+            && context.bindings.enums.contains_key(&core.spelling)
+            && rust_type_matches_schema(wire, &core.spelling, context.bindings)
+        {
+            if !context
+                .naming
+                .public_name_available(&child_fallback, context.bindings)
+            {
+                return Err("capability.public_model_name_collision");
+            }
+            let mut child_path = source_path.to_vec();
+            child_path.push(field_name.clone());
+            models.push((
+                child_fallback.clone(),
+                ModelDefinition {
+                    schema: Some(source_root.into()),
+                    schema_path: Some(child_path.clone()),
+                    raw: Some(core.spelling.clone()),
+                    constructor: None,
+                    exclude: None,
+                    adapters: None,
+                    union: None,
+                    simple_union: None,
+                    type_alias: None,
+                    map: None,
+                    scalar_enum: Some(ScalarEnumDefinition {
+                        root: source_root.into(),
+                        path: child_path,
+                    }),
+                    union_factory: None,
+                    borrowed: None,
+                    accessors: None,
+                },
+            ));
+            adapters.insert(field_name.clone(), child_fallback);
+            continue;
+        }
+
         if wire.get("type").and_then(Value::as_str) == Some("array")
             && let Some(items) = wire.get("items")
             && let Some(raw_union) = core.unary("Vec")
