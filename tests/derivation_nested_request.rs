@@ -607,7 +607,9 @@ fn derives_nullable_union_of_named_object_and_canonical_raw_json_map() {
     );
     let root = &derived.definition.models["CreatePlatformWidgetsRequest"];
     assert_eq!(
-        root.adapters.as_ref().and_then(|adapters| adapters.get("input")),
+        root.adapters
+            .as_ref()
+            .and_then(|adapters| adapters.get("input")),
         Some(&"CreatePlatformWidgetsRequestInput".to_owned())
     );
     assert!(
@@ -722,7 +724,9 @@ fn proven_nested_required_nullable_object_projects_through_public_wrapper() {
     );
     let root = &derived.definition.models["CreatePlatformWidgetsRequest"];
     assert_eq!(
-        root.adapters.as_ref().and_then(|adapters| adapters.get("config")),
+        root.adapters
+            .as_ref()
+            .and_then(|adapters| adapters.get("config")),
         Some(&"CreatePlatformWidgetsRequestConfig".to_owned())
     );
     assert!(
