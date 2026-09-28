@@ -1,0 +1,119 @@
+{
+  "schema_version": 2,
+  "structs": {
+    "SensorResponse": [
+      {
+        "name": "id",
+        "type": "String"
+      },
+      {
+        "name": "usage",
+        "type": "Usage"
+      },
+      {
+        "name": "choices",
+        "type": "Vec<Choice>"
+      },
+      {
+        "name": "detail",
+        "type": "Option<Choice>"
+      },
+      {
+        "name": "state",
+        "type": "State"
+      },
+      {
+        "name": "message",
+        "type": "Message"
+      },
+      {
+        "name": "nullable_choice",
+        "type": "Option<Choice>"
+      }
+    ],
+    "Usage": [
+      {
+        "name": "count",
+        "type": "i64"
+      }
+    ],
+    "Choice": [
+      {
+        "name": "text",
+        "type": "String"
+      }
+    ],
+    "TextMessage": [
+      {
+        "name": "text",
+        "type": "String"
+      }
+    ],
+    "CodeMessage": [
+      {
+        "name": "code",
+        "type": "i64"
+      }
+    ]
+  },
+  "enums": {
+    "State": [
+      {
+        "name": "Ready",
+        "wire_name": "ready"
+      },
+      {
+        "name": "Waiting",
+        "wire_name": "waiting"
+      }
+    ],
+    "Message": [
+      {
+        "name": "Text",
+        "payload": "TextMessage"
+      },
+      {
+        "name": "Code",
+        "payload": "CodeMessage"
+      }
+    ]
+  },
+  "aliases": {},
+  "operations": {
+    "opaque_read": {
+      "name": "opaque_read",
+      "parameters": [
+        {
+          "name": "detail",
+          "type": "Option<bool>"
+        },
+        {
+          "name": "sensor_id",
+          "type": "impl AsRef<str>"
+        }
+      ],
+      "return_type": "Result<SensorResponse, Error>",
+      "success_type": "SensorResponse"
+    }
+  },
+  "symbol_paths": {
+    "SensorResponse": "crate::generated::types::SensorResponse",
+    "Usage": "crate::generated::types::Usage",
+    "Choice": "crate::generated::types::Choice",
+    "State": "crate::generated::types::State",
+    "Message": "crate::generated::types::Message",
+    "TextMessage": "crate::generated::types::TextMessage",
+    "CodeMessage": "crate::generated::types::CodeMessage"
+  },
+  "binding": {
+    "client": {
+      "type_path": "crate::generated::client::HttpClient",
+      "constructor": "new",
+      "api_key_builder": "with_api_key",
+      "base_url_builder": "with_base_url"
+    },
+    "type_preludes": [
+      "crate::generated::types::*"
+    ]
+  }
+}

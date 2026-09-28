@@ -4,6 +4,7 @@
 //! deterministic emission. Concrete OpenAPI-to-Rust backends remain adapters that only produce
 //! [`Bindings`].
 
+mod closure;
 mod compiler;
 mod contracts;
 mod derivation;
@@ -31,6 +32,9 @@ mod symbols;
 #[allow(clippy::collapsible_if)]
 mod validation;
 
+pub use closure::{
+    FacadeLeak, FacadeLeakKind, FacadeReport, inspect_public_facade, validate_public_facade,
+};
 pub use contracts::{
     AccessorDefinition, AccessorKindDefinition, ApiInventory, BindingLayout, Bindings,
     ClientBinding, ClientDefinition, FieldBinding, GenerateInput, GeneratedSdk, MapDefinition,

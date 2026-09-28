@@ -1,0 +1,153 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Sensor fleet",
+    "version": "1"
+  },
+  "paths": {
+    "/sensors/{sensor_id}": {
+      "get": {
+        "operationId": "read_sensor",
+        "parameters": [
+          {
+            "name": "sensor_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "detail",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sensor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SensorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "SensorResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "usage",
+          "choices",
+          "state",
+          "message",
+          "nullable_choice"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/Usage"
+          },
+          "choices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Choice"
+            }
+          },
+          "detail": {
+            "$ref": "#/components/schemas/Choice"
+          },
+          "state": {
+            "$ref": "#/components/schemas/State"
+          },
+          "message": {
+            "$ref": "#/components/schemas/Message"
+          },
+          "nullable_choice": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Choice"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "Usage": {
+        "type": "object",
+        "required": [
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer"
+          }
+        }
+      },
+      "Choice": {
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "State": {
+        "type": "string",
+        "enum": [
+          "ready",
+          "waiting"
+        ]
+      },
+      "Message": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/TextMessage"
+          },
+          {
+            "$ref": "#/components/schemas/CodeMessage"
+          }
+        ]
+      },
+      "TextMessage": {
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "CodeMessage": {
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  }
+}
