@@ -416,35 +416,14 @@ fn request_type_is_public(syntax: Type, bindings: &Bindings, seen: &mut BTreeSet
 }
 
 fn request_map_wrapper_matches(schema: &Value, raw: &str, bindings: &Bindings) -> bool {
-    if canonical_unconstrained_map_branch(schema, raw, bindings) {
-        return true;
-    }
-    if schema.get("type").and_then(Value::as_str) != Some("object")
-        || schema.get("properties").is_some()
-    {
-        return false;
-    }
-    let Some(additional) = schema
-        .get("additionalProperties")
-        .filter(|value| **value != Value::Bool(false))
-    else {
-        return false;
-    };
     let Some(fields) = bindings.structs.get(raw) else {
         return false;
     };
-    if fields.len() != 1
-        || fields[0].name.strip_prefix("r#").unwrap_or(&fields[0].name) != "additional_properties"
-    {
-        return false;
-    }
-    let Ok(mapping) = parse_type(&fields[0].type_name) else {
-        return false;
-    };
-    mapping.constructor.as_deref() == Some("std::collections::BTreeMap")
-        && mapping.arguments.len() == 2
-        && mapping.arguments[0].spelling == "String"
-        && rust_type_matches_schema(additional, &mapping.arguments[1].spelling, bindings)
+    fields.len() == 1
+        && fields[0].name.strip_prefix("r#").unwrap_or(&fields[0].name)
+            == "additional_properties"
+        && fields[0].wire_name.is_none()
+        && rust_type_matches_schema(schema, raw, bindings)
 }
 
 fn request_value_adapter_models(
