@@ -1381,6 +1381,9 @@ fn request_object_value_matches(
                 .filter(|additional| **additional != Value::Bool(false))
             && let Some(value_type) = map_value_type(&core, bindings)
         {
+            if type_matches_schema(wire, &core, bindings, &mut BTreeSet::new()) {
+                continue;
+            }
             let matches = if *additional == Value::Bool(true) {
                 value_type.spelling == "serde_json::Value"
             } else if lossless_primitive_json_map(additional, &core, bindings) {
