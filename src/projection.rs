@@ -421,6 +421,9 @@ fn request_map_wrapper_matches(
     raw: &str,
     bindings: &Bindings,
 ) -> bool {
+    if rust_type_matches_schema(schema, raw, bindings) {
+        return true;
+    }
     let Some(fields) = bindings.structs.get(raw) else {
         return false;
     };
