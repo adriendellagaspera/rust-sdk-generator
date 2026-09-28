@@ -1718,10 +1718,143 @@ fn direct_parameter(parameter: &RawParameter, bindings: &Bindings) -> Result<(St
     }
 }
 
+fn raw_parameter_name(name: &str) -> &str {
+    name.strip_prefix("r#").unwrap_or(name)
+}
+
+fn parameter_schema<'a>(
+    operation: &'a Value,
+    binding: &OperationBinding,
+    raw_parameter: &RawParameter,
+) -> Option<&'a Value> {
+    let raw_name = raw_parameter_name(&raw_parameter.name);
+    let parameters = operation.get("parameters")?.as_array()?;
+
+    if let Some(metadata) = &binding.metadata
+        && let Some(wire) = metadata
+            .parameter_wires
+            .iter()
+            .find(|wire| raw_parameter_name(&wire.rust_name) == raw_name)
+    {
+        let matched = parameters
+            .iter()
+            .filter(|parameter| {
+                let location = parameter.get("in").and_then(Value::as_str);
+                let name = parameter.get("name").and_then(Value::as_str);
+                if location != Some(wire.location.as_str()) {
+                    return false;
+                }
+                match (wire.location.as_str(), name) {
+                    ("header", Some(name)) => name.eq_ignore_ascii_case(&wire.wire_name),
+                    (_, Some(name)) => name == wire.wire_name,
+                    _ => false,
+                }
+            })
+            .collect::<Vec<_>>();
+        if matched.len() == 1 {
+            return matched[0].get("schema");
+        }
+        return None;
+    }
+
+    let matched = parameters
+        .iter()
+        .filter(|parameter| {
+            parameter
+                .get("name")
+                .and_then(Value::as_str)
+                .map(|name| name.replace('-', "_"))
+                .as_deref()
+                == Some(raw_name)
+        })
+        .collect::<Vec<_>>();
+    (matched.len() == 1).then(|| matched[0].get("schema")).flatten()
+}
+
+fn parameter_scalar_enum_model(
+    resource: &ResourceSpec,
+    operation: &OperationSpec,
+    raw_operation: &OperationBinding,
+    wire_operation: &Value,
+    parameter: &RawParameter,
+    bindings: &Bindings,
+) -> Result<Option<ModelSpec>> {
+    let syntax = parse_type(&parameter.type_name)?;
+    let core = syntax
+        .unary("Option")
+        .cloned()
+        .unwrap_or_else(|| syntax.clone());
+    if core.kind != TypeKind::Opaque || !bindings.enums.contains_key(&core.spelling) {
+        return Ok(None);
+    }
+    let Some(schema) = parameter_schema(wire_operation, raw_operation, parameter) else {
+        return Ok(None);
+    };
+    if schema.get("type").and_then(Value::as_str) != Some("string") {
+        return Ok(None);
+    }
+    let values = if let Some(values) = schema.get("enum").and_then(Value::as_array) {
+        values.clone()
+    } else if let Some(value) = schema.get("const").filter(|value| value.is_string()) {
+        vec![value.clone()]
+    } else {
+        return Ok(None);
+    };
+    if values.is_empty() || values.iter().any(|value| !value.is_string()) {
+        return Ok(None);
+    }
+    let variants = bindings.variants(&core.spelling)?;
+    if variants.is_empty()
+        || variants
+            .iter()
+            .any(|variant| variant.payload.is_some() || variant.wire_name.is_none())
+    {
+        return Ok(None);
+    }
+    let by_wire: BTreeMap<_, _> = variants
+        .iter()
+        .map(|variant| {
+            (
+                variant.wire_name.clone().expect("wire name"),
+                variant.name.clone(),
+            )
+        })
+        .collect();
+    let expected: BTreeSet<_> = values.iter().filter_map(Value::as_str).collect();
+    let actual: BTreeSet<_> = by_wire.keys().map(String::as_str).collect();
+    if expected.len() != values.len() || expected != actual || by_wire.len() != variants.len() {
+        return Ok(None);
+    }
+
+    let suffix: String = raw_parameter_name(&parameter.name)
+        .split('_')
+        .map(|part| {
+            let mut chars = part.chars();
+            chars
+                .next()
+                .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
+                .unwrap_or_default()
+        })
+        .collect();
+    Ok(Some(ModelSpec {
+        name: format!("{}{}", request_name(resource, &operation.name), suffix),
+        raw: core.spelling,
+        render: ModelRenderSpec::ScalarEnum(ScalarEnumModelSpec {
+            variants: values
+                .iter()
+                .map(|value| by_wire[value.as_str().expect("string enum")].clone())
+                .collect(),
+        }),
+    }))
+}
+
 fn parameter_request(
     resource: &ResourceSpec,
     operation: &OperationSpec,
+    raw_operation: &OperationBinding,
+    wire_operation: &Value,
     bindings: &Bindings,
+    models: &mut Vec<ModelSpec>,
 ) -> Result<Option<ParameterRequestSpec>> {
     if matches!(
         operation.request_projection,
@@ -1735,13 +1868,57 @@ fn parameter_request(
     {
         return Ok(None);
     }
+
     let mut fields = Vec::new();
     for parameter in &operation.raw_signature.parameters {
-        let (owned, _) = owned_parameter(&parameter.type_name)?;
-        let owned = bindings.qualified_type(&owned)?;
+        let enum_model = parameter_scalar_enum_model(
+            resource,
+            operation,
+            raw_operation,
+            wire_operation,
+            parameter,
+            bindings,
+        )?;
+        let public_enum = enum_model.as_ref().map(|model| model.name.clone());
+        if let Some(model) = enum_model {
+            if models.iter().any(|candidate| candidate.name == model.name) {
+                return Err(error(
+                    "lower.parameter_model_collision",
+                    format!("parameter facade model collision: {}", model.name),
+                ));
+            }
+            models.push(model);
+        }
+
+        let (owned_raw, borrowed) = owned_parameter(&parameter.type_name)?;
+        let optional_raw = option(&owned_raw)?;
+        let public = field_identifier(&parameter.name)?;
+
+        if let Some(public_enum) = public_enum {
+            let optional = optional_raw.is_some();
+            fields.push(ParameterField {
+                name: parameter.name.clone(),
+                type_name: if optional {
+                    format!("Option<{public_enum}>")
+                } else {
+                    public_enum.clone()
+                },
+                constructor_argument: (!optional).then(|| format!("{public}: {public_enum}")),
+                constructor_value: (!optional).then(|| public.clone()),
+                setter_argument: optional.then(|| format!("{public}: {public_enum}")),
+                setter_value: optional.then(|| public.clone()),
+                raw_value: if optional {
+                    format!("request.{}.map(__RustSdkIntoRaw::into_raw)", parameter.name)
+                } else {
+                    format!("__RustSdkIntoRaw::into_raw(request.{})", parameter.name)
+                },
+            });
+            continue;
+        }
+
+        let owned = bindings.qualified_type(&owned_raw)?;
         let optional = option(&owned)?;
         if let Some((inner, _)) = optional {
-            let public = field_identifier(&parameter.name)?;
             let (setter_argument, setter_value) = if inner == "String" {
                 (
                     format!("{public}: impl Into<String>"),
@@ -1757,9 +1934,13 @@ fn parameter_request(
                 constructor_value: None,
                 setter_argument: Some(setter_argument),
                 setter_value: Some(setter_value),
+                raw_value: if borrowed {
+                    format!("request.{}.as_deref()", parameter.name)
+                } else {
+                    format!("request.{}", parameter.name)
+                },
             });
         } else {
-            let public = field_identifier(&parameter.name)?;
             let (constructor_argument, constructor_value) = if owned == "String" {
                 (
                     format!("{public}: impl Into<String>"),
@@ -1775,6 +1956,11 @@ fn parameter_request(
                 constructor_value: Some(constructor_value),
                 setter_argument: None,
                 setter_value: None,
+                raw_value: if borrowed {
+                    format!("request.{}.as_str()", parameter.name)
+                } else {
+                    format!("request.{}", parameter.name)
+                },
             });
         }
     }
@@ -1916,18 +2102,23 @@ fn operation_call(
             default_raw_arguments: None,
         });
     }
+    let request = operation
+        .parameter_request
+        .as_ref()
+        .ok_or_else(|| error("lower.parameter_request", "missing parameter request projection"))?;
     let mut values = Vec::new();
     for parameter in parameters {
-        let (_, borrowed) = owned_parameter(&parameter.type_name)?;
-        let mut value = format!("request.{}", parameter.name);
-        if borrowed {
-            value.push_str(if option(&parameter.type_name)?.is_some() {
-                ".as_deref()"
-            } else {
-                ".as_str()"
-            });
-        }
-        values.push(value);
+        let field = request
+            .fields
+            .iter()
+            .find(|field| field.name == parameter.name)
+            .ok_or_else(|| {
+                error(
+                    "lower.parameter_request",
+                    format!("missing parameter request field {}", parameter.name),
+                )
+            })?;
+        values.push(field.raw_value.clone());
     }
     let all_optional = parameters
         .iter()
@@ -1946,7 +2137,7 @@ fn operation_call(
             .join(", ")
     });
     Ok(OperationCall {
-        arguments: format!("request: {}", request_name(resource, &operation.name)),
+        arguments: format!("request: {}", request.name),
         raw_arguments: values.join(", "),
         default_raw_arguments,
     })
@@ -2364,7 +2555,7 @@ pub(crate) fn lower(
         });
     }
 
-    let model_names: BTreeSet<_> = models.iter().map(|model| model.name.as_str()).collect();
+    let model_names: BTreeSet<_> = models.iter().map(|model| model.name.clone()).collect();
     for (name, config) in &definition.models {
         let mut references = Vec::new();
         references.extend(
@@ -2387,7 +2578,7 @@ pub(crate) fn lower(
         }));
         let unknown: Vec<_> = references
             .into_iter()
-            .filter(|reference| !model_names.contains(reference))
+            .filter(|reference| !model_names.contains(*reference))
             .collect();
         if !unknown.is_empty() {
             return Err(error(
@@ -3115,6 +3306,14 @@ pub(crate) fn lower(
                 multipart_filenames: None,
                 parameter_request: None,
             };
+            operation.parameter_request = parameter_request(
+                &resource,
+                &operation,
+                raw_operation,
+                wire_operation,
+                bindings,
+                &mut models,
+            )?;
             operation.call = operation_call(&operation, &resource, bindings)?;
             if item.multipart_filenames == Some(true) {
                 let (helper_name, helper) = multipart_filenames_binding(bindings, raw_method)
@@ -3135,7 +3334,6 @@ pub(crate) fn lower(
                     call: multipart_filenames_call(&operation, helper, bindings)?,
                 });
             }
-            operation.parameter_request = parameter_request(&resource, &operation, bindings)?;
             resource.operations.push(operation);
         }
         resources.push(resource);
