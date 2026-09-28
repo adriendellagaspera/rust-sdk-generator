@@ -1398,8 +1398,8 @@ pub(crate) fn request_optional_boolean_field(
         raw_field.serialized_presence.as_ref(),
         &SerializedPresenceBinding::OmitIfNone,
     ) && syntax
-            .unary("Option")
-            .is_some_and(|inner| inner.spelling == "bool" && inner.unary("Option").is_none())
+        .unary("Option")
+        .is_some_and(|inner| inner.spelling == "bool" && inner.unary("Option").is_none())
 }
 
 pub(crate) fn request_object_matches(
