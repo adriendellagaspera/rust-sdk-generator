@@ -165,7 +165,6 @@ fn projects_structurally_proven_required_nullable_inline_object() {
             {"type": "null"}
         ]
     });
-    bindings.schema_version = 5;
     let root_fields = bindings
         .structs
         .get_mut("OpaqueProfile9")
