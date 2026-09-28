@@ -288,4 +288,5 @@ pub(crate) struct ParameterField {
     pub constructor_value: Option<String>,
     pub setter_argument: Option<String>,
     pub setter_value: Option<String>,
+    pub raw_value: String,
 }
