@@ -1090,14 +1090,15 @@ fn projects_typed_request_map_values_through_public_adapters() {
     })
     .expect("typed map generates with a closed public facade");
     let types = &generated.files["facade_types.rs"];
-    let map_impl = types
-        .split(&format!("pub struct {map_name}"))
-        .nth(1)
-        .expect("map model")
-        .split("#[derive")
-        .next()
-        .unwrap_or_default();
-    assert!(map_impl.contains(&value_adapter));
-    assert!(map_impl.contains("__RustSdkFromRaw::from_raw(value)"));
-    assert!(map_impl.contains("__RustSdkIntoRaw::into_raw(value)"));
+    assert!(types.contains(&format!(
+        "pub struct {map_name} {{ values: std::collections::BTreeMap<String, {value_adapter}> }}"
+    )));
+    assert!(types.contains(&format!(
+        "impl __RustSdkFromRaw<OpaqueHeaderMap> for {map_name}"
+    )));
+    assert!(types.contains(&format!(
+        "impl __RustSdkIntoRaw<OpaqueHeaderMap> for {map_name}"
+    )));
+    assert!(types.contains("__RustSdkFromRaw::from_raw(value)"));
+    assert!(types.contains("__RustSdkIntoRaw::into_raw(value)"));
 }
