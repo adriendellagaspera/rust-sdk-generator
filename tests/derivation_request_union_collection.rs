@@ -104,7 +104,7 @@ fn derives_request_union_collection_by_structure_not_raw_names_or_order() {
     assert!(
         types.contains("commands: impl IntoIterator<Item = SendDeliveryCommandsRequestCommands>")
     );
-    assert!(types.contains("commands.into_iter().map(Into::into).collect()"));
+    assert!(types.contains("commands.into_iter().map(__RustSdkIntoRaw::into_raw).collect()"));
     assert!(types.contains("pub enum SendDeliveryCommandsRequestCommands"));
     assert!(types.contains("EmailCommand(SendDeliveryCommandsRequestCommandsEmailCommand)"));
     assert!(types.contains("SmsCommand(SendDeliveryCommandsRequestCommandsSmsCommand)"));
@@ -114,12 +114,16 @@ fn derives_request_union_collection_by_structure_not_raw_names_or_order() {
     assert!(types.contains(
         "impl From<SendDeliveryCommandsRequestCommandsSmsCommand> for SendDeliveryCommandsRequestCommands"
     ));
-    assert!(types.contains("impl From<SendDeliveryCommandsRequestCommands> for OpaqueCommand7"));
+    assert!(
+        types.contains(
+            "impl __RustSdkIntoRaw<OpaqueCommand7> for SendDeliveryCommandsRequestCommands"
+        )
+    );
     assert!(types.contains(
-        "SendDeliveryCommandsRequestCommands::EmailCommand(value) => Self::VariantA(value.into())"
+        "SendDeliveryCommandsRequestCommands::EmailCommand(value) => OpaqueCommand7::VariantA(__RustSdkIntoRaw::into_raw(value))"
     ));
     assert!(types.contains(
-        "SendDeliveryCommandsRequestCommands::SmsCommand(value) => Self::VariantB(value.into())"
+        "SendDeliveryCommandsRequestCommands::SmsCommand(value) => OpaqueCommand7::VariantB(__RustSdkIntoRaw::into_raw(value))"
     ));
 }
 

@@ -96,7 +96,7 @@ fn derives_canonical_sse_with_owned_public_wrappers_and_discriminator() {
             "pub async fn watch(&self, request: WatchJobsRequest, job_id: impl AsRef<str>) -> Result<WatchJobsStream, SdkError>"
         ) && source.contains("raw.stream = Some(true);")
             && source.contains("json_events::<_, _, OpaqueJobChunk4>(bytes)")
-            && source.contains("WatchJobsStreamItem::from(event.data)")
+            && source.contains("__RustSdkFromRaw::from_raw(event.data)")
     }));
     assert!(generated.files.values().any(|source| {
         source.contains("pub async fn subscribe(&self")
@@ -107,7 +107,7 @@ fn derives_canonical_sse_with_owned_public_wrappers_and_discriminator() {
         source.contains("raw_notifications_31(")
             && source.contains("last_event_id")
             && source.contains("json_events::<_, _, OpaqueNotification6>(bytes)")
-            && source.contains("SubscribeNotificationsStreamItem::from(event.data)")
+            && source.contains("__RustSdkFromRaw::from_raw(event.data)")
     }));
 }
 
@@ -174,7 +174,7 @@ fn derives_exact_named_non_scalar_sse_payload() {
 
     assert!(generated.files.values().any(|source| {
         source.contains("json_events::<_, _, JobChunk>(bytes)")
-            && source.contains("WatchJobsStreamItem::from(event.data)")
+            && source.contains("__RustSdkFromRaw::from_raw(event.data)")
     }));
 }
 

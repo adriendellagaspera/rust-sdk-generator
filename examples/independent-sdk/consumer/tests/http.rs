@@ -63,8 +63,8 @@ async fn serializes_json_request_and_deserializes_success_response() {
     let client = NotebookClient::new("local-test").with_base_url(url);
     let response = client.notes().create(sdk::CreateNotesRequest::new("First note"))
         .await.expect("create note");
-    assert_eq!(response.raw().id, "n-1");
-    assert_eq!(response.raw().title, "First note");
+    assert_eq!(response.id(), "n-1");
+    assert_eq!(response.title(), "First note");
     let captured_request = server.join().expect("mock request");
     let (headers, body) = request_parts(&captured_request);
     assert!(headers.starts_with("POST /notes HTTP/1.1"), "{headers}");
@@ -83,8 +83,8 @@ async fn serializes_path_and_query_and_preserves_null_response() {
     let client = NotebookClient::new("local-test").with_base_url(url);
     let request = sdk::notes::ReadNotesRequest::new("n-2").verbose(true);
     let note = client.notes().read(request).await.expect("read note");
-    assert_eq!(note.raw().id, "n-2");
-    assert_eq!(note.raw().title, "Second");
+    assert_eq!(note.id(), "n-2");
+    assert_eq!(note.title(), "Second");
     let request = server.join().expect("mock request");
     assert!(request.starts_with("GET /notes/n-2?verbose=true HTTP/1.1"), "{request}");
 }

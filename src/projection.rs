@@ -15,16 +15,15 @@ use crate::openapi::{OpenApiIndex, ref_name};
 use crate::reconcile::unconstrained_json_alias_matches;
 use crate::rust_type::{Type, parse_type};
 use crate::structural::{
-    ScalarFieldShape, ScalarKind as StructuralScalarKind, canonical_unconstrained_map_branch,
-    constant_enum_response_object_matches, flattened_json_response_object_matches,
-    inline_array_object_item, inline_object_union_mapping, legacy_nullable_request_property,
-    multipart_filenames_binding, nullable_request_union, object_field_names_match,
-    object_value_matches, plain_string_json_alias_matches, raw_scalar_struct_shape,
-    redundant_any_of_alternative, referenced_request_object, request_object_matches,
-    request_object_matches_with_discriminators, request_optional_boolean_field,
-    request_union_mapping, request_union_matches, request_value_union_mapping,
-    response_array_union_matches, rust_type_matches_schema, scalar_named_object_matches,
-    scalar_object_shape, sse_payload_schema_names,
+    ScalarFieldShape, ScalarKind as StructuralScalarKind, constant_enum_response_object_matches,
+    flattened_json_response_object_matches, inline_array_object_item, inline_object_union_mapping,
+    legacy_nullable_request_property, multipart_filenames_binding, nullable_request_union,
+    object_field_names_match, object_value_matches, plain_string_json_alias_matches,
+    raw_scalar_struct_shape, redundant_any_of_alternative, referenced_request_object,
+    request_object_matches, request_object_matches_with_discriminators,
+    request_optional_boolean_field, request_union_mapping, request_union_matches,
+    request_value_union_mapping, response_array_union_matches, rust_type_matches_schema,
+    scalar_named_object_matches, scalar_object_shape, sse_payload_schema_names,
 };
 use crate::symbols::field_identifier;
 
@@ -415,6 +414,16 @@ fn request_type_is_public(syntax: Type, bindings: &Bindings, seen: &mut BTreeSet
         .all(|argument| request_type_is_public(argument, bindings, seen))
 }
 
+fn request_map_wrapper_matches(schema: &Value, raw: &str, bindings: &Bindings) -> bool {
+    let Some(fields) = bindings.structs.get(raw) else {
+        return false;
+    };
+    fields.len() == 1
+        && fields[0].name.strip_prefix("r#").unwrap_or(&fields[0].name) == "additional_properties"
+        && fields[0].wire_name.is_none()
+        && rust_type_matches_schema(schema, raw, bindings)
+}
+
 fn request_value_adapter_models(
     context: &RequestModelContext<'_>,
     schema: &Value,
@@ -524,7 +533,7 @@ fn request_value_adapter_models(
         .map(|models| (models, Some(public_name)));
     }
 
-    if canonical_unconstrained_map_branch(schema, &syntax.spelling, context.bindings) {
+    if request_map_wrapper_matches(schema, &syntax.spelling, context.bindings) {
         if !context
             .naming
             .public_name_available(&public_name, context.bindings)
@@ -744,15 +753,7 @@ fn request_object_models_value(
                     seen,
                 )?);
                 adapters.insert(field_name.clone(), child_name);
-            } else if referenced_request_object(context.openapi, reference, referenced).is_some_and(
-                |composed| {
-                    !flattened_json_response_object_matches(
-                        &composed,
-                        &core.spelling,
-                        context.bindings,
-                    )
-                },
-            ) {
+            } else if referenced_request_object(context.openapi, reference, referenced).is_some() {
                 models.extend(request_object_models(
                     context.openapi,
                     context.bindings,
@@ -763,6 +764,20 @@ fn request_object_models_value(
                     seen,
                 )?);
                 adapters.insert(field_name.clone(), child_name);
+            } else if request_map_wrapper_matches(referenced, &core.spelling, context.bindings) {
+                let (projected, adapter) = request_value_adapter_models(
+                    context,
+                    referenced,
+                    reference,
+                    &[],
+                    &core.spelling,
+                    child_name.clone(),
+                    seen,
+                )?;
+                models.extend(projected);
+                if let Some(adapter) = adapter {
+                    adapters.insert(field_name.clone(), adapter);
+                }
             } else if referenced.get("type").and_then(Value::as_str) == Some("string")
                 && referenced.get("enum").and_then(Value::as_array).is_some()
                 && context.bindings.enums.contains_key(&core.spelling)
@@ -821,6 +836,45 @@ fn request_object_models_value(
             continue;
         }
 
+        if wire.get("type").and_then(Value::as_str) == Some("string")
+            && wire.get("const").is_some_and(Value::is_string)
+            && context.bindings.enums.contains_key(&core.spelling)
+            && rust_type_matches_schema(wire, &core.spelling, context.bindings)
+        {
+            if !context
+                .naming
+                .public_name_available(&child_fallback, context.bindings)
+            {
+                return Err("capability.public_model_name_collision");
+            }
+            let mut child_path = source_path.to_vec();
+            child_path.push(field_name.clone());
+            models.push((
+                child_fallback.clone(),
+                ModelDefinition {
+                    schema: Some(source_root.into()),
+                    schema_path: Some(child_path.clone()),
+                    raw: Some(core.spelling.clone()),
+                    constructor: None,
+                    exclude: None,
+                    adapters: None,
+                    union: None,
+                    simple_union: None,
+                    type_alias: None,
+                    map: None,
+                    scalar_enum: Some(ScalarEnumDefinition {
+                        root: source_root.into(),
+                        path: child_path,
+                    }),
+                    union_factory: None,
+                    borrowed: None,
+                    accessors: None,
+                },
+            ));
+            adapters.insert(field_name.clone(), child_fallback);
+            continue;
+        }
+
         if wire.get("type").and_then(Value::as_str) == Some("array")
             && let Some(items) = wire.get("items")
             && let Some(raw_union) = core.unary("Vec")
@@ -864,6 +918,45 @@ fn request_object_models_value(
                 adapters.insert(field_name.clone(), child_fallback.clone());
                 continue;
             }
+        }
+
+        if wire.get("type").and_then(Value::as_str) == Some("array") && core.unary("Vec").is_some()
+        {
+            let mut child_path = source_path.to_vec();
+            child_path.push(field_name.clone());
+            let (projected, adapter) = request_value_adapter_models(
+                context,
+                wire,
+                source_root,
+                &child_path,
+                &core.spelling,
+                child_fallback.clone(),
+                seen,
+            )?;
+            if let Some(adapter) = adapter {
+                models.extend(projected);
+                adapters.insert(field_name.clone(), adapter);
+                continue;
+            }
+        }
+
+        if request_map_wrapper_matches(wire, &core.spelling, context.bindings) {
+            let mut child_path = source_path.to_vec();
+            child_path.push(field_name.clone());
+            let (projected, adapter) = request_value_adapter_models(
+                context,
+                wire,
+                source_root,
+                &child_path,
+                &core.spelling,
+                child_fallback.clone(),
+                seen,
+            )?;
+            models.extend(projected);
+            if let Some(adapter) = adapter {
+                adapters.insert(field_name.clone(), adapter);
+            }
+            continue;
         }
 
         if wire.get("properties").is_some()

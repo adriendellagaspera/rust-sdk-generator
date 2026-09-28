@@ -164,7 +164,8 @@ fn constructor_argument(
     let effective = option(&field.type_name)?
         .map(|(inner, _)| inner)
         .unwrap_or_else(|| field.type_name.clone());
-    let (argument, value) = argument(name, &effective)?;
+    let public_type = public_alias_type(parse_type(&effective)?, bindings, &mut Vec::new())?;
+    let (argument, value) = argument(name, &public_type)?;
     Ok((argument, wrap(&field.type_name, value)?))
 }
 
@@ -270,6 +271,18 @@ fn resolve_wrapper(
     let fields = field_map(bindings, raw)?;
     let constructor_fields = model.constructor.clone().unwrap_or_default();
     let adapters = model.adapters.clone().unwrap_or_default();
+    let flattened_additional_properties = model
+        .schema
+        .as_deref()
+        .and_then(|root| {
+            schema_at(
+                openapi,
+                root,
+                model.schema_path.as_deref().unwrap_or_default(),
+            )
+            .ok()
+        })
+        .is_some_and(|schema| flattened_json_response_object_matches(&schema, raw, bindings));
     let mut constructor = None;
     if model.constructor.is_some() || model.union_factory.is_none() {
         let mut arguments = Vec::new();
@@ -289,6 +302,12 @@ fn resolve_wrapper(
             )?;
             arguments.push(argument);
             values.insert(field_name.clone(), value);
+        }
+        if flattened_additional_properties {
+            values.insert(
+                "additional_properties".into(),
+                ValueSpec::Literal("Default::default()".into()),
+            );
         }
         constructor = Some(ConstructorSpec {
             arguments,
@@ -405,6 +424,17 @@ fn resolve_wrapper(
             continue;
         }
         let Some((inner, depth)) = option(&field.type_name)? else {
+            if flattened_additional_properties && name == "additional_properties" {
+                let (argument, value) = argument(name, &field.type_name)?;
+                setters.push(SetterSpec {
+                    name: field_identifier(name)?,
+                    raw_field: field.name.clone(),
+                    argument,
+                    value,
+                    null_name: None,
+                });
+                continue;
+            }
             return Err(error(
                 "lower.required_field_review",
                 format!(
@@ -421,7 +451,8 @@ fn resolve_wrapper(
             };
             constructor_argument(name, &synthetic, Some(adapter), bindings)?
         } else {
-            argument(name, &inner)?
+            let public_type = public_alias_type(parse_type(&inner)?, bindings, &mut Vec::new())?;
+            argument(name, &public_type)?
         };
         setters.push(SetterSpec {
             name: field_identifier(name)?,
@@ -938,20 +969,17 @@ fn schema_at(openapi: &OpenApiIndex, root: &str, path: &[String]) -> Result<Valu
     };
     for segment in path {
         schema = unwrap_nullable_schema(&schema).clone();
-        schema = if segment == "items" {
-            schema.get("items")
-        } else {
-            schema
-                .get("properties")
-                .and_then(|properties| properties.get(segment))
-        }
-        .cloned()
-        .ok_or_else(|| {
-            error(
-                "lower.schema_path",
-                format!("invalid schema path {root}.{}", path.join(".")),
-            )
-        })?;
+        schema = schema
+            .get("properties")
+            .and_then(|properties| properties.get(segment))
+            .or_else(|| (segment == "items").then(|| schema.get("items")).flatten())
+            .cloned()
+            .ok_or_else(|| {
+                error(
+                    "lower.schema_path",
+                    format!("invalid schema path {root}.{}", path.join(".")),
+                )
+            })?;
     }
     Ok(unwrap_nullable_schema(&schema).clone())
 }
@@ -1055,22 +1083,23 @@ fn resolve_scalar_enum(
 ) -> Result<ScalarEnumModelSpec> {
     let config = model.scalar_enum.as_ref().expect("scalar enum policy");
     let schema = schema_at(openapi, &config.root, &config.path)?;
-    let values = schema
-        .get("enum")
-        .and_then(Value::as_array)
-        .ok_or_else(|| {
-            error(
-                "lower.scalar_enum",
-                "scalar enum policy does not resolve to a string enum",
-            )
-        })?;
+    let values = if let Some(values) = schema.get("enum").and_then(Value::as_array) {
+        values.clone()
+    } else if let Some(value) = schema.get("const").filter(|value| value.is_string()) {
+        vec![value.clone()]
+    } else {
+        return Err(error(
+            "lower.scalar_enum",
+            "scalar enum policy does not resolve to a string enum or string const",
+        ));
+    };
     if schema.get("type").and_then(Value::as_str) != Some("string")
         || values.is_empty()
         || values.iter().any(|value| !value.is_string())
     {
         return Err(error(
             "lower.scalar_enum",
-            "scalar enum policy does not resolve to a string enum",
+            "scalar enum policy does not resolve to a string enum or string const",
         ));
     }
     let variants = bindings.variants(raw)?;
@@ -1715,6 +1744,7 @@ fn operation_call(
         overrides,
     } = &operation.request_projection
     {
+        let raw_type = bindings.qualified_type(raw)?;
         if *nullable_root {
             if !overrides.is_empty() {
                 return Err(error(
@@ -1729,9 +1759,9 @@ fn operation_call(
                     == Some(raw.as_str())
                 {
                     declarations.push(format!("request: Option<Option<{model}>>"));
-                    values.push(
-                        "request.map(|request| request.map(|request| request.into_raw()))".into(),
-                    );
+                    values.push(format!(
+                        "request.map(|request| request.map(|request| <{model} as __RustSdkIntoRaw<{raw_type}>>::into_raw(request)))"
+                    ));
                 } else {
                     let (declaration, value) = direct_parameter(parameter, bindings)?;
                     declarations.push(declaration);
@@ -1744,7 +1774,7 @@ fn operation_call(
                 default_raw_arguments: None,
             });
         }
-        let mut body = "request.into_raw()".to_owned();
+        let mut body = format!("<{model} as __RustSdkIntoRaw<{raw_type}>>::into_raw(request)");
         if !overrides.is_empty() {
             let assignments = overrides
                 .iter()
@@ -1758,7 +1788,9 @@ fn operation_call(
                 })
                 .collect::<Vec<_>>()
                 .join(" ");
-            body = format!("{{ let mut raw = request.into_raw(); {assignments} raw }}");
+            body = format!(
+                "{{ let mut raw = <{model} as __RustSdkIntoRaw<{raw_type}>>::into_raw(request); {assignments} raw }}"
+            );
         }
         let mut declarations = Vec::new();
         let mut values = Vec::new();
@@ -1897,7 +1929,8 @@ fn multipart_filenames_call(
         ));
     }
 
-    let mut body = "request.into_raw()".to_owned();
+    let raw_type = bindings.qualified_type(raw)?;
+    let mut body = format!("<{model} as __RustSdkIntoRaw<{raw_type}>>::into_raw(request)");
     if !overrides.is_empty() {
         let assignments = overrides
             .iter()
@@ -1911,7 +1944,9 @@ fn multipart_filenames_call(
             })
             .collect::<Vec<_>>()
             .join(" ");
-        body = format!("{{ let mut raw = request.into_raw(); {assignments} raw }}");
+        body = format!(
+            "{{ let mut raw = <{model} as __RustSdkIntoRaw<{raw_type}>>::into_raw(request); {assignments} raw }}"
+        );
     }
 
     let mut declarations = Vec::new();
@@ -1952,6 +1987,14 @@ fn validate_symbols(ir: &FacadeIr) -> Result<()> {
     symbols.claim(&ir.client_name, "sdk", "client", "")?;
     for reserved in ["new", "raw", "with_base_url"] {
         symbols.claim(reserved, &ir.client_name, "client runtime", "")?;
+    }
+    for reserved in ["__RustSdkFromRaw", "__RustSdkIntoRaw"] {
+        symbols.claim(
+            reserved,
+            "sdk",
+            "internal transport adapter",
+            "facade_types",
+        )?;
     }
     for model in &ir.models {
         symbols.claim(
@@ -2202,7 +2245,7 @@ pub(crate) fn lower(
                 .into_iter()
                 .flat_map(|properties| properties.keys())
                 .collect();
-            let raw_fields: BTreeSet<_> = bindings
+            let mut raw_fields: BTreeSet<_> = bindings
                 .fields(&raw)?
                 .iter()
                 .map(|field| {
@@ -2213,6 +2256,9 @@ pub(crate) fn lower(
                         .to_owned()
                 })
                 .collect();
+            if flattened_json_response_object_matches(&wire_schema, &raw, bindings) {
+                raw_fields.remove("additional_properties");
+            }
             if wire_fields
                 .iter()
                 .map(|name| name.as_str())

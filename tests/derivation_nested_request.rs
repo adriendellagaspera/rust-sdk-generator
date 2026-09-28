@@ -67,8 +67,15 @@ fn derives_nested_named_request_models_without_raw_name_identity() {
             .models
             .contains_key("CreatePlatformWidgetsRequestConfigMode")
     );
+    assert_eq!(
+        config
+            .adapters
+            .as_ref()
+            .and_then(|adapters| adapters.get("labels")),
+        Some(&"CreatePlatformWidgetsRequestConfigLabels".to_owned())
+    );
     assert!(
-        !derivation
+        derivation
             .definition
             .models
             .contains_key("CreatePlatformWidgetsRequestConfigLabels")
@@ -107,6 +114,7 @@ fn derives_nested_named_request_models_without_raw_name_identity() {
         "CreatePlatformWidgetsRequestConfig",
         "CreatePlatformWidgetsRequestMetadata",
         "CreatePlatformWidgetsRequestConfigMode",
+        "CreatePlatformWidgetsRequestConfigLabels",
     ] {
         assert!(generated.inventory.models.contains(&expected.to_owned()));
     }
@@ -119,6 +127,9 @@ fn derives_nested_named_request_models_without_raw_name_identity() {
     ));
     assert!(types.contains("pub struct CreatePlatformWidgetsRequestConfig { raw: OpaqueConfig4 }"));
     assert!(types.contains("mode: impl Into<CreatePlatformWidgetsRequestConfigMode>"));
+    assert!(types.contains(
+        "pub fn labels(mut self, labels: impl Into<CreatePlatformWidgetsRequestConfigLabels>)"
+    ));
     assert!(types.contains("pub struct CreatePlatformWidgetsRequestMetadata { raw: OpaqueMeta7 }"));
 }
 
@@ -297,13 +308,30 @@ fn derives_one_variant_string_const_request_fields_without_name_inference() {
         derivation.report.operations["create_widget"].status,
         DerivationStatus::Derived
     );
-    generate(GenerateInput {
+    let root = &derivation.definition.models["CreatePlatformWidgetsRequest"];
+    assert_eq!(
+        root.adapters
+            .as_ref()
+            .and_then(|adapters| adapters.get("kind")),
+        Some(&"CreatePlatformWidgetsRequestKind".to_owned())
+    );
+    assert!(
+        derivation
+            .definition
+            .models
+            .contains_key("CreatePlatformWidgetsRequestKind")
+    );
+    let generated = generate(GenerateInput {
         openapi: openapi.clone(),
         bindings: bindings.clone(),
         definition: derivation.definition,
         runtime: Runtime::default(),
     })
     .expect("generate const enum");
+    assert!(
+        generated.files["facade_types.rs"]
+            .contains("pub fn kind(mut self, kind: impl Into<CreatePlatformWidgetsRequestKind>)")
+    );
 
     let mut bad_value = openapi.clone();
     bad_value.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["kind"]["const"] =
@@ -421,10 +449,23 @@ fn derives_nested_flattened_json_as_a_proven_raw_request_field() {
         DerivationStatus::Derived
     );
     let root = &derivation.definition.models["CreatePlatformWidgetsRequest"];
-    assert!(
+    assert_eq!(
         root.adapters
             .as_ref()
-            .is_none_or(|adapters| !adapters.contains_key("payload"))
+            .and_then(|adapters| adapters.get("payload")),
+        Some(&"CreatePlatformWidgetsRequestPayload".to_owned())
+    );
+    assert!(
+        derivation
+            .definition
+            .models
+            .contains_key("CreatePlatformWidgetsRequestPayload")
+    );
+    assert!(
+        derivation
+            .definition
+            .models
+            .contains_key("CreatePlatformWidgetsRequestPayloadItemsItem")
     );
     let emitted = generate(GenerateInput {
         openapi: openapi.clone(),
@@ -433,7 +474,11 @@ fn derives_nested_flattened_json_as_a_proven_raw_request_field() {
         runtime: Runtime::default(),
     })
     .expect("nested canonical JSON map request generation");
-    assert!(emitted.files["facade_types.rs"].contains("payload: FlexiblePayload"));
+    let types = &emitted.files["facade_types.rs"];
+    assert!(types.contains("payload: impl Into<CreatePlatformWidgetsRequestPayload>"));
+    assert!(types.contains(
+        "pub fn additional_properties(mut self, additional_properties: std::collections::BTreeMap<String, serde_json::Value>)"
+    ));
 
     for extra in [
         serde_json::json!(false),
@@ -899,10 +944,17 @@ fn derives_lossless_unchecked_json_attributes_map_without_claiming_typed_values(
         DerivationStatus::Derived
     );
     let root = &derived.definition.models["CreatePlatformWidgetsRequest"];
-    assert!(
+    assert_eq!(
         root.adapters
             .as_ref()
-            .is_none_or(|items| !items.contains_key("attributes"))
+            .and_then(|items| items.get("attributes")),
+        Some(&"CreatePlatformWidgetsRequestAttributes".to_owned())
+    );
+    assert!(
+        derived
+            .definition
+            .models
+            .contains_key("CreatePlatformWidgetsRequestAttributes")
     );
     let generated = generate(GenerateInput {
         openapi: openapi.clone(),
@@ -910,8 +962,10 @@ fn derives_lossless_unchecked_json_attributes_map_without_claiming_typed_values(
         definition: derived.definition,
         runtime: Runtime::default(),
     })
-    .expect("preserve the raw JSON map without generating a constrained value enum");
-    assert!(generated.files["facade_types.rs"].contains("OpaqueAttributes"));
+    .expect("preserve the lossless JSON map behind a public adapter");
+    assert!(generated.files["facade_types.rs"].contains(
+        "pub fn attributes(mut self, attributes: impl Into<CreatePlatformWidgetsRequestAttributes>)"
+    ));
 
     let mut wrong_raw = bindings.clone();
     wrong_raw

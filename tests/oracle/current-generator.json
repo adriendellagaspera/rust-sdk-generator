@@ -1,13 +1,13 @@
 {
   "library": {
     "catalog.rs": "ac699f5afb68949826b84dca750762f1accc578bd8bcdcbf0921d9509743ebc1",
-    "catalog_books.rs": "1d14f5125de85e47208add4171cc41a65e3524d8055abbc2aea90b6b1d736471",
-    "facade_types.rs": "dd5588456a3e5fe4ba7fe5b1de5b36746fbfbfbef2b27d4eb81353573daf417a",
-    "mod.rs": "0fe1cc7191fee14df497752858a4f1956adbea409e519046423f010139a85644"
+    "catalog_books.rs": "7e0616e37e1ee5bfa93dfd2cedd4fcf3112f304ba2491ec01f5deb4eaa972c23",
+    "facade_types.rs": "5c58e184b2028fe9ae8bb5ab0f15a3f31beac6ce9adaf9661453ead75747393a",
+    "mod.rs": "1ef83abc246b08a4fb197431a0a5da2a2373cb43fd0ce6450335b6b45df227c6"
   },
   "menagerie": {
-    "facade_types.rs": "b2a8f79dbbb8def1ef7e69f963db202779ea7934dc851bccd62ca7a84d44e094",
-    "mod.rs": "c5e13487600a399704ad1707f599eba41266071a1bba2997eea4fc04f7fc2885",
-    "zoo.rs": "831215d8327140e6bf1d1e0e4a27a013f64499b903c258c7d064b3657dc5f5ea"
+    "facade_types.rs": "a92ee42e4e9197d19129faf6c50925d30906f52d1e9090870f316f8e7d75a20f",
+    "mod.rs": "b5d87de0b8911be9a047719d4a3e83c37de983e9887eb04e4c089f754f9cec82",
+    "zoo.rs": "3ef1c35fc7ddcdb33a72e617d59042eeb75d0cff3b821f74ccbccc0b9c2f10de"
   }
 }

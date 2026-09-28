@@ -146,13 +146,24 @@ fn emit_argument(argument: &ArgumentSpec) -> String {
     }
 }
 
-fn map_into(value: &str, depth: usize) -> String {
+fn map_into_raw(value: &str, depth: usize) -> String {
     if depth == 0 {
-        format!("{value}.into()")
+        format!("__RustSdkIntoRaw::into_raw({value})")
     } else {
         format!(
             "{value}.into_iter().map(|value| {}).collect()",
-            map_into("value", depth - 1)
+            map_into_raw("value", depth - 1)
+        )
+    }
+}
+
+fn map_from_raw(value: &str, depth: usize) -> String {
+    if depth == 0 {
+        format!("__RustSdkFromRaw::from_raw({value})")
+    } else {
+        format!(
+            "{value}.into_iter().map(|value| {}).collect()",
+            map_from_raw("value", depth - 1)
         )
     }
 }
@@ -162,12 +173,14 @@ fn emit_value(value: &ValueSpec) -> String {
         ValueSpec::Variable(name) => name.clone(),
         ValueSpec::IntoString(name) => format!("{name}.into()"),
         ValueSpec::IntoModel { name, adapter } => {
-            format!("Into::<{adapter}>::into({name}).into()")
+            format!("__RustSdkIntoRaw::into_raw(Into::<{adapter}>::into({name}))")
         }
-        ValueSpec::CollectInto(name) => format!("{name}.into_iter().map(Into::into).collect()"),
-        ValueSpec::MapInto { name, depth } => map_into(name, *depth),
+        ValueSpec::CollectInto(name) => {
+            format!("{name}.into_iter().map(__RustSdkIntoRaw::into_raw).collect()")
+        }
+        ValueSpec::MapInto { name, depth } => map_into_raw(name, *depth),
         ValueSpec::OptionMapInto { name, depth } => {
-            format!("{name}.map(|value| {})", map_into("value", *depth))
+            format!("{name}.map(|value| {})", map_into_raw("value", *depth))
         }
         ValueSpec::Some { value, depth } => {
             let mut rendered = emit_value(value);
@@ -261,14 +274,7 @@ fn emit_wrapper(model: &ModelSpec, spec: &WrapperModelSpec) -> String {
                 .join("\n\n"),
         );
     }
-    methods.extend([
-        format!(
-            "pub fn from_raw(raw: {}) -> Self {{ Self {{ raw }} }}",
-            model.raw
-        ),
-        format!("pub fn as_raw(&self) -> &{} {{ &self.raw }}", model.raw),
-        format!("pub fn into_raw(self) -> {} {{ self.raw }}", model.raw),
-    ]);
+
     let default = if spec.default {
         format!(
             "\n\nimpl Default for {} {{\n    fn default() -> Self {{ Self::new() }}\n}}",
@@ -278,7 +284,7 @@ fn emit_wrapper(model: &ModelSpec, spec: &WrapperModelSpec) -> String {
         String::new()
     };
     format!(
-        "#[derive(Debug, Clone)]\npub struct {} {{ raw: {} }}\n\nimpl {} {{\n{}\n}}\n\nimpl From<{}> for {} {{\n    fn from(raw: {}) -> Self {{ Self {{ raw }} }}\n}}\n\nimpl From<{}> for {} {{\n    fn from(value: {}) -> Self {{ value.into_raw() }}\n}}{}",
+        "#[derive(Debug, Clone)]\npub struct {} {{ raw: {} }}\n\nimpl {} {{\n{}\n}}\n\nimpl __RustSdkFromRaw<{}> for {} {{\n    fn from_raw(raw: {}) -> Self {{ Self {{ raw }} }}\n}}\n\nimpl __RustSdkIntoRaw<{}> for {} {{\n    fn into_raw(self) -> {} {{ self.raw }}\n}}{}",
         model.name,
         model.raw,
         model.name,
@@ -286,9 +292,9 @@ fn emit_wrapper(model: &ModelSpec, spec: &WrapperModelSpec) -> String {
         model.raw,
         model.name,
         model.raw,
-        model.name,
         model.raw,
         model.name,
+        model.raw,
         default
     )
 }
@@ -334,10 +340,11 @@ fn emit_union(model: &ModelSpec, spec: &UnionModelSpec) -> String {
                 .map(|(raw_payload, raw_variant)| {
                     let branch = branches[raw_payload.as_str()];
                     format!(
-                        "{}::{}({}) => Self::{}({})",
+                        "{}::{}({}) => {}::{}({})",
                         model.name,
                         branch.public_name,
                         branch.argument.name,
+                        target.raw,
                         raw_variant,
                         emit_value(&branch.raw_value)
                     )
@@ -345,10 +352,10 @@ fn emit_union(model: &ModelSpec, spec: &UnionModelSpec) -> String {
                 .collect::<Vec<_>>()
                 .join(",");
             format!(
-                "impl From<{}> for {} {{\n    fn from(value: {}) -> Self {{\n        match value {{\n{}\n        }}\n    }}\n}}",
-                model.name,
+                "impl __RustSdkIntoRaw<{}> for {} {{\n    fn into_raw(self) -> {} {{\n        match self {{\n{}\n        }}\n    }}\n}}",
                 target.raw,
                 model.name,
+                target.raw,
                 indent(&arms, 12)
             )
         })
@@ -364,8 +371,12 @@ fn emit_union(model: &ModelSpec, spec: &UnionModelSpec) -> String {
     )
 }
 
-fn adapt_value(depth: Option<usize>) -> String {
-    depth.map_or_else(|| "value".into(), |depth| map_into("value", depth))
+fn adapt_into_raw(depth: Option<usize>) -> String {
+    depth.map_or_else(|| "value".into(), |depth| map_into_raw("value", depth))
+}
+
+fn adapt_from_raw(depth: Option<usize>) -> String {
+    depth.map_or_else(|| "value".into(), |depth| map_from_raw("value", depth))
 }
 
 fn emit_simple_union(model: &ModelSpec, spec: &SimpleUnionModelSpec) -> String {
@@ -376,13 +387,14 @@ fn emit_simple_union(model: &ModelSpec, spec: &SimpleUnionModelSpec) -> String {
     let mut seen_payloads = BTreeSet::new();
     for branch in &spec.branches {
         variants.push(format!("{}({})", branch.public_name, branch.public_type));
-        let raw_value = adapt_value(branch.adapt_depth);
+        let raw_value = adapt_into_raw(branch.adapt_depth);
         arms.push(format!(
-            "{}::{}(value) => Self::{}({raw_value})",
-            model.name, branch.public_name, branch.raw_name
+            "{}::{}(value) => {}::{}({raw_value})",
+            model.name, branch.public_name, model.raw, branch.raw_name
         ));
+        let public_value = adapt_from_raw(branch.adapt_depth);
         reverse_arms.push(format!(
-            "{}::{}(value) => Self::{}({raw_value})",
+            "{}::{}(value) => Self::{}({public_value})",
             model.raw, branch.raw_name, branch.public_name
         ));
         if seen_payloads.insert(branch.public_type.clone()) {
@@ -400,7 +412,7 @@ fn emit_simple_union(model: &ModelSpec, spec: &SimpleUnionModelSpec) -> String {
     }
     let reverse = if spec.bidirectional {
         format!(
-            "\n\nimpl From<{}> for {} {{\n    fn from(value: {}) -> Self {{ match value {{\n{}\n    }} }}\n}}",
+            "\n\nimpl __RustSdkFromRaw<{}> for {} {{\n    fn from_raw(value: {}) -> Self {{ match value {{\n{}\n    }} }}\n}}",
             model.raw,
             model.name,
             model.raw,
@@ -410,13 +422,13 @@ fn emit_simple_union(model: &ModelSpec, spec: &SimpleUnionModelSpec) -> String {
         String::new()
     };
     format!(
-        "#[derive(Debug, Clone)]\n#[non_exhaustive]\npub enum {} {{\n{}\n}}\n\n{}\n\nimpl From<{}> for {} {{\n    fn from(value: {}) -> Self {{ match value {{\n{}\n    }} }}\n}}{}",
+        "#[derive(Debug, Clone)]\n#[non_exhaustive]\npub enum {} {{\n{}\n}}\n\n{}\n\nimpl __RustSdkIntoRaw<{}> for {} {{\n    fn into_raw(self) -> {} {{ match self {{\n{}\n    }} }}\n}}{}",
         model.name,
         indent(&variants.join(","), 4),
         conversions.join("\n\n"),
-        model.name,
         model.raw,
         model.name,
+        model.raw,
         indent(&arms.join(","), 8),
         reverse
     )
@@ -484,15 +496,15 @@ fn emit_accessor(accessor: &ResolvedAccessor) -> String {
             accessor.wrapper.as_deref().expect("iter wrapper")
         ),
         crate::AccessorKindDefinition::Converted => format!(
-            "pub fn {}(&self) -> {} {{ {expression}.clone().into() }}",
+            "pub fn {}(&self) -> {} {{ __RustSdkFromRaw::from_raw({expression}.clone()) }}",
             accessor.name, accessor.return_type
         ),
         crate::AccessorKindDefinition::OptionalConverted => format!(
-            "pub fn {}(&self) -> {} {{ {expression}.as_ref().map(|value| value.clone().into()) }}",
+            "pub fn {}(&self) -> {} {{ {expression}.as_ref().map(|value| __RustSdkFromRaw::from_raw(value.clone())) }}",
             accessor.name, accessor.return_type
         ),
         crate::AccessorKindDefinition::ConvertedIter => format!(
-            "pub fn {}(&self) -> {} {{ {expression}.iter().cloned().map(Into::into) }}",
+            "pub fn {}(&self) -> {} {{ {expression}.iter().cloned().map(__RustSdkFromRaw::from_raw) }}",
             accessor.name, accessor.return_type
         ),
         crate::AccessorKindDefinition::FirstStringVariant => {
@@ -530,36 +542,33 @@ fn emit_view(model: &ModelSpec, spec: &ViewModelSpec) -> String {
         .join("\n");
     if spec.borrowed {
         format!(
-            "#[derive(Debug, Clone, Copy)]\npub struct {}<'a> {{ raw: &'a {} }}\n\nimpl<'a> {}<'a> {{\n    pub(crate) fn new(raw: &'a {}) -> Self {{ Self {{ raw }} }}\n{}\n    pub fn raw(&self) -> &'a {} {{ self.raw }}\n}}",
+            "#[derive(Debug, Clone, Copy)]\npub struct {}<'a> {{ raw: &'a {} }}\n\nimpl<'a> {}<'a> {{\n    pub(crate) fn new(raw: &'a {}) -> Self {{ Self {{ raw }} }}\n{}\n}}",
             model.name,
             model.raw,
             model.name,
             model.raw,
-            indent(&accessors, 4),
-            model.raw
+            indent(&accessors, 4)
         )
     } else {
         format!(
-            "#[derive(Debug, Clone)]\npub struct {} {{ raw: {} }}\n\nimpl {} {{\n{}\n    pub fn raw(&self) -> &{} {{ &self.raw }}\n    pub fn into_raw(self) -> {} {{ self.raw }}\n}}\n\nimpl From<{}> for {} {{ fn from(raw: {}) -> Self {{ Self {{ raw }} }} }}\n\nimpl From<{}> for {} {{ fn from(value: {}) -> Self {{ value.into_raw() }} }}",
+            "#[derive(Debug, Clone)]\npub struct {} {{ raw: {} }}\n\nimpl {} {{\n{}\n}}\n\nimpl __RustSdkFromRaw<{}> for {} {{ fn from_raw(raw: {}) -> Self {{ Self {{ raw }} }} }}\n\nimpl __RustSdkIntoRaw<{}> for {} {{ fn into_raw(self) -> {} {{ self.raw }} }}",
             model.name,
             model.raw,
             model.name,
             indent(&accessors, 4),
             model.raw,
+            model.name,
             model.raw,
             model.raw,
             model.name,
-            model.raw,
-            model.name,
-            model.raw,
-            model.name
+            model.raw
         )
     }
 }
 
 fn emit_map(model: &ModelSpec, spec: &MapModelSpec) -> String {
     format!(
-        "#[derive(Debug, Clone, Default)]\npub struct {} {{ values: {} }}\n\nimpl {} {{\n    pub fn new(values: {}) -> Self {{ Self {{ values }} }}\n    pub fn as_map(&self) -> &{} {{ &self.values }}\n    pub fn into_map(self) -> {} {{ self.values }}\n}}\n\nimpl From<{}> for {} {{\n    fn from(values: {}) -> Self {{ Self {{ values }} }}\n}}\n\nimpl From<{}> for {} {{\n    fn from(value: {}) -> Self {{ Self {{ values: value.{} }} }}\n}}\n\nimpl From<{}> for {} {{\n    fn from(value: {}) -> Self {{ Self {{ {}: value.values }} }}\n}}",
+        "#[derive(Debug, Clone, Default)]\npub struct {} {{ values: {} }}\n\nimpl {} {{\n    pub fn new(values: {}) -> Self {{ Self {{ values }} }}\n    pub fn as_map(&self) -> &{} {{ &self.values }}\n    pub fn into_map(self) -> {} {{ self.values }}\n}}\n\nimpl From<{}> for {} {{\n    fn from(values: {}) -> Self {{ Self {{ values }} }}\n}}\n\nimpl __RustSdkFromRaw<{}> for {} {{\n    fn from_raw(value: {}) -> Self {{ Self {{ values: value.{} }} }}\n}}\n\nimpl __RustSdkIntoRaw<{}> for {} {{\n    fn into_raw(self) -> {} {{ {} {{ {}: self.values }} }}\n}}",
         model.name,
         spec.public_type,
         model.name,
@@ -573,9 +582,10 @@ fn emit_map(model: &ModelSpec, spec: &MapModelSpec) -> String {
         model.name,
         model.raw,
         spec.raw_field,
-        model.name,
         model.raw,
         model.name,
+        model.raw,
+        model.raw,
         spec.raw_field
     )
 }
@@ -585,7 +595,7 @@ fn emit_scalar_enum(model: &ModelSpec, spec: &ScalarEnumModelSpec) -> String {
     let forward = spec
         .variants
         .iter()
-        .map(|variant| format!("{}::{variant} => Self::{variant}", model.name))
+        .map(|variant| format!("{}::{variant} => {}::{variant}", model.name, model.raw))
         .collect::<Vec<_>>()
         .join(",");
     let reverse = spec
@@ -595,12 +605,12 @@ fn emit_scalar_enum(model: &ModelSpec, spec: &ScalarEnumModelSpec) -> String {
         .collect::<Vec<_>>()
         .join(",");
     format!(
-        "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n#[non_exhaustive]\npub enum {} {{\n{}\n}}\n\nimpl From<{}> for {} {{\n    fn from(value: {}) -> Self {{ match value {{\n{}\n    }} }}\n}}\n\nimpl From<{}> for {} {{\n    fn from(value: {}) -> Self {{ match value {{\n{}\n    }} }}\n}}",
+        "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n#[non_exhaustive]\npub enum {} {{\n{}\n}}\n\nimpl __RustSdkIntoRaw<{}> for {} {{\n    fn into_raw(self) -> {} {{ match self {{\n{}\n    }} }}\n}}\n\nimpl __RustSdkFromRaw<{}> for {} {{\n    fn from_raw(value: {}) -> Self {{ match value {{\n{}\n    }} }}\n}}",
         model.name,
         indent(&variants, 4),
-        model.name,
         model.raw,
         model.name,
+        model.raw,
         indent(&forward, 8),
         model.raw,
         model.name,
@@ -726,8 +736,8 @@ fn emit_operation_call(
     let error_type = &runtime.error_type;
     Ok(match response {
         ResponseProjection::Sse(stream) if stream.variants.is_empty() => format!(
-            "pub async fn {public_name}(&self{separator}{arguments}) -> Result<{}, {error_type}> {{\n    let bytes = self.raw.{raw_method}({call}).await.map_err({error_type}::from)?;\n    let events = {}::{}::<_, _, {}>(bytes)\n        .map(|event| event.map(|event| {}::from(event.data)).map_err(Into::into));\n    Ok(Box::pin(events))\n}}",
-            stream.type_name, runtime.sse_module, runtime.sse_function, stream.item, stream.wrapper
+            "pub async fn {public_name}(&self{separator}{arguments}) -> Result<{}, {error_type}> {{\n    let bytes = self.raw.{raw_method}({call}).await.map_err({error_type}::from)?;\n    let events = {}::{}::<_, _, {}>(bytes)\n        .map(|event| event.map(|event| __RustSdkFromRaw::from_raw(event.data)).map_err(Into::into));\n    Ok(Box::pin(events))\n}}",
+            stream.type_name, runtime.sse_module, runtime.sse_function, stream.item
         ),
         ResponseProjection::Sse(stream) => {
             let arms = stream
@@ -735,8 +745,8 @@ fn emit_operation_call(
                 .iter()
                 .map(|variant| {
                     format!(
-                        "{}::{}(value) => {}::{}({}::from(value))",
-                        stream.item, variant.name, stream.wrapper, variant.name, variant.wrapper
+                        "{}::{}(value) => {}::{}(__RustSdkFromRaw::from_raw(value))",
+                        stream.item, variant.name, stream.wrapper, variant.name
                     )
                 })
                 .collect::<Vec<_>>()
@@ -761,14 +771,14 @@ fn emit_operation_call(
         ResponseProjection::Json { model, .. } => {
             if let Some(default) = &call_spec.default_raw_arguments {
                 let configured = format!(
-                    "pub async fn {public_name}_with(&self, {arguments}) -> Result<{model}, {error_type}> {{\n    self.raw.{raw_method}({call}).await.map(Into::into).map_err(Into::into)\n}}"
+                    "pub async fn {public_name}_with(&self, {arguments}) -> Result<{model}, {error_type}> {{\n    self.raw.{raw_method}({call}).await.map(__RustSdkFromRaw::from_raw).map_err(Into::into)\n}}"
                 );
                 format!(
-                    "pub async fn {public_name}(&self) -> Result<{model}, {error_type}> {{\n    self.raw.{raw_method}({default}).await.map(Into::into).map_err(Into::into)\n}}\n\n{configured}"
+                    "pub async fn {public_name}(&self) -> Result<{model}, {error_type}> {{\n    self.raw.{raw_method}({default}).await.map(__RustSdkFromRaw::from_raw).map_err(Into::into)\n}}\n\n{configured}"
                 )
             } else {
                 format!(
-                    "pub async fn {public_name}(&self{separator}{arguments}) -> Result<{model}, {error_type}> {{\n    self.raw.{raw_method}({call}).await.map(Into::into).map_err(Into::into)\n}}"
+                    "pub async fn {public_name}(&self{separator}{arguments}) -> Result<{model}, {error_type}> {{\n    self.raw.{raw_method}({call}).await.map(__RustSdkFromRaw::from_raw).map_err(Into::into)\n}}"
                 )
             }
         }
@@ -956,7 +966,7 @@ fn emit_mod(ir: &FacadeIr, binding: &BindingLayout, runtime: &Runtime) -> String
         .join("\n");
     let client = client_name(binding);
     format!(
-        "{}{declarations}\npub mod {};\nmod facade_types;\n\n{resources}\npub use {}::{{{}}};\npub use facade_types::{{{}}};\n\nuse {};\n\n#[derive(Clone)]\npub struct {} {{ raw: {client} }}\n\nimpl {} {{\n    pub fn new(api_key: impl Into<String>) -> Self {{\n        Self {{ raw: {client}::{}().{}(api_key) }}\n    }}\n    #[must_use]\n    pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {{\n        self.raw = self.raw.{}(base_url);\n        self\n    }}\n{}\n    pub fn raw(&self) -> &{client} {{ &self.raw }}\n}}\n",
+        "{}{declarations}\npub mod {};\nmod facade_types;\n\n{resources}\npub use {}::{{{}}};\npub use facade_types::{{{}}};\n#[allow(unused_imports, reason = \"generated private transport adapters\")]\npub(crate) use facade_types::{{__RustSdkFromRaw, __RustSdkIntoRaw}};\n\nuse {};\n\n#[derive(Clone)]\npub struct {} {{ raw: {client} }}\n\nimpl {} {{\n    pub fn new(api_key: impl Into<String>) -> Self {{\n        Self {{ raw: {client}::{}().{}(api_key) }}\n    }}\n    #[must_use]\n    pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {{\n        self.raw = self.raw.{}(base_url);\n        self\n    }}\n{}\n}}\n",
         runtime.generated_marker,
         runtime.error_module,
         runtime.error_module,
@@ -974,7 +984,7 @@ fn emit_mod(ir: &FacadeIr, binding: &BindingLayout, runtime: &Runtime) -> String
 
 fn emit_facade_types(ir: &FacadeIr, binding: &BindingLayout, runtime: &Runtime) -> String {
     let mut source = format!(
-        "{}use std::pin::Pin;\nuse futures_util::Stream;\nuse super::{};\n{}\n",
+        "{}use std::pin::Pin;\nuse futures_util::Stream;\nuse super::{};\n{}\n#[allow(dead_code, reason = \"generated private transport adapter\")]\npub(crate) trait __RustSdkFromRaw<T>: Sized {{ fn from_raw(raw: T) -> Self; }}\n#[allow(dead_code, reason = \"generated private transport adapter\")]\npub(crate) trait __RustSdkIntoRaw<T> {{ fn into_raw(self) -> T; }}\n",
         runtime.generated_marker,
         runtime.error_type,
         prelude_imports(binding)
@@ -1104,5 +1114,53 @@ mod optional_ref_tests {
         assert!(emit_accessor(&accessor).contains("self.raw.trace_id.as_ref()"));
         accessor.return_type = "Option<&str>".into();
         assert!(emit_accessor(&accessor).contains("self.raw.trace_id.as_deref()"));
+    }
+}
+
+#[cfg(test)]
+mod private_transport_tests {
+    use super::emit;
+    use crate::contracts::{Bindings, OpenApi, Runtime, SdkDefinition};
+    use crate::lower;
+
+    #[test]
+    fn emitted_facade_keeps_backend_transport_interop_private() {
+        let openapi = OpenApi(
+            serde_json::from_str(include_str!("../tests/fixtures/library/openapi.json")).unwrap(),
+        );
+        let bindings: Bindings =
+            serde_json::from_str(include_str!("../tests/fixtures/library/rust-bindings.json"))
+                .unwrap();
+        let definition: SdkDefinition =
+            serde_json::from_str(include_str!("../tests/fixtures/library/policy.json")).unwrap();
+        let ir = lower::lower(&openapi, &bindings, &definition, &Runtime::default()).unwrap();
+        let files = emit(&ir, &bindings, &Runtime::default()).unwrap();
+        let source = files.values().cloned().collect::<Vec<_>>().join("\n");
+
+        for forbidden in [
+            "pub fn raw(&self)",
+            "pub fn as_raw(",
+            "pub fn into_raw(",
+            "pub fn from_raw(",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "generated public transport escape hatch: {forbidden}"
+            );
+        }
+
+        for line in source.lines().filter(|line| line.starts_with("impl From<")) {
+            for raw in bindings.symbol_paths.keys() {
+                assert!(
+                    !line.contains(raw),
+                    "public From conversion exposes backend symbol {raw}: {line}"
+                );
+            }
+        }
+
+        assert!(source.contains("pub(crate) trait __RustSdkFromRaw"));
+        assert!(source.contains("pub(crate) trait __RustSdkIntoRaw"));
+        assert!(source.contains("impl __RustSdkFromRaw<"));
+        assert!(source.contains("impl __RustSdkIntoRaw<"));
     }
 }

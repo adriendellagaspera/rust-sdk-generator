@@ -16,6 +16,7 @@ pub(crate) fn compile(
     runtime: &Runtime,
 ) -> Result<(FacadeIr, BTreeMap<String, String>)> {
     let ir = lower::lower(openapi, bindings, definition, runtime)?;
+    crate::closure::inspect(&ir, bindings).require_closed()?;
     let files = emit::emit(&ir, bindings, runtime)?;
     Ok((ir, files))
 }
@@ -101,6 +102,7 @@ mod tests {
             serde_json::from_str(include_str!("../tests/oracle/current-generator.json"))
                 .expect("frozen oracle");
 
+        let mut drifts = Vec::new();
         for fixture_name in ["menagerie", "library"] {
             let (openapi, bindings, definition) = fixture(fixture_name);
             let (_, files) = compile(&openapi, &bindings, &definition, &Runtime::default())
@@ -113,12 +115,19 @@ mod tests {
             );
             for (name, source) in files {
                 let actual = sha256(&source);
-                assert_eq!(
-                    expected[&name], actual,
-                    "{fixture_name}/{name} output drift:\n{source}"
-                );
+                if expected[&name] != actual {
+                    drifts.push(format!(
+                        "{fixture_name}/{name}: expected {}, actual {actual}\n{source}",
+                        expected[&name]
+                    ));
+                }
             }
         }
+        assert!(
+            drifts.is_empty(),
+            "generated output drift:\n{}",
+            drifts.join("\n---\n")
+        );
     }
 
     #[test]
