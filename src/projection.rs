@@ -1885,7 +1885,7 @@ fn response_model(
             let (name, model) = map_response_model(openapi, bindings, raw, name)?;
             return Ok((name.clone(), vec![(name, model)]));
         }
-        return response_view_named(openapi, bindings, naming, raw, name);
+        return response_view(openapi, bindings, naming, raw, resource_path, public_name);
     }
     if bindings.enums.contains_key(raw) {
         let (name, model) = scalar_enum_response_model(openapi, bindings, raw, name)?;
@@ -2898,7 +2898,7 @@ pub(crate) fn insert_projection(
         if let Some(existing) = registry.models.get(name) {
             let compatible_identity =
                 identities_can_share_name(&existing.identities, identities);
-            let compatible_definition = existing.model == *model;
+            let compatible_definition = &existing.model == model;
             if !compatible_identity || !compatible_definition {
                 return Err(model_collision(
                     name,
