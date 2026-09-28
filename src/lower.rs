@@ -114,8 +114,7 @@ fn constructor_argument(
     if required_nullable {
         let (inner, _) = option(&field.type_name)?.expect("checked one option layer");
         if let Some(adapter) = adapter {
-            let (public_type, depth) =
-                adapted_public_type(parse_type(&inner)?, adapter, bindings)?;
+            let (public_type, depth) = adapted_public_type(parse_type(&inner)?, adapter, bindings)?;
             return Ok((
                 ArgumentSpec {
                     name: public_name.clone(),
@@ -128,8 +127,7 @@ fn constructor_argument(
                 },
             ));
         }
-        let public_type =
-            public_alias_type(parse_type(&inner)?, bindings, &mut Vec::new())?;
+        let public_type = public_alias_type(parse_type(&inner)?, bindings, &mut Vec::new())?;
         return Ok((
             ArgumentSpec {
                 name: public_name.clone(),

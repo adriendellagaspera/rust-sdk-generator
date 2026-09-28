@@ -22,8 +22,7 @@ use crate::structural::{
     request_object_matches, request_object_matches_with_discriminators,
     request_optional_boolean_field, request_union_mapping, request_union_matches,
     request_value_union_mapping, response_array_union_matches, rust_type_matches_schema,
-    scalar_named_object_matches,
-    scalar_object_shape, sse_payload_schema_names,
+    scalar_named_object_matches, scalar_object_shape, sse_payload_schema_names,
 };
 use crate::symbols::field_identifier;
 
@@ -186,8 +185,7 @@ fn request_union_models(
     public_name: String,
     seen: &mut BTreeSet<(String, String)>,
 ) -> Result<ProjectedModels, &'static str> {
-    let Some(mapping) =
-        request_union_mapping(context.openapi, schema, raw_union, context.bindings)
+    let Some(mapping) = request_union_mapping(context.openapi, schema, raw_union, context.bindings)
     else {
         return request_value_union_models(
             context,
@@ -259,10 +257,10 @@ fn request_union_variant_name(schema: &Value) -> Result<String, &'static str> {
     if let Some(reference) = ref_name(schema) {
         return semantic_pascal_identifier(reference).map_err(|_| REQUEST_MODEL_UNPROVEN);
     }
-    if let Some(title) = schema.get("title").and_then(Value::as_str) {
-        if let Ok(name) = semantic_pascal_identifier(title) {
-            return Ok(name);
-        }
+    if let Some(title) = schema.get("title").and_then(Value::as_str)
+        && let Ok(name) = semantic_pascal_identifier(title)
+    {
+        return Ok(name);
     }
     match schema.get("type").and_then(Value::as_str) {
         Some("string") => Ok("String".into()),
@@ -296,11 +294,7 @@ fn expand_request_type(
     Ok(syntax)
 }
 
-fn request_type_is_public(
-    syntax: Type,
-    bindings: &Bindings,
-    seen: &mut BTreeSet<String>,
-) -> bool {
+fn request_type_is_public(syntax: Type, bindings: &Bindings, seen: &mut BTreeSet<String>) -> bool {
     let Ok(syntax) = expand_request_type(syntax, bindings, seen) else {
         return false;
     };
@@ -446,9 +440,8 @@ fn request_value_union_models(
     public_name: String,
     seen: &mut BTreeSet<(String, String)>,
 ) -> Result<ProjectedModels, &'static str> {
-    let mapping =
-        request_value_union_mapping(context.openapi, schema, raw_union, context.bindings)
-            .ok_or(REQUEST_MODEL_UNPROVEN)?;
+    let mapping = request_value_union_mapping(context.openapi, schema, raw_union, context.bindings)
+        .ok_or(REQUEST_MODEL_UNPROVEN)?;
     if !public_model_name_available(&public_name, context.bindings) {
         return Err("capability.public_model_name_collision");
     }
@@ -553,17 +546,15 @@ fn request_object_models_value(
         .filter_map(Value::as_str)
         .map(str::to_owned)
         .collect();
-    let required_set: BTreeSet<_> = required.iter().map(String::as_str).collect();
-
     let mut models = Vec::new();
     let mut adapters = IndexMap::new();
     for (field_name, property) in properties {
         let normalized_nullable =
             nullable_request_union(property).or_else(|| legacy_nullable_request_property(property));
-        let (wire, nullable) = normalized_nullable
+        let wire = normalized_nullable
             .as_ref()
-            .map(|schema| (schema, true))
-            .unwrap_or_else(|| request_non_null_schema(property));
+            .map(|schema| schema)
+            .unwrap_or_else(|| request_non_null_schema(property).0);
         let field = by_name
             .get(field_name.as_str())
             .ok_or(REQUEST_MODEL_UNPROVEN)?;

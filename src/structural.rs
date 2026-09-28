@@ -887,27 +887,26 @@ pub(crate) fn request_value_union_mapping(
         return None;
     }
 
-    let branch_matches =
-        |branch: &Value, payload: &str, seen: &mut BTreeSet<(String, String)>| {
-            if let Some(reference) = ref_name(branch) {
-                let Ok(referenced) = openapi.schema(reference) else {
-                    return false;
-                };
-                let raw = transparent_box_raw(payload).unwrap_or_else(|| payload.to_owned());
-                if union_branches(referenced).is_some() {
-                    return request_union_matches_inner(openapi, referenced, &raw, bindings, seen);
-                }
-                if referenced_request_object(openapi, reference, referenced).is_some() {
-                    return request_object_matches_inner(openapi, reference, &raw, bindings, seen);
-                }
-                return rust_type_matches_schema(referenced, payload, bindings);
+    let branch_matches = |branch: &Value, payload: &str, seen: &mut BTreeSet<(String, String)>| {
+        if let Some(reference) = ref_name(branch) {
+            let Ok(referenced) = openapi.schema(reference) else {
+                return false;
+            };
+            let raw = transparent_box_raw(payload).unwrap_or_else(|| payload.to_owned());
+            if union_branches(referenced).is_some() {
+                return request_union_matches_inner(openapi, referenced, &raw, bindings, seen);
             }
-            if branch.get("properties").is_some() {
-                return request_object_value_matches(openapi, branch, payload, bindings, seen);
+            if referenced_request_object(openapi, reference, referenced).is_some() {
+                return request_object_matches_inner(openapi, reference, &raw, bindings, seen);
             }
-            canonical_unconstrained_map_branch(branch, payload, bindings)
-                || rust_type_matches_schema(branch, payload, bindings)
-        };
+            return rust_type_matches_schema(referenced, payload, bindings);
+        }
+        if branch.get("properties").is_some() {
+            return request_object_value_matches(openapi, branch, payload, bindings, seen);
+        }
+        canonical_unconstrained_map_branch(branch, payload, bindings)
+            || rust_type_matches_schema(branch, payload, bindings)
+    };
 
     let mut used = BTreeSet::new();
     let mut mapping = Vec::new();

@@ -39,9 +39,8 @@ pub use contracts::{
     RequestDiscriminatorValue, RequestMediaDefinition, ResourceDefinition, ResourceInventory,
     ResponseRepresentationBinding, ResponseRepresentationDefinition, Runtime, ScalarEnumDefinition,
     SdkDefinition, SerializedPresenceBinding, SimpleUnionDefinition, SimpleUnionVariant,
-    SourceOperationBinding,
-    StreamAbiBinding, StreamBinding, StreamDefinition, StreamTransportBinding, UnionDefinition,
-    UnionFactoryDefinition, VariantBinding,
+    SourceOperationBinding, StreamAbiBinding, StreamBinding, StreamDefinition,
+    StreamTransportBinding, UnionDefinition, UnionFactoryDefinition, VariantBinding,
 };
 pub use derivation::{
     Derivation, DerivationError, DerivationReason, DerivationReport, DerivationStatus, DeriveInput,
