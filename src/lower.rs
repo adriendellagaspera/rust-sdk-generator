@@ -17,11 +17,11 @@ use crate::structural::{
     canonical_unconstrained_map_branch, constant_enum_response_object_matches,
     flattened_json_response_object_matches, inline_object_union_mapping,
     multipart_filenames_binding, object_field_names_match, object_value_matches,
-    plain_string_json_alias_matches, raw_scalar_struct_shape,
+    plain_string_json_alias_matches, raw_scalar_struct_shape, request_object_matches,
     request_object_matches_with_discriminators, request_optional_boolean_field,
-    request_union_mapping, request_value_union_mapping, response_array_union_matches,
-    rust_type_matches_schema, scalar_named_object_matches, scalar_object_shape,
-    sse_payload_schema_name, sse_payload_schema_names,
+    request_union_mapping, request_union_matches, request_value_union_mapping,
+    response_array_union_matches, rust_type_matches_schema, scalar_named_object_matches,
+    scalar_object_shape, sse_payload_schema_name, sse_payload_schema_names,
 };
 use crate::symbols::{SymbolProvider, field_identifier};
 
@@ -984,6 +984,36 @@ fn schema_at(openapi: &OpenApiIndex, root: &str, path: &[String]) -> Result<Valu
     Ok(unwrap_nullable_schema(&schema).clone())
 }
 
+fn map_value_matches_schema(
+    openapi: &OpenApiIndex,
+    schema: &Value,
+    raw_value: &str,
+    bindings: &Bindings,
+) -> bool {
+    if let Some(reference) = ref_name(schema) {
+        let Ok(referenced) = openapi.schema(reference) else {
+            return false;
+        };
+        if referenced.get("oneOf").is_some() || referenced.get("anyOf").is_some() {
+            return request_union_matches(openapi, referenced, raw_value, bindings);
+        }
+        if referenced.get("properties").is_some()
+            || referenced.get("allOf").is_some()
+            || referenced.get("$ref").is_some()
+        {
+            return request_object_matches(openapi, reference, raw_value, bindings);
+        }
+        return rust_type_matches_schema(referenced, raw_value, bindings);
+    }
+    if schema.get("oneOf").is_some() || schema.get("anyOf").is_some() {
+        return request_union_matches(openapi, schema, raw_value, bindings);
+    }
+    if schema.get("properties").is_some() {
+        return object_value_matches(openapi, schema, raw_value, bindings);
+    }
+    rust_type_matches_schema(schema, raw_value, bindings)
+}
+
 fn resolve_map(
     raw: &str,
     model: &ModelDefinition,
@@ -1049,29 +1079,53 @@ fn resolve_map(
             format!("raw map wrapper {raw} has non-String keys"),
         ));
     }
-    let effective = expand_alias(mapping.arguments[1].clone(), bindings, &mut Vec::new())?;
-    if effective.spelling != "serde_json::Value" {
-        let additional = unwrap_nullable_schema(additional);
-        let expected = match additional.get("type").and_then(Value::as_str) {
-            Some("string") => Some("String"),
-            Some("integer") => Some("i64"),
-            Some("number") => Some("f64"),
-            Some("boolean") => Some("bool"),
-            _ => None,
-        };
-        if expected != Some(effective.spelling.as_str()) {
+    let raw_value = mapping.arguments[1].clone();
+    let effective = expand_alias(raw_value.clone(), bindings, &mut Vec::new())?;
+    let value_adapter = model
+        .adapters
+        .as_ref()
+        .and_then(|adapters| adapters.get(&fields[0].name));
+    let (public_value, value_adapt_depth) = if let Some(adapter) = value_adapter {
+        if !map_value_matches_schema(openapi, additional, &effective.spelling, bindings) {
             return Err(error(
                 "lower.map_value",
                 format!(
-                    "raw map value drift for {raw}: {} != {expected:?}",
+                    "raw map value drift for {raw}: {} does not match additionalProperties",
                     effective.spelling
                 ),
             ));
         }
-    }
+        let (public, depth) = adapted_public_type(raw_value, adapter, bindings)?;
+        (public, Some(depth))
+    } else {
+        if effective.spelling != "serde_json::Value" {
+            let additional = unwrap_nullable_schema(additional);
+            let expected = match additional.get("type").and_then(Value::as_str) {
+                Some("string") => Some("String"),
+                Some("integer") => Some("i64"),
+                Some("number") => Some("f64"),
+                Some("boolean") => Some("bool"),
+                _ => None,
+            };
+            if expected != Some(effective.spelling.as_str()) {
+                return Err(error(
+                    "lower.map_value",
+                    format!(
+                        "raw map value drift for {raw}: {} != {expected:?}",
+                        effective.spelling
+                    ),
+                ));
+            }
+        }
+        (
+            public_alias_type(mapping.arguments[1].clone(), bindings, &mut Vec::new())?,
+            None,
+        )
+    };
     Ok(MapModelSpec {
-        public_type: public_alias_type(mapping, bindings, &mut Vec::new())?,
+        public_type: format!("std::collections::BTreeMap<String, {public_value}>"),
         raw_field: fields[0].name.clone(),
+        value_adapt_depth,
     })
 }
 

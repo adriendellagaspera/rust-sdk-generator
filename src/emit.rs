@@ -567,8 +567,27 @@ fn emit_view(model: &ModelSpec, spec: &ViewModelSpec) -> String {
 }
 
 fn emit_map(model: &ModelSpec, spec: &MapModelSpec) -> String {
+    let from_raw_values = spec.value_adapt_depth.map_or_else(
+        || format!("value.{}", spec.raw_field),
+        |depth| {
+            format!(
+                "value.{}.into_iter().map(|(key, value)| (key, {})).collect()",
+                spec.raw_field,
+                map_from_raw("value", depth)
+            )
+        },
+    );
+    let into_raw_values = spec.value_adapt_depth.map_or_else(
+        || "self.values".into(),
+        |depth| {
+            format!(
+                "self.values.into_iter().map(|(key, value)| (key, {})).collect()",
+                map_into_raw("value", depth)
+            )
+        },
+    );
     format!(
-        "#[derive(Debug, Clone, Default)]\npub struct {} {{ values: {} }}\n\nimpl {} {{\n    pub fn new(values: {}) -> Self {{ Self {{ values }} }}\n    pub fn as_map(&self) -> &{} {{ &self.values }}\n    pub fn into_map(self) -> {} {{ self.values }}\n}}\n\nimpl From<{}> for {} {{\n    fn from(values: {}) -> Self {{ Self {{ values }} }}\n}}\n\nimpl __RustSdkFromRaw<{}> for {} {{\n    fn from_raw(value: {}) -> Self {{ Self {{ values: value.{} }} }}\n}}\n\nimpl __RustSdkIntoRaw<{}> for {} {{\n    fn into_raw(self) -> {} {{ {} {{ {}: self.values }} }}\n}}",
+        "#[derive(Debug, Clone, Default)]\npub struct {} {{ values: {} }}\n\nimpl {} {{\n    pub fn new(values: {}) -> Self {{ Self {{ values }} }}\n    pub fn as_map(&self) -> &{} {{ &self.values }}\n    pub fn into_map(self) -> {} {{ self.values }}\n}}\n\nimpl From<{}> for {} {{\n    fn from(values: {}) -> Self {{ Self {{ values }} }}\n}}\n\nimpl __RustSdkFromRaw<{}> for {} {{\n    fn from_raw(value: {}) -> Self {{ Self {{ values: {from_raw_values} }} }}\n}}\n\nimpl __RustSdkIntoRaw<{}> for {} {{\n    fn into_raw(self) -> {} {{ {} {{ {}: {into_raw_values} }} }}\n}}",
         model.name,
         spec.public_type,
         model.name,
@@ -581,7 +600,6 @@ fn emit_map(model: &ModelSpec, spec: &MapModelSpec) -> String {
         model.raw,
         model.name,
         model.raw,
-        spec.raw_field,
         model.raw,
         model.name,
         model.raw,

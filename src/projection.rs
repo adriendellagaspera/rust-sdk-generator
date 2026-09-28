@@ -415,14 +415,66 @@ fn request_type_is_public(syntax: Type, bindings: &Bindings, seen: &mut BTreeSet
         .all(|argument| request_type_is_public(argument, bindings, seen))
 }
 
-fn request_map_wrapper_matches(schema: &Value, raw: &str, bindings: &Bindings) -> bool {
+fn request_map_wrapper_matches(
+    openapi: &OpenApiIndex,
+    schema: &Value,
+    raw: &str,
+    bindings: &Bindings,
+) -> bool {
     let Some(fields) = bindings.structs.get(raw) else {
         return false;
     };
-    fields.len() == 1
-        && fields[0].name.strip_prefix("r#").unwrap_or(&fields[0].name) == "additional_properties"
-        && fields[0].wire_name.is_none()
-        && rust_type_matches_schema(schema, raw, bindings)
+    if fields.len() != 1
+        || fields[0].name.strip_prefix("r#").unwrap_or(&fields[0].name) != "additional_properties"
+        || fields[0].wire_name.is_some()
+    {
+        return false;
+    }
+    if rust_type_matches_schema(schema, raw, bindings) {
+        return true;
+    }
+    let Ok(mapping) = parse_type(&fields[0].type_name) else {
+        return false;
+    };
+    if mapping.constructor.as_deref() != Some("std::collections::BTreeMap")
+        || mapping.arguments.len() != 2
+        || mapping.arguments[0].spelling != "String"
+    {
+        return false;
+    }
+    let Ok(value) =
+        expand_request_type(mapping.arguments[1].clone(), bindings, &mut BTreeSet::new())
+    else {
+        return false;
+    };
+    let Some(additional) = schema
+        .get("additionalProperties")
+        .filter(|value| **value != Value::Bool(false))
+    else {
+        return false;
+    };
+    if additional == &Value::Bool(true) {
+        return value.spelling == "serde_json::Value";
+    }
+    if let Some(reference) = ref_name(additional) {
+        let Ok(referenced) = openapi.schema(reference) else {
+            return false;
+        };
+        if request_union_schema(referenced) {
+            return request_union_matches(openapi, referenced, &value.spelling, bindings);
+        }
+        if referenced_request_object(openapi, reference, referenced).is_some() {
+            return request_object_matches(openapi, reference, &value.spelling, bindings);
+        }
+        return rust_type_matches_schema(referenced, &value.spelling, bindings);
+    }
+    if request_union_schema(additional) {
+        return request_union_matches(openapi, additional, &value.spelling, bindings);
+    }
+    if additional.get("properties").is_some() {
+        return object_value_matches(openapi, additional, &value.spelling, bindings);
+    }
+    rust_type_matches_schema(additional, &value.spelling, bindings)
 }
 
 fn request_value_adapter_models(
@@ -534,38 +586,67 @@ fn request_value_adapter_models(
         .map(|models| (models, Some(public_name)));
     }
 
-    if request_map_wrapper_matches(schema, &syntax.spelling, context.bindings) {
+    if request_map_wrapper_matches(context.openapi, schema, &syntax.spelling, context.bindings) {
         if !context
             .naming
             .public_name_available(&public_name, context.bindings)
         {
             return Err("capability.public_model_name_collision");
         }
-        return Ok((
-            vec![(
-                public_name.clone(),
-                ModelDefinition {
-                    schema: Some(source_root.into()),
-                    schema_path: (!source_path.is_empty()).then(|| source_path.to_vec()),
-                    raw: Some(syntax.spelling.clone()),
-                    constructor: None,
-                    exclude: None,
-                    adapters: None,
-                    union: None,
-                    simple_union: None,
-                    type_alias: None,
-                    map: Some(MapDefinition {
-                        root: source_root.into(),
-                        path: source_path.to_vec(),
-                    }),
-                    scalar_enum: None,
-                    union_factory: None,
-                    borrowed: None,
-                    accessors: None,
-                },
-            )],
-            Some(public_name),
+        let fields = context
+            .bindings
+            .structs
+            .get(&syntax.spelling)
+            .ok_or(REQUEST_MODEL_UNPROVEN)?;
+        let mapping = parse_type(&fields[0].type_name).map_err(|_| REQUEST_MODEL_UNPROVEN)?;
+        let raw_value = mapping.arguments.get(1).ok_or(REQUEST_MODEL_UNPROVEN)?;
+        let additional = schema
+            .get("additionalProperties")
+            .filter(|value| **value != Value::Bool(false))
+            .ok_or(REQUEST_MODEL_UNPROVEN)?;
+
+        let mut models = Vec::new();
+        let mut adapters = IndexMap::new();
+        if !request_type_is_public(raw_value.clone(), context.bindings, &mut BTreeSet::new()) {
+            let mut value_path = source_path.to_vec();
+            value_path.push("additionalProperties".into());
+            let (nested, adapter) = request_value_adapter_models(
+                context,
+                additional,
+                source_root,
+                &value_path,
+                &raw_value.spelling,
+                format!("{public_name}Value"),
+                seen,
+            )?;
+            let adapter = adapter.ok_or(REQUEST_MODEL_UNPROVEN)?;
+            models.extend(nested);
+            adapters.insert("additional_properties".into(), adapter);
+        }
+
+        models.push((
+            public_name.clone(),
+            ModelDefinition {
+                schema: Some(source_root.into()),
+                schema_path: (!source_path.is_empty()).then(|| source_path.to_vec()),
+                raw: Some(syntax.spelling.clone()),
+                constructor: None,
+                exclude: None,
+                adapters: (!adapters.is_empty()).then_some(adapters),
+                union: None,
+                simple_union: None,
+                type_alias: None,
+                map: Some(MapDefinition {
+                    root: source_root.into(),
+                    path: source_path.to_vec(),
+                }),
+                scalar_enum: None,
+                union_factory: None,
+                borrowed: None,
+                accessors: None,
+            },
         ));
+        return Ok((models, Some(public_name)));
     }
 
     if schema.get("properties").is_some() {
@@ -765,7 +846,12 @@ fn request_object_models_value(
                     seen,
                 )?);
                 adapters.insert(field_name.clone(), child_name);
-            } else if request_map_wrapper_matches(referenced, &core.spelling, context.bindings) {
+            } else if request_map_wrapper_matches(
+                context.openapi,
+                referenced,
+                &core.spelling,
+                context.bindings,
+            ) {
                 let (projected, adapter) = request_value_adapter_models(
                     context,
                     referenced,
@@ -942,7 +1028,7 @@ fn request_object_models_value(
             }
         }
 
-        if request_map_wrapper_matches(wire, &core.spelling, context.bindings) {
+        if request_map_wrapper_matches(context.openapi, wire, &core.spelling, context.bindings) {
             let mut child_path = source_path.to_vec();
             child_path.push(field_name.clone());
             let (projected, adapter) = request_value_adapter_models(
@@ -1675,8 +1761,7 @@ fn response_object_models_inner(
             } else {
                 child_fallback.clone()
             };
-            let enum_model = if item_schema.get("type").and_then(Value::as_str)
-                == Some("string")
+            let enum_model = if item_schema.get("type").and_then(Value::as_str) == Some("string")
                 && (item_schema.get("enum").is_some()
                     || item_schema.get("const").is_some_and(Value::is_string))
             {

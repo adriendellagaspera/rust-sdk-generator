@@ -1175,6 +1175,50 @@ fn serialized_presence_matches(
     }
 }
 
+fn request_map_value_matches(
+    openapi: &OpenApiIndex,
+    schema: &Value,
+    raw_value: &Type,
+    bindings: &Bindings,
+    seen: &mut BTreeSet<(String, String)>,
+) -> bool {
+    if let Some(reference) = ref_name(schema) {
+        let Ok(referenced) = openapi.schema(reference) else {
+            return false;
+        };
+        if union_branches(referenced).is_some() {
+            return raw_value.kind == TypeKind::Opaque
+                && request_union_matches_inner(
+                    openapi,
+                    referenced,
+                    &raw_value.spelling,
+                    bindings,
+                    seen,
+                );
+        }
+        if referenced_request_object(openapi, reference, referenced).is_some() {
+            return raw_value.kind == TypeKind::Opaque
+                && request_object_matches_inner(
+                    openapi,
+                    reference,
+                    &raw_value.spelling,
+                    bindings,
+                    seen,
+                );
+        }
+        return type_matches_schema(schema, raw_value, bindings, &mut BTreeSet::new());
+    }
+    if union_branches(schema).is_some() {
+        return raw_value.kind == TypeKind::Opaque
+            && request_union_matches_inner(openapi, schema, &raw_value.spelling, bindings, seen);
+    }
+    if schema.get("properties").is_some() {
+        return raw_value.kind == TypeKind::Opaque
+            && request_object_value_matches(openapi, schema, &raw_value.spelling, bindings, seen);
+    }
+    type_matches_schema(schema, raw_value, bindings, &mut BTreeSet::new())
+}
+
 fn request_object_value_matches(
     openapi: &OpenApiIndex,
     schema: &Value,
@@ -1311,6 +1355,25 @@ fn request_object_value_matches(
 
         if let Some((union_schema, raw_union)) = request_union_collection(openapi, wire, &core) {
             if !request_union_matches_inner(openapi, union_schema, raw_union, bindings, seen) {
+                return false;
+            }
+            continue;
+        }
+
+        if wire.get("type").and_then(Value::as_str) == Some("object")
+            && let Some(additional) = wire
+                .get("additionalProperties")
+                .filter(|additional| **additional != Value::Bool(false))
+            && let Some(value_type) = map_value_type(&core, bindings)
+        {
+            let matches = if *additional == Value::Bool(true) {
+                value_type.spelling == "serde_json::Value"
+            } else if lossless_primitive_json_map(additional, &core, bindings) {
+                true
+            } else {
+                request_map_value_matches(openapi, additional, &value_type, bindings, seen)
+            };
+            if !matches {
                 return false;
             }
             continue;
