@@ -340,10 +340,11 @@ fn emit_union(model: &ModelSpec, spec: &UnionModelSpec) -> String {
                 .map(|(raw_payload, raw_variant)| {
                     let branch = branches[raw_payload.as_str()];
                     format!(
-                        "{}::{}({}) => Self::{}({})",
+                        "{}::{}({}) => {}::{}({})",
                         model.name,
                         branch.public_name,
                         branch.argument.name,
+                        target.raw,
                         raw_variant,
                         emit_value(&branch.raw_value)
                     )
@@ -388,8 +389,8 @@ fn emit_simple_union(model: &ModelSpec, spec: &SimpleUnionModelSpec) -> String {
         variants.push(format!("{}({})", branch.public_name, branch.public_type));
         let raw_value = adapt_into_raw(branch.adapt_depth);
         arms.push(format!(
-            "{}::{}(value) => Self::{}({raw_value})",
-            model.name, branch.public_name, branch.raw_name
+            "{}::{}(value) => {}::{}({raw_value})",
+            model.name, branch.public_name, model.raw, branch.raw_name
         ));
         let public_value = adapt_from_raw(branch.adapt_depth);
         reverse_arms.push(format!(
@@ -594,7 +595,7 @@ fn emit_scalar_enum(model: &ModelSpec, spec: &ScalarEnumModelSpec) -> String {
     let forward = spec
         .variants
         .iter()
-        .map(|variant| format!("{}::{variant} => Self::{variant}", model.name))
+        .map(|variant| format!("{}::{variant} => {}::{variant}", model.name, model.raw))
         .collect::<Vec<_>>()
         .join(",");
     let reverse = spec
@@ -736,7 +737,7 @@ fn emit_operation_call(
     Ok(match response {
         ResponseProjection::Sse(stream) if stream.variants.is_empty() => format!(
             "pub async fn {public_name}(&self{separator}{arguments}) -> Result<{}, {error_type}> {{\n    let bytes = self.raw.{raw_method}({call}).await.map_err({error_type}::from)?;\n    let events = {}::{}::<_, _, {}>(bytes)\n        .map(|event| event.map(|event| __RustSdkFromRaw::from_raw(event.data)).map_err(Into::into));\n    Ok(Box::pin(events))\n}}",
-            stream.type_name, runtime.sse_module, runtime.sse_function, stream.item, stream.wrapper
+            stream.type_name, runtime.sse_module, runtime.sse_function, stream.item
         ),
         ResponseProjection::Sse(stream) => {
             let arms = stream
@@ -965,7 +966,7 @@ fn emit_mod(ir: &FacadeIr, binding: &BindingLayout, runtime: &Runtime) -> String
         .join("\n");
     let client = client_name(binding);
     format!(
-        "{}{declarations}\npub mod {};\nmod facade_types;\n\n{resources}\npub use {}::{{{}}};\npub use facade_types::{{{}}};\npub(crate) use facade_types::{{__RustSdkFromRaw, __RustSdkIntoRaw}};\n\nuse {};\n\n#[derive(Clone)]\npub struct {} {{ raw: {client} }}\n\nimpl {} {{\n    pub fn new(api_key: impl Into<String>) -> Self {{\n        Self {{ raw: {client}::{}().{}(api_key) }}\n    }}\n    #[must_use]\n    pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {{\n        self.raw = self.raw.{}(base_url);\n        self\n    }}\n{}\n}}\n",
+        "{}{declarations}\npub mod {};\nmod facade_types;\n\n{resources}\npub use {}::{{{}}};\npub use facade_types::{{{}}};\n#[allow(unused_imports, reason = "generated private transport adapters")]\npub(crate) use facade_types::{{__RustSdkFromRaw, __RustSdkIntoRaw}};\n\nuse {};\n\n#[derive(Clone)]\npub struct {} {{ raw: {client} }}\n\nimpl {} {{\n    pub fn new(api_key: impl Into<String>) -> Self {{\n        Self {{ raw: {client}::{}().{}(api_key) }}\n    }}\n    #[must_use]\n    pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {{\n        self.raw = self.raw.{}(base_url);\n        self\n    }}\n{}\n}}\n",
         runtime.generated_marker,
         runtime.error_module,
         runtime.error_module,
@@ -983,7 +984,7 @@ fn emit_mod(ir: &FacadeIr, binding: &BindingLayout, runtime: &Runtime) -> String
 
 fn emit_facade_types(ir: &FacadeIr, binding: &BindingLayout, runtime: &Runtime) -> String {
     let mut source = format!(
-        "{}use std::pin::Pin;\nuse futures_util::Stream;\nuse super::{};\n{}\npub(crate) trait __RustSdkFromRaw<T>: Sized {{ fn from_raw(raw: T) -> Self; }}\npub(crate) trait __RustSdkIntoRaw<T> {{ fn into_raw(self) -> T; }}\n",
+        "{}use std::pin::Pin;\nuse futures_util::Stream;\nuse super::{};\n{}\n#[allow(dead_code, reason = \"generated private transport adapter\")]\npub(crate) trait __RustSdkFromRaw<T>: Sized {{ fn from_raw(raw: T) -> Self; }}\n#[allow(dead_code, reason = \"generated private transport adapter\")]\npub(crate) trait __RustSdkIntoRaw<T> {{ fn into_raw(self) -> T; }}\n",
         runtime.generated_marker,
         runtime.error_type,
         prelude_imports(binding)
