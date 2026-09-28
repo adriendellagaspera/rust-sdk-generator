@@ -165,11 +165,29 @@ fn projects_structurally_proven_required_nullable_inline_object() {
             {"type": "null"}
         ]
     });
-    bindings
+    bindings.schema_version = 5;
+    let root_fields = bindings
         .structs
         .get_mut("OpaqueProfile9")
-        .expect("root binding")[0]
-        .type_name = "Option<OpaqueSettings4>".into();
+        .expect("root binding");
+    root_fields[0].type_name = "Option<OpaqueSettings4>".into();
+    root_fields[0].serialized_presence =
+        Some(rust_sdk_generator::SerializedPresenceBinding::Always);
+    root_fields[1].serialized_presence =
+        Some(rust_sdk_generator::SerializedPresenceBinding::Always);
+    let settings_fields = bindings
+        .structs
+        .get_mut("OpaqueSettings4")
+        .expect("settings binding");
+    settings_fields[0].serialized_presence =
+        Some(rust_sdk_generator::SerializedPresenceBinding::OmitIfNone);
+    settings_fields[1].serialized_presence =
+        Some(rust_sdk_generator::SerializedPresenceBinding::Always);
+    bindings
+        .structs
+        .get_mut("OpaqueTuning2")
+        .expect("tuning binding")[0]
+        .serialized_presence = Some(rust_sdk_generator::SerializedPresenceBinding::OmitIfNone);
 
     let derivation = derive(DeriveInput {
         openapi: openapi.clone(),
