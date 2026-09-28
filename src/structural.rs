@@ -1621,7 +1621,8 @@ fn response_type_matches_schema(
         let Some(variants) = bindings.enums.get(&syntax.spelling) else {
             return false;
         };
-        if variants.len() != branches.len() || variants.iter().any(|variant| variant.payload.is_none())
+        if variants.len() != branches.len()
+            || variants.iter().any(|variant| variant.payload.is_none())
         {
             return false;
         }
