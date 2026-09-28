@@ -265,6 +265,7 @@ fn request_raw_core(type_name: &str) -> Result<(Type, usize), &'static str> {
 struct RequestModelContext<'a> {
     openapi: &'a OpenApiIndex,
     bindings: &'a Bindings,
+    naming: &'a ModelNaming<'a>,
 }
 
 fn request_union_models(
@@ -291,10 +292,15 @@ fn request_union_models(
         if !public_variants.insert(public_variant.clone()) {
             return Err("capability.public_model_name_collision");
         }
-        let adapter = format!("{public_name}{public_variant}");
+        let adapter = context.naming.named(
+            &branch.schema,
+            ModelRepresentation::Owned,
+            format!("{public_name}{public_variant}"),
+        )?;
         models.extend(request_object_models(
             context.openapi,
             context.bindings,
+            context.naming,
             &branch.schema,
             &branch.raw_payload,
             adapter.clone(),
@@ -393,9 +399,14 @@ fn request_object_models_value(
             .ok_or(REQUEST_MODEL_UNPROVEN)?;
         let (core, _) = request_raw_core(&field.type_name)?;
         let segment = semantic_pascal_identifier(field_name).map_err(|_| REQUEST_MODEL_UNPROVEN)?;
-        let child_name = format!("{public_name}{segment}");
+        let child_fallback = format!("{public_name}{segment}");
 
         if let Some(reference) = ref_name(wire) {
+            let child_name = context.naming.named(
+                reference,
+                ModelRepresentation::Owned,
+                child_fallback.clone(),
+            )?;
             let referenced = context
                 .openapi
                 .schema(reference)
@@ -439,6 +450,7 @@ fn request_object_models_value(
                 match request_object_models(
                     context.openapi,
                     context.bindings,
+                    context.naming,
                     reference,
                     &core.spelling,
                     child_name.clone(),
@@ -476,10 +488,10 @@ fn request_object_models_value(
                     source_root,
                     &child_path,
                     &core.spelling,
-                    child_name.clone(),
+                    child_fallback.clone(),
                     seen,
                 )?);
-                adapters.insert(field_name.clone(), child_name);
+                adapters.insert(field_name.clone(), child_fallback.clone());
             } else if !request_union_matches(
                 context.openapi,
                 wire,
@@ -501,6 +513,11 @@ fn request_object_models_value(
                     .schema(reference)
                     .map_err(|_| REQUEST_MODEL_UNPROVEN)?;
                 if request_union_schema(referenced) {
+                    let child_name = context.naming.named(
+                        reference,
+                        ModelRepresentation::Owned,
+                        child_fallback.clone(),
+                    )?;
                     models.extend(request_union_models(
                         context,
                         referenced,
@@ -523,10 +540,10 @@ fn request_object_models_value(
                     source_root,
                     &child_path,
                     &raw_union.spelling,
-                    child_name.clone(),
+                    child_fallback.clone(),
                     seen,
                 )?);
-                adapters.insert(field_name.clone(), child_name);
+                adapters.insert(field_name.clone(), child_fallback.clone());
                 continue;
             }
         }
@@ -542,10 +559,10 @@ fn request_object_models_value(
                 source_root,
                 &child_path,
                 &core.spelling,
-                child_name.clone(),
+                child_fallback.clone(),
                 seen,
             )?);
-            adapters.insert(field_name.clone(), child_name);
+            adapters.insert(field_name.clone(), child_fallback);
         }
     }
 
@@ -577,6 +594,7 @@ fn request_object_models_value(
 fn request_object_models(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
+    naming: &ModelNaming<'_>,
     schema_name: &str,
     raw: &str,
     public_name: String,
@@ -596,7 +614,11 @@ fn request_object_models(
         .map_err(|_| REQUEST_MODEL_UNPROVEN)
         .and_then(|schema| {
             request_object_models_value(
-                &RequestModelContext { openapi, bindings },
+                &RequestModelContext {
+                    openapi,
+                    bindings,
+                    naming,
+                },
                 &schema,
                 schema_name,
                 &[],
@@ -664,6 +686,7 @@ fn inline_request_model(
 fn optional_nullable_json_ref_request_model(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
+    naming: &ModelNaming<'_>,
     operation_id: &str,
     binding: &str,
     resource_path: &[String],
@@ -698,7 +721,11 @@ fn optional_nullable_json_ref_request_model(
         return Err(REQUEST_MODEL_UNPROVEN);
     }
     let raw = &matching[0].1;
-    let name = request_model_name(resource_path, public_name);
+    let name = naming.named(
+        &body.schema,
+        ModelRepresentation::Owned,
+        request_model_name(resource_path, public_name),
+    )?;
     if !public_model_name_available(&name, bindings) {
         return Err("capability.public_model_name_collision");
     }
@@ -775,6 +802,7 @@ fn required_json_schema_request_model(
 fn request_model(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
+    naming: &ModelNaming<'_>,
     operation_id: &str,
     binding: &str,
     resource_path: &[String],
@@ -793,6 +821,7 @@ fn request_model(
     if let Some(projected) = optional_nullable_json_ref_request_model(
         openapi,
         bindings,
+        naming,
         operation_id,
         binding,
         resource_path,
@@ -844,7 +873,11 @@ fn request_model(
     }
 
     let raw = &matching[0].type_name;
-    let name = request_model_name(resource_path, public_name);
+    let name = naming.named(
+        &schema_name,
+        ModelRepresentation::Owned,
+        request_model_name(resource_path, public_name),
+    )?;
     if openapi
         .object_schema(&schema_name)
         .ok()
@@ -877,6 +910,7 @@ fn request_model(
     let models = match request_object_models(
         openapi,
         bindings,
+        naming,
         &schema_name,
         raw,
         name.clone(),
