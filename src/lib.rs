@@ -6,6 +6,7 @@
 
 mod closure;
 mod compiler;
+pub mod cli;
 mod contracts;
 mod derivation;
 mod emit;

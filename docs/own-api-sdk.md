@@ -1,28 +1,27 @@
 # Local-first own-OpenAPI SDK adoption
 
-This workflow is distinct from the fixed notebook quickstart. It accepts a local OpenAPI 3.1 JSON document within the pinned upstream's *proven* Rust envelope, not universal OpenAPI/YAML/URL input. Every relevant operation must have a source operationId, metadata-backed Bindings v4 evidence and a supported structural derivation; rejected operations fail the run.
+This workflow is distinct from the fixed notebook quickstart. It accepts a local OpenAPI 3.1 JSON document within the pinned upstream's *proven* Rust envelope, not universal OpenAPI/YAML/URL input. Every relevant operation must have a source operationId, metadata-backed Bindings v5 evidence and a supported structural derivation; rejected operations fail the run.
 
 ## Clean-machine commands
 
-Requirements: Rust 1.88+ (Cargo), Git, a working native toolchain, and first-run network access to GitHub/crates.io. Start with a fixed generator checkout:
+Requirements: Rust 1.88+ (Cargo), Git, a working native toolchain, and first-run network access to GitHub/crates.io. Install the versioned CLI:
 
 ```sh
-git clone https://github.com/adriendellagaspera/rust-sdk-generator.git
-cd rust-sdk-generator
-cargo run --locked --bin rust-sdk -- init \
+cargo install rust-sdk-cli
+rust-sdk init \
   --openapi /absolute/path/to/your-openapi.json \
   --output /absolute/path/to/your-new-sdk --name your-new-sdk
 cargo test --locked --manifest-path /absolute/path/to/your-new-sdk/Cargo.toml --all-targets
 ```
 
-The Cargo init invocation acquires/builds the exact pinned unmodified upstream backend, builds the Rust adapter/root CLI, derives from the user's own JSON and canonical Bindings v4, writes the standalone crate and compiles it before publication. No Python or hand-authored full SdkDefinition is required. Init refuses any pre-existing destination. The original JSON is *copied* into the crate as openapi.json; edit that checked-in copy for later sync. The crate's Cargo.toml is consumer-owned, with publish=false and no invented license, auth scheme or production release policy.
+The CLI acquires/builds the exact pinned unmodified upstream backend on first use, derives from the user's own JSON and canonical Bindings v5, writes the standalone crate and compiles it before publication. Progress for long-running stages appears on stderr. No Python, generator checkout or hand-authored full SdkDefinition is required. Init refuses any pre-existing destination. The original JSON is *copied* into the crate as openapi.json; edit that checked-in copy for later sync. The crate's Cargo.toml is consumer-owned, with publish=false and no invented license, auth scheme or production release policy.
 
 ## Inspect, accept and sync
 
 ```sh
 # After modifying your-new-sdk/openapi.json:
-cargo run --locked --bin rust-sdk -- sync --crate /absolute/path/to/your-new-sdk --check
-cargo run --locked --bin rust-sdk -- sync --crate /absolute/path/to/your-new-sdk --accept-coverage
+rust-sdk sync --crate /absolute/path/to/your-new-sdk --check
+rust-sdk sync --crate /absolute/path/to/your-new-sdk --accept-coverage
 cargo test --locked --manifest-path /absolute/path/to/your-new-sdk/Cargo.toml --all-targets
 ```
 

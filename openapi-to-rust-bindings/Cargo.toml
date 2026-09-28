@@ -16,7 +16,7 @@ name = "openapi-to-rust-bindings"
 path = "src/main.rs"
 
 [dependencies]
-rust-sdk-generator = { path = ".." }
+rust-sdk-generator = { path = "..", version = "0.2.8" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 syn = { version = "3", features = ["full", "parsing", "visit"] }

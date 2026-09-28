@@ -134,6 +134,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rust-sdk-cli"
+version = "0.1.0"
+dependencies = [
+ "openapi-to-rust-bindings",
+ "rust-sdk-generator",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "rust-sdk-generator"
 version = "0.2.8"
 dependencies = [

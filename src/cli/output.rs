@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
-use crate::CliError;
+use super::CliError;
 
 #[derive(Debug, Default, Serialize)]
 pub(super) struct OutputDiff {

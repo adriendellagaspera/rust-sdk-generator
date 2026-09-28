@@ -82,6 +82,10 @@ jobs:
         run: cargo clippy -p rust-sdk-generator --all-targets --all-features -- -D warnings
       - name: Test Rust generator
         run: cargo test -p rust-sdk-generator --all-targets --all-features
+      - name: Lint installable orchestrator
+        run: cargo clippy -p rust-sdk-cli --all-targets --all-features -- -D warnings
+      - name: Test installable orchestrator
+        run: cargo test -p rust-sdk-cli --all-targets --all-features
       - name: Enforce backend-neutral dependency direction
         run: |
           test -z "$(grep -R -n -E 'openapi_to_rust_bindings|openapi-to-rust-bindings|import openapi_to_rust' src/*.rs || true)"
