@@ -19,9 +19,8 @@ use crate::structural::{
     object_value_matches, plain_string_json_alias_matches, raw_scalar_struct_shape,
     request_object_matches_with_discriminators, request_optional_boolean_field,
     request_union_mapping, request_value_union_mapping, response_array_union_matches,
-    rust_type_matches_schema,
-    scalar_named_object_matches, scalar_object_shape, sse_payload_schema_name,
-    sse_payload_schema_names,
+    rust_type_matches_schema, scalar_named_object_matches, scalar_object_shape,
+    sse_payload_schema_name, sse_payload_schema_names,
 };
 use crate::symbols::{SymbolProvider, field_identifier};
 
@@ -2132,12 +2131,14 @@ pub(crate) fn lower(
                             .collect::<BTreeSet<_>>()
                     })
                     .or_else(|| {
-                        request_value_union_mapping(&index, &schema, &raw, bindings).map(|mapping| {
-                            mapping
-                                .into_iter()
-                                .map(|branch| branch.raw_variant)
-                                .collect::<BTreeSet<_>>()
-                        })
+                        request_value_union_mapping(&index, &schema, &raw, bindings).map(
+                            |mapping| {
+                                mapping
+                                    .into_iter()
+                                    .map(|branch| branch.raw_variant)
+                                    .collect::<BTreeSet<_>>()
+                            },
+                        )
                     })
                     .ok_or_else(|| {
                         error(
