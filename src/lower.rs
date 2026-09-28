@@ -164,7 +164,8 @@ fn constructor_argument(
     let effective = option(&field.type_name)?
         .map(|(inner, _)| inner)
         .unwrap_or_else(|| field.type_name.clone());
-    let (argument, value) = argument(name, &effective)?;
+    let public_type = public_alias_type(parse_type(&effective)?, bindings, &mut Vec::new())?;
+    let (argument, value) = argument(name, &public_type)?;
     Ok((argument, wrap(&field.type_name, value)?))
 }
 
@@ -450,7 +451,8 @@ fn resolve_wrapper(
             };
             constructor_argument(name, &synthetic, Some(adapter), bindings)?
         } else {
-            argument(name, &inner)?
+            let public_type = public_alias_type(parse_type(&inner)?, bindings, &mut Vec::new())?;
+            argument(name, &public_type)?
         };
         setters.push(SetterSpec {
             name: field_identifier(name)?,
