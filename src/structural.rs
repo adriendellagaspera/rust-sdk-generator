@@ -1214,13 +1214,7 @@ fn request_map_value_matches(
     }
     if schema.get("properties").is_some() {
         return raw_value.kind == TypeKind::Opaque
-            && request_object_value_matches(
-                openapi,
-                schema,
-                &raw_value.spelling,
-                bindings,
-                seen,
-            );
+            && request_object_value_matches(openapi, schema, &raw_value.spelling, bindings, seen);
     }
     type_matches_schema(schema, raw_value, bindings, &mut BTreeSet::new())
 }
