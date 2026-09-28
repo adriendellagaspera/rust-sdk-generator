@@ -15,8 +15,8 @@ use crate::openapi::{OpenApiIndex, ref_name};
 use crate::reconcile::unconstrained_json_alias_matches;
 use crate::rust_type::{Type, parse_type};
 use crate::structural::{
-    ScalarFieldShape, ScalarKind as StructuralScalarKind, canonical_unconstrained_map_branch,
-    constant_enum_response_object_matches, flattened_json_response_object_matches,
+    ScalarFieldShape, ScalarKind as StructuralScalarKind, constant_enum_response_object_matches,
+    flattened_json_response_object_matches,
     inline_array_object_item, inline_object_union_mapping, legacy_nullable_request_property,
     multipart_filenames_binding, nullable_request_union, object_field_names_match,
     object_value_matches, plain_string_json_alias_matches, raw_scalar_struct_shape,
@@ -420,8 +420,7 @@ fn request_map_wrapper_matches(schema: &Value, raw: &str, bindings: &Bindings) -
         return false;
     };
     fields.len() == 1
-        && fields[0].name.strip_prefix("r#").unwrap_or(&fields[0].name)
-            == "additional_properties"
+        && fields[0].name.strip_prefix("r#").unwrap_or(&fields[0].name) == "additional_properties"
         && fields[0].wire_name.is_none()
         && rust_type_matches_schema(schema, raw, bindings)
 }
@@ -922,8 +921,7 @@ fn request_object_models_value(
             }
         }
 
-        if wire.get("type").and_then(Value::as_str) == Some("array")
-            && core.unary("Vec").is_some()
+        if wire.get("type").and_then(Value::as_str) == Some("array") && core.unary("Vec").is_some()
         {
             let mut child_path = source_path.to_vec();
             child_path.push(field_name.clone());
