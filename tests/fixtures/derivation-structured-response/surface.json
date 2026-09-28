@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "client": "FleetClient",
+  "operations": {
+    "read_sensor": ["fleet.sensors.get"]
+  }
+}

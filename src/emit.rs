@@ -351,6 +351,30 @@ fn emit_accessor(accessor: &ResolvedAccessor) -> String {
             accessor.return_type,
             accessor.wrapper.as_deref().expect("resolved iter wrapper")
         ),
+        crate::AccessorKindDefinition::View => format!(
+            "pub fn {}(&self) -> {} {{ {}::new(&{expression}) }}",
+            accessor.name, accessor.return_type, accessor.wrapper.as_deref().expect("view wrapper")
+        ),
+        crate::AccessorKindDefinition::OptionalView => format!(
+            "pub fn {}(&self) -> {} {{ {expression}.as_ref().map({}::new) }}",
+            accessor.name, accessor.return_type, accessor.wrapper.as_deref().expect("view wrapper")
+        ),
+        crate::AccessorKindDefinition::OptionalIter => format!(
+            "pub fn {}(&self) -> {} {{ {expression}.as_ref().map(|items| items.iter().map({}::new)) }}",
+            accessor.name, accessor.return_type, accessor.wrapper.as_deref().expect("iter wrapper")
+        ),
+        crate::AccessorKindDefinition::Converted => format!(
+            "pub fn {}(&self) -> {} {{ {expression}.clone().into() }}",
+            accessor.name, accessor.return_type
+        ),
+        crate::AccessorKindDefinition::OptionalConverted => format!(
+            "pub fn {}(&self) -> {} {{ {expression}.as_ref().map(|value| value.clone().into()) }}",
+            accessor.name, accessor.return_type
+        ),
+        crate::AccessorKindDefinition::ConvertedIter => format!(
+            "pub fn {}(&self) -> {} {{ {expression}.iter().cloned().map(Into::into) }}",
+            accessor.name, accessor.return_type
+        ),
         crate::AccessorKindDefinition::FirstStringVariant => {
             let mut expression = "self.raw".to_owned();
             for segment in &accessor.path {

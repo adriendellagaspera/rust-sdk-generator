@@ -865,56 +865,156 @@ fn scalar_view_accessors(
     Ok(accessors)
 }
 
+// A child is projected only after the complete parent wire shape has been
+// proven. The active raw-type set prevents recursive schemas from expanding
+// indefinitely; no partially projected model escapes on failure.
+fn response_object_models(
+    openapi: &OpenApiIndex,
+    bindings: &Bindings,
+    schema: &Value,
+    raw: &str,
+    name: String,
+    borrowed: bool,
+    active: &mut BTreeSet<String>,
+) -> Result<ProjectedModels, &'static str> {
+    if !active.insert(raw.to_owned()) {
+        return Err(RESPONSE_VIEW_UNPROVEN);
+    }
+    let result = response_object_models_inner(openapi, bindings, schema, raw, name, borrowed, active);
+    active.remove(raw);
+    result
+}
+
+fn response_object_models_inner(
+    openapi: &OpenApiIndex,
+    bindings: &Bindings,
+    schema: &Value,
+    raw: &str,
+    name: String,
+    borrowed: bool,
+    active: &mut BTreeSet<String>,
+) -> Result<ProjectedModels, &'static str> {
+    if !public_model_name_available(&name, bindings) {
+        return Err("capability.public_model_name_collision");
+    }
+    let proven = object_value_matches(openapi, schema, raw, bindings)
+        || object_field_names_match(schema, raw, bindings)
+        || constant_enum_response_object_matches(schema, raw, bindings);
+    if !proven {
+        return Err(RESPONSE_VIEW_UNPROVEN);
+    }
+    let properties = schema.get("properties").and_then(Value::as_object).ok_or(RESPONSE_VIEW_UNPROVEN)?;
+    let fields = bindings.structs.get(raw).ok_or(RESPONSE_VIEW_UNPROVEN)?;
+    let mut children = Vec::new();
+    let mut accessors = IndexMap::new();
+    for (field_name, property) in properties {
+        if !safe_accessor_name(field_name) {
+            return Err(RESPONSE_VIEW_UNPROVEN);
+        }
+        let field = fields.iter().find(|field| field.wire_name.as_deref().unwrap_or_else(|| field.name.strip_prefix("r#").unwrap_or(&field.name)) == field_name).ok_or(RESPONSE_VIEW_UNPROVEN)?;
+        let syntax = parse_type(&field.type_name).map_err(|_| RESPONSE_VIEW_UNPROVEN)?;
+        let (syntax, optional) = if let Some(inner) = syntax.unary("Option") { (inner, true) } else { (&syntax, false) };
+        // A second Option represents absent versus explicit null. The existing
+        // accessors cannot erase that distinction, so decline this shape.
+        if syntax.unary("Option").is_some() { continue; }
+        let (value, collection) = if let Some(inner) = syntax.unary("Vec") { (inner, true) } else { (syntax, false) };
+        let non_null = unwrap_nullable_schema(property);
+        let non_null = if let Some(reference) = ref_name(non_null) { openapi.schema(reference).map_err(|_| RESPONSE_VIEW_UNPROVEN)? } else { non_null };
+        let item_schema = if collection { non_null.get("items").ok_or(RESPONSE_VIEW_UNPROVEN)? } else { non_null };
+        let item_schema = if let Some(reference) = ref_name(item_schema) { openapi.schema(reference).map_err(|_| RESPONSE_VIEW_UNPROVEN)? } else { item_schema };
+        let field_proven = rust_type_matches_schema(item_schema, &value.spelling, bindings)
+            || (item_schema.get("properties").is_some() && bindings.structs.contains_key(&value.spelling))
+            || ((item_schema.get("oneOf").is_some() || item_schema.get("anyOf").is_some())
+                && request_union_matches(openapi, item_schema, &value.spelling, bindings));
+        if !field_proven { continue; }
+        let child_name = format!("{name}{}", semantic_pascal_identifier(field_name)?);
+        let (kind, wrapper) = if bindings.structs.contains_key(&value.spelling) && item_schema.get("properties").is_some() {
+            let child_schema = if let Some(reference) = ref_name(if collection { non_null.get("items").ok_or(RESPONSE_VIEW_UNPROVEN)? } else { unwrap_nullable_schema(property) }) {
+                openapi.object_schema(reference).map_err(|_| RESPONSE_VIEW_UNPROVEN)?
+            } else { item_schema.clone() };
+            let Ok(child_models) = response_object_models(openapi, bindings, &child_schema, &value.spelling, child_name.clone(), true, active) else { continue; };
+            children.extend(child_models);
+            (match (collection, optional) {
+                (false, false) => AccessorKindDefinition::View,
+                (false, true) => AccessorKindDefinition::OptionalView,
+                (true, false) => AccessorKindDefinition::Iter,
+                (true, true) => AccessorKindDefinition::OptionalIter,
+            }, Some(child_name))
+        } else if bindings.enums.contains_key(&value.spelling) && (item_schema.get("oneOf").is_some() || item_schema.get("anyOf").is_some()) {
+            let Ok((union_name, union_models)) = union_response_model(openapi, bindings, item_schema, &value.spelling, &[], &child_name) else { continue; };
+            children.extend(union_models);
+            (match (collection, optional) {
+                (false, false) => AccessorKindDefinition::Converted,
+                (false, true) => AccessorKindDefinition::OptionalConverted,
+                (true, false) => AccessorKindDefinition::ConvertedIter,
+                (true, true) => return Err(RESPONSE_VIEW_UNPROVEN),
+            }, Some(union_name))
+        } else if bindings.enums.contains_key(&value.spelling) && !collection {
+            let enum_name = child_name;
+            let enum_model = if item_schema.get("enum").is_some() && item_schema.get("type").and_then(Value::as_str) == Some("string") {
+                let values = item_schema.get("enum").and_then(Value::as_array).ok_or(RESPONSE_VIEW_UNPROVEN)?;
+                let variants = bindings.enums.get(&value.spelling).ok_or(RESPONSE_VIEW_UNPROVEN)?;
+                if values.len() != variants.len() || variants.iter().any(|variant| variant.payload.is_some() || !values.iter().any(|v| v.as_str() == variant.wire_name.as_deref())) { return Err(RESPONSE_VIEW_UNPROVEN); }
+                ModelDefinition { scalar_enum: Some(ScalarEnumDefinition { root: value.spelling.clone(), path: vec![] }), ..empty_response_model(&value.spelling, false) }
+            } else { return Err(RESPONSE_VIEW_UNPROVEN); };
+            children.push((enum_name.clone(), enum_model));
+            (if optional { AccessorKindDefinition::OptionalConverted } else { AccessorKindDefinition::Converted }, Some(enum_name))
+        } else if value.spelling == "String" {
+            (if optional { AccessorKindDefinition::OptionalRef } else { AccessorKindDefinition::Ref }, None)
+        } else if matches!(value.spelling.as_str(), "bool" | "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "f32" | "f64") && !collection {
+            (if optional { AccessorKindDefinition::OptionalCopy } else { AccessorKindDefinition::Copy }, None)
+        } else {
+            // The parent is exact, but an unsupported child remains opaque.
+            continue;
+        };
+        // Optionality is driven by the raw Option representation and structural
+        // proof, including OpenAPI nullable fields.
+        accessors.insert(field_name.clone(), AccessorDefinition { kind, path: vec![field.name.clone()], wrapper });
+    }
+    if accessors.is_empty() && !properties.is_empty() { return Err(RESPONSE_VIEW_UNPROVEN); }
+    children.push((name, ModelDefinition { accessors: Some(accessors), borrowed: Some(borrowed), ..empty_response_model(raw, borrowed) }));
+    Ok(children)
+}
+
+fn empty_response_model(raw: &str, borrowed: bool) -> ModelDefinition {
+    ModelDefinition {
+        schema: None, schema_path: None, raw: Some(raw.into()), constructor: None,
+        exclude: None, adapters: None, union: None, simple_union: None,
+        type_alias: None, map: None, scalar_enum: None, union_factory: None,
+        borrowed: Some(borrowed), accessors: None,
+    }
+}
+
 fn response_view_for_schema_named(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
     schema_name: &str,
     raw: &str,
     name: String,
-) -> Result<(String, ModelDefinition), &'static str> {
+) -> Result<(String, ProjectedModels), &'static str> {
     let schema = openapi
         .object_schema(schema_name)
         .map_err(|_| RESPONSE_VIEW_UNPROVEN)?;
+    if let Ok(models) = response_object_models(openapi, bindings, &schema, raw, name.clone(), false, &mut BTreeSet::new()) {
+        return Ok((name, models));
+    }
+    if !public_model_name_available(&name, bindings) {
+        return Err("capability.public_model_name_collision");
+    }
     let accessors = if let Some(wire) = scalar_object_shape(&schema) {
         match raw_scalar_struct_shape(bindings, raw) {
             Some(raw_shape) if wire == raw_shape => scalar_view_accessors(wire)?,
             _ if request_object_matches(openapi, schema_name, raw, bindings)
-                || constant_enum_response_object_matches(&schema, raw, bindings) =>
-            {
-                IndexMap::new()
-            }
+                || constant_enum_response_object_matches(&schema, raw, bindings) => IndexMap::new(),
             _ => return Err(RESPONSE_VIEW_UNPROVEN),
         }
     } else if object_field_names_match(&schema, raw, bindings)
-        || flattened_json_response_object_matches(&schema, raw, bindings)
-    {
+        || flattened_json_response_object_matches(&schema, raw, bindings) {
         IndexMap::new()
-    } else {
-        return Err(RESPONSE_VIEW_UNPROVEN);
-    };
-
-    if !public_model_name_available(&name, bindings) {
-        return Err("capability.public_model_name_collision");
-    }
-    Ok((
-        name,
-        ModelDefinition {
-            schema: Some(schema_name.into()),
-            schema_path: None,
-            raw: Some(raw.into()),
-            constructor: None,
-            exclude: None,
-            adapters: None,
-            union: None,
-            simple_union: None,
-            type_alias: None,
-            map: None,
-            scalar_enum: None,
-            union_factory: None,
-            borrowed: Some(false),
-            accessors: Some(accessors),
-        },
-    ))
+    } else { return Err(RESPONSE_VIEW_UNPROVEN); };
+    Ok((name.clone(), vec![(name, ModelDefinition {
+        accessors: Some(accessors), borrowed: Some(false), ..empty_response_model(raw, false)
+    })]))
 }
 
 fn response_view_named(
@@ -922,10 +1022,8 @@ fn response_view_named(
     bindings: &Bindings,
     raw: &str,
     name: String,
-) -> Result<(String, ModelDefinition), &'static str> {
-    let (name, mut model) = response_view_for_schema_named(openapi, bindings, raw, raw, name)?;
-    model.schema = None;
-    Ok((name, model))
+) -> Result<(String, ProjectedModels), &'static str> {
+    response_view_for_schema_named(openapi, bindings, raw, raw, name)
 }
 
 fn response_view(
@@ -934,7 +1032,7 @@ fn response_view(
     raw: &str,
     resource_path: &[String],
     public_name: &str,
-) -> Result<(String, ModelDefinition), &'static str> {
+) -> Result<(String, ProjectedModels), &'static str> {
     let mut name = response_model_name(resource_path, public_name);
     if name == raw {
         // A public view and its raw source type cannot share one Rust symbol.
@@ -950,7 +1048,11 @@ fn inline_response_view_named(
     schema: &Value,
     raw: &str,
     name: String,
-) -> Result<(String, ModelDefinition), &'static str> {
+) -> Result<(String, ProjectedModels), &'static str> {
+    if object_value_matches(openapi, schema, raw, bindings) {
+        let models = response_object_models(openapi, bindings, schema, raw, name.clone(), false, &mut BTreeSet::new())?;
+        return Ok((name, models));
+    }
     let accessors = if let Some(wire) = scalar_object_shape(schema) {
         match raw_scalar_struct_shape(bindings, raw) {
             Some(raw_shape) if wire == raw_shape => scalar_view_accessors(wire)?,
@@ -967,8 +1069,8 @@ fn inline_response_view_named(
         return Err("capability.public_model_name_collision");
     }
     Ok((
-        name,
-        ModelDefinition {
+        name.clone(),
+        vec![(name, ModelDefinition {
             schema: None,
             schema_path: None,
             raw: Some(raw.into()),
@@ -983,7 +1085,7 @@ fn inline_response_view_named(
             union_factory: None,
             borrowed: Some(false),
             accessors: Some(accessors),
-        },
+        })],
     ))
 }
 
@@ -994,7 +1096,7 @@ fn inline_response_view(
     raw: &str,
     resource_path: &[String],
     public_name: &str,
-) -> Result<(String, ModelDefinition), &'static str> {
+) -> Result<(String, ProjectedModels), &'static str> {
     inline_response_view_named(
         openapi,
         bindings,
@@ -1026,7 +1128,7 @@ fn inline_array_response_model(
     let named_item = ref_name(items).filter(|reference| bindings.structs.contains_key(*reference));
     if let Some(raw_item) = inline_item.as_deref().or(named_item) {
         let item_name = format!("{name}Item");
-        let (_, mut item_model) = if inline_item.is_some() {
+        let (_, mut item_models) = if inline_item.is_some() {
             inline_response_view_named(openapi, bindings, items, raw_item, item_name.clone())?
         } else {
             response_view_for_schema_named(
@@ -1037,7 +1139,7 @@ fn inline_array_response_model(
                 item_name.clone(),
             )?
         };
-        item_model.borrowed = Some(true);
+        item_models.last_mut().ok_or(RESPONSE_VIEW_UNPROVEN)?.1.borrowed = Some(true);
 
         let mut accessors = IndexMap::new();
         accessors.insert(
@@ -1064,10 +1166,8 @@ fn inline_array_response_model(
             borrowed: Some(false),
             accessors: Some(accessors),
         };
-        return Ok((
-            name.clone(),
-            vec![(item_name, item_model), (name, root_model)],
-        ));
+        item_models.push((name.clone(), root_model));
+        return Ok((name, item_models));
     }
 
     let union_items = items.get("oneOf").is_some() || items.get("anyOf").is_some();
@@ -1359,9 +1459,10 @@ fn response_model(
     raw: &str,
     resource_path: &[String],
     public_name: &str,
-) -> Result<(String, ModelDefinition), &'static str> {
+) -> Result<(String, ProjectedModels), &'static str> {
     if bindings.aliases.contains_key(raw) {
-        return alias_response_model(openapi, bindings, raw, resource_path, public_name);
+        let (name, model) = alias_response_model(openapi, bindings, raw, resource_path, public_name)?;
+        return Ok((name.clone(), vec![(name, model)]));
     }
     if bindings.structs.contains_key(raw) {
         let schema = openapi.schema(raw).map_err(|_| RESPONSE_VIEW_UNPROVEN)?;
@@ -1374,12 +1475,14 @@ fn response_model(
                 .and_then(Value::as_object)
                 .is_none_or(|properties| properties.is_empty())
         {
-            return map_response_model(openapi, bindings, raw, resource_path, public_name);
+            let (name, model) = map_response_model(openapi, bindings, raw, resource_path, public_name)?;
+            return Ok((name.clone(), vec![(name, model)]));
         }
         return response_view(openapi, bindings, raw, resource_path, public_name);
     }
     if bindings.enums.contains_key(raw) {
-        return scalar_enum_response_model(openapi, bindings, raw, resource_path, public_name);
+        let (name, model) = scalar_enum_response_model(openapi, bindings, raw, resource_path, public_name)?;
+        return Ok((name.clone(), vec![(name, model)]));
     }
     Err(RESPONSE_VIEW_UNPROVEN)
 }
@@ -1418,7 +1521,7 @@ fn inline_union_response_model(
         let (adapter, branch_model) =
             inline_response_view_named(openapi, bindings, branch, &raw_payload, branch_name)
                 .map_err(|_| RESPONSE_UNION_REQUIRED)?;
-        models.push((adapter.clone(), branch_model));
+        models.extend(branch_model);
         variants.insert(
             raw_variant,
             SimpleUnionVariant::Adapted {
@@ -1558,7 +1661,7 @@ fn union_response_model(
         let (adapter, branch_model) =
             response_view_named(openapi, bindings, &reference, branch_name)
                 .map_err(|_| RESPONSE_UNION_REQUIRED)?;
-        models.push((adapter.clone(), branch_model));
+        models.extend(branch_model);
         let raw_variant = payload_to_variant
             .get(&reference)
             .ok_or(RESPONSE_UNION_REQUIRED)?;
@@ -1691,11 +1794,8 @@ fn project_json_response_schema(
             )?;
             return Ok(ProjectedResponse::Json { name, models });
         }
-        let (name, model) = response_model(openapi, bindings, raw, resource_path, public_name)?;
-        return Ok(ProjectedResponse::Json {
-            name: name.clone(),
-            models: vec![(name, model)],
-        });
+        let (name, models) = response_model(openapi, bindings, raw, resource_path, public_name)?;
+        return Ok(ProjectedResponse::Json { name, models });
     }
     if unconstrained_json_alias_matches(schema, raw_success, bindings)
         || plain_string_json_alias_matches(schema, raw_success, bindings)
@@ -1739,7 +1839,7 @@ fn project_json_response_schema(
         return Ok(ProjectedResponse::Json { name, models });
     }
     if schema.get("type").and_then(Value::as_str) == Some("object") {
-        let (name, model) = inline_response_view(
+        let (name, models) = inline_response_view(
             openapi,
             bindings,
             schema,
@@ -1747,10 +1847,7 @@ fn project_json_response_schema(
             resource_path,
             public_name,
         )?;
-        return Ok(ProjectedResponse::Json {
-            name: name.clone(),
-            models: vec![(name, model)],
-        });
+        return Ok(ProjectedResponse::Json { name, models });
     }
     if schema.get("type").and_then(Value::as_str) == Some("array") {
         let (name, models) = inline_array_response_model(
@@ -1889,7 +1986,7 @@ fn event_stream_projection(
                 type_name: stream_type_name(resource_path, public_name),
                 variants: Vec::new(),
             },
-            models: vec![(wrapper, wrapper_model)],
+            models: wrapper_model,
         });
     }
 
@@ -1915,14 +2012,14 @@ fn event_stream_projection(
             return Err("capability.public_model_name_collision");
         }
         let branch_wrapper = format!("{wrapper}{name}");
-        let (model_name, model) = response_view_for_schema_named(
+        let (_, model) = response_view_for_schema_named(
             openapi,
             bindings,
             schema_name,
             &raw,
             branch_wrapper.clone(),
         )?;
-        models.push((model_name, model));
+        models.extend(model);
         variants.push(StreamVariantDefinition {
             name,
             schema: schema_name.clone(),
