@@ -8,7 +8,7 @@ use crate::contracts::{
     ResponseRepresentationDefinition, SdkDefinition,
 };
 use crate::error::{Diagnostic, GenerationError};
-use crate::naming::derive_public_paths;
+use crate::naming::{derive_public_paths, valid_public_identifier};
 use crate::openapi::OpenApiIndex;
 use crate::projection::{
     ProjectionFailure, ProjectionRegistry, insert_projection, project_operation,
@@ -48,7 +48,7 @@ pub struct PublicSdkSurface {
 impl Default for PublicSdkSurface {
     fn default() -> Self {
         Self {
-            schema_version: 2,
+            schema_version: 1,
             client: None,
             operations: BTreeMap::new(),
             models: BTreeMap::new(),
@@ -226,14 +226,6 @@ fn operation_ids(openapi: &OpenApi) -> Result<BTreeSet<String>, DerivationError>
     Ok(result)
 }
 
-fn valid_public_model_name(name: &str) -> bool {
-    let mut chars = name.chars();
-    chars
-        .next()
-        .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
-        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
-        && !matches!(name, "Self" | "self" | "super" | "crate")
-}
 
 fn validate_evidence(
     openapi: &OpenApi,
@@ -270,7 +262,7 @@ fn validate_evidence(
                 format!("PublicSdkSurface references unknown component schema {source}"),
             ));
         }
-        if !valid_public_model_name(&model.name) {
+        if !valid_public_identifier(&model.name) {
             return Err(DerivationError::at(
                 "surface.invalid_model_name",
                 format!("surface.models.{source}.name"),
