@@ -34,7 +34,7 @@ Canonical Bindings include Rust symbols, qualified paths, call shapes and source
 }
 ```
 
-Keys under `models` are OpenAPI `components.schemas` names. Those component names are the canonical source-schema identities used by projection; backend-generated Rust symbol names are not identities. An explicit entry changes only the stable public SDK name. Unmapped named components use a deterministic public name derived from the component identity in v2. Schema v1 keeps the historical operation-derived model names.
+Keys under `models` are OpenAPI `components.schemas` names. The literal component key resolved from an OpenAPI `$ref` is the canonical source-schema identity used by projection; backend-generated Rust symbol names and `Bindings.symbol_paths` keys are representation evidence, not identities. An explicit entry changes only the stable public SDK name. Unmapped named components use a deterministic public name derived from the component identity in v2. Schema v1 keeps the historical operation-derived model names.
 
 Projection never deduplicates by field or JSON-structure equality. Two different named schemas remain different concepts unless both are explicitly mapped to the same public name, and such an explicit merge still succeeds only when their projected public contracts are compatible. Anonymous/inline schemas have compiler-local provenance but no semantic model identity; their fallback public names remain operation/path-derived and structurally identical inline schemas are not unified.
 
