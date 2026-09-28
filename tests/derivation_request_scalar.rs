@@ -526,7 +526,6 @@ fn proves_renamed_request_field_by_exact_wire_name() {
     );
 }
 
-
 #[test]
 fn projects_optional_inline_string_enum_setter_through_public_scalar_enum() {
     let (mut openapi, mut bindings, surface) = fixture();
@@ -591,9 +590,5 @@ fn projects_optional_inline_string_enum_setter_through_public_scalar_enum() {
     assert!(types.contains(
         "pub fn priority(mut self, priority: impl Into<UpdateWorkJobsRequestPriority>) -> Self"
     ));
-    assert!(
-        !types.contains(
-            "pub fn priority(mut self, priority: UpdateDirection) -> Self"
-        )
-    );
+    assert!(!types.contains("pub fn priority(mut self, priority: UpdateDirection) -> Self"));
 }
