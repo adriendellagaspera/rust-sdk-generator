@@ -1,7 +1,7 @@
 //! Audit the lowered public SDK surface before rendering Rust source.
 //!
-//! Generation is temporarily permissive: existing raw request/response projections
-//! are incomplete. `validate_public_facade` is the strict gate for a closed surface.
+//! Public transport interop is emitted crate-private; the strict gate therefore
+//! rejects every backend-owned symbol that remains reachable from consumer signatures.
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
@@ -168,7 +168,6 @@ pub(crate) fn inspect(ir: &FacadeIr, bindings: &Bindings) -> FacadeReport {
     for model in &ir.models {
         let base = format!("models.{}", model.name);
         let consumer = FacadeLeakKind::ConsumerSignature;
-        let interop = FacadeLeakKind::TransportInterop;
         match &model.render {
             ModelRenderSpec::Wrapper(spec) => {
                 if let Some(constructor) = &spec.constructor {
@@ -196,9 +195,6 @@ pub(crate) fn inspect(ir: &FacadeIr, bindings: &Bindings) -> FacadeReport {
                         &setter.argument.type_name,
                     );
                 }
-                check(format!("{base}.from_raw"), interop.clone(), &model.raw);
-                check(format!("{base}.as_raw"), interop.clone(), &model.raw);
-                check(format!("{base}.into_raw"), interop.clone(), &model.raw);
             }
             ModelRenderSpec::Union(spec) => {
                 for branch in &spec.branches {
@@ -234,10 +230,6 @@ pub(crate) fn inspect(ir: &FacadeIr, bindings: &Bindings) -> FacadeReport {
                         &accessor.return_type,
                     );
                 }
-                check(format!("{base}.raw"), interop.clone(), &model.raw);
-                if !spec.borrowed {
-                    check(format!("{base}.into_raw"), interop.clone(), &model.raw);
-                }
             }
             ModelRenderSpec::Alias(spec) => {
                 check(base.clone(), consumer.clone(), &spec.public_type)
@@ -256,28 +248,6 @@ pub(crate) fn inspect(ir: &FacadeIr, bindings: &Bindings) -> FacadeReport {
                 );
             }
             ModelRenderSpec::ScalarEnum(_) => {}
-        }
-        // Public From implementations expose raw types even when there is no named raw() method.
-        match &model.render {
-            ModelRenderSpec::Wrapper(_)
-            | ModelRenderSpec::View(_)
-            | ModelRenderSpec::Map(_)
-            | ModelRenderSpec::ScalarEnum(_) => {
-                check(format!("{base}.From<Raw>"), interop.clone(), &model.raw);
-                check(format!("{base}.Into<Raw>"), interop, &model.raw);
-            }
-            ModelRenderSpec::SimpleUnion(spec) => {
-                check(format!("{base}.Into<Raw>"), interop.clone(), &model.raw);
-                if spec.bidirectional {
-                    check(format!("{base}.From<Raw>"), interop, &model.raw);
-                }
-            }
-            ModelRenderSpec::Union(spec) => {
-                for target in &spec.targets {
-                    check(format!("{base}.Into<Raw>"), interop.clone(), &target.raw);
-                }
-            }
-            ModelRenderSpec::Alias(_) => {}
         }
     }
     for resource in &ir.resources {
@@ -344,14 +314,6 @@ pub(crate) fn inspect(ir: &FacadeIr, bindings: &Bindings) -> FacadeReport {
             }
         }
     }
-    // The client raw() accessor is emitted even when there are no models.
-    leaks.push(FacadeLeak {
-        path: format!("client.{}.raw", ir.client_name),
-        kind: FacadeLeakKind::TransportInterop,
-        type_name: bindings.binding.client.type_path.clone(),
-        symbol: bindings.binding.client.type_path.clone(),
-        symbol_path: bindings.binding.client.type_path.clone(),
-    });
     FacadeReport { leaks }
 }
 
@@ -368,20 +330,15 @@ mod tests {
     }
 
     #[test]
-    fn reports_closed_consumer_surface_separately_from_transport_interop() {
+    fn reports_closed_surface_without_public_transport_interop() {
         let ir = FacadeIr {
             client_name: "LibraryClient".into(),
             models: vec![],
             resources: vec![],
         };
         let report = inspect(&ir, &bindings());
-        assert_eq!(report.consumer_leaks().count(), 0);
-        assert_eq!(report.leaks[0].path, "client.LibraryClient.raw");
-        assert_eq!(report.leaks[0].kind, FacadeLeakKind::TransportInterop);
-        assert_eq!(
-            report.require_closed().unwrap_err().diagnostic.code,
-            "facade.raw_symbol_exposed"
-        );
+        assert!(report.is_closed());
+        report.require_closed().expect("closed facade");
     }
 
     #[test]
@@ -459,16 +416,10 @@ mod lowered_fixture_tests {
     }
 
     #[test]
-    fn backend_neutral_library_has_projected_consumer_signatures() {
+    fn backend_neutral_library_has_closed_public_facade() {
         let input = library();
         let report = inspect_public_facade(&input).expect("valid lowered fixture");
-        assert_eq!(report.consumer_leaks().count(), 0);
-        assert!(
-            report
-                .leaks
-                .iter()
-                .any(|leak| leak.path == "models.NewBook.from_raw")
-        );
+        assert!(report.is_closed());
     }
 
     #[test]
