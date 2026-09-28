@@ -31,8 +31,8 @@ async fn reads_an_independent_field_station_over_real_http() {
     let (url, server) = once("200 OK", br#"{"id":"s-1","label":"North"}"#);
     let station = Client::new("local-test").with_base_url(url)
         .stations().read_station("s-1").await.expect("generated HTTP call");
-    assert_eq!(station.raw().id, "s-1");
-    assert_eq!(station.raw().label, "North");
+    assert_eq!(station.id(), "s-1");
+    assert_eq!(station.label(), "North");
     let request = server.join().expect("HTTP server");
     assert!(request.starts_with("GET /stations/s-1 HTTP/1.1"), "{request}");
 }
