@@ -971,13 +971,13 @@ fn schema_at(openapi: &OpenApiIndex, root: &str, path: &[String]) -> Result<Valu
             .get("properties")
             .and_then(|properties| properties.get(segment))
             .or_else(|| (segment == "items").then(|| schema.get("items")).flatten())
-        .cloned()
-        .ok_or_else(|| {
-            error(
-                "lower.schema_path",
-                format!("invalid schema path {root}.{}", path.join(".")),
-            )
-        })?;
+            .cloned()
+            .ok_or_else(|| {
+                error(
+                    "lower.schema_path",
+                    format!("invalid schema path {root}.{}", path.join(".")),
+                )
+            })?;
     }
     Ok(unwrap_nullable_schema(&schema).clone())
 }
