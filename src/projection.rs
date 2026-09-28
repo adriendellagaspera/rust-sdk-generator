@@ -21,7 +21,8 @@ use crate::structural::{
     raw_scalar_struct_shape, redundant_any_of_alternative, referenced_request_object,
     request_object_matches, request_object_matches_with_discriminators,
     request_optional_boolean_field, request_union_mapping, request_union_matches,
-    response_array_union_matches, rust_type_matches_schema, scalar_named_object_matches,
+    request_value_union_mapping, response_array_union_matches, rust_type_matches_schema,
+    scalar_named_object_matches,
     scalar_object_shape, sse_payload_schema_names,
 };
 use crate::symbols::field_identifier;
@@ -185,8 +186,19 @@ fn request_union_models(
     public_name: String,
     seen: &mut BTreeSet<(String, String)>,
 ) -> Result<ProjectedModels, &'static str> {
-    let mapping = request_union_mapping(context.openapi, schema, raw_union, context.bindings)
-        .ok_or(REQUEST_MODEL_UNPROVEN)?;
+    let Some(mapping) =
+        request_union_mapping(context.openapi, schema, raw_union, context.bindings)
+    else {
+        return request_value_union_models(
+            context,
+            schema,
+            source_root,
+            source_path,
+            raw_union,
+            public_name,
+            seen,
+        );
+    };
     if !public_model_name_available(&public_name, context.bindings) {
         return Err("capability.public_model_name_collision");
     }
@@ -214,6 +226,265 @@ fn request_union_models(
             SimpleUnionVariant::Adapted {
                 name: public_variant,
                 adapter,
+            },
+        );
+    }
+
+    models.push((
+        public_name,
+        ModelDefinition {
+            schema: Some(source_root.into()),
+            schema_path: (!source_path.is_empty()).then(|| source_path.to_vec()),
+            raw: Some(raw_union.into()),
+            constructor: None,
+            exclude: None,
+            adapters: None,
+            union: None,
+            simple_union: Some(SimpleUnionDefinition {
+                bidirectional: false,
+                variants,
+            }),
+            type_alias: None,
+            map: None,
+            scalar_enum: None,
+            union_factory: None,
+            borrowed: None,
+            accessors: None,
+        },
+    ));
+    Ok(models)
+}
+
+fn request_union_variant_name(schema: &Value) -> Result<String, &'static str> {
+    if let Some(reference) = ref_name(schema) {
+        return semantic_pascal_identifier(reference).map_err(|_| REQUEST_MODEL_UNPROVEN);
+    }
+    if let Some(title) = schema.get("title").and_then(Value::as_str) {
+        if let Ok(name) = semantic_pascal_identifier(title) {
+            return Ok(name);
+        }
+    }
+    match schema.get("type").and_then(Value::as_str) {
+        Some("string") => Ok("String".into()),
+        Some("boolean") => Ok("Boolean".into()),
+        Some("integer") => Ok("Integer".into()),
+        Some("number") => Ok("Number".into()),
+        Some("object") => Ok("Object".into()),
+        Some("array") => {
+            let item = schema.get("items").ok_or(REQUEST_MODEL_UNPROVEN)?;
+            let item_name = request_union_variant_name(item).unwrap_or_else(|_| "Value".into());
+            Ok(format!("{item_name}List"))
+        }
+        _ => Err(REQUEST_MODEL_UNPROVEN),
+    }
+}
+
+fn expand_request_type(
+    syntax: Type,
+    bindings: &Bindings,
+    seen: &mut BTreeSet<String>,
+) -> Result<Type, &'static str> {
+    if let Some(alias) = bindings.aliases.get(&syntax.spelling) {
+        if !seen.insert(syntax.spelling.clone()) {
+            return Err(REQUEST_MODEL_UNPROVEN);
+        }
+        let expanded = parse_type(alias).map_err(|_| REQUEST_MODEL_UNPROVEN)?;
+        let result = expand_request_type(expanded, bindings, seen);
+        seen.remove(&syntax.spelling);
+        return result;
+    }
+    Ok(syntax)
+}
+
+fn request_type_is_public(
+    syntax: Type,
+    bindings: &Bindings,
+    seen: &mut BTreeSet<String>,
+) -> bool {
+    let Ok(syntax) = expand_request_type(syntax, bindings, seen) else {
+        return false;
+    };
+    if bindings.symbol_paths.contains_key(&syntax.spelling) {
+        return false;
+    }
+    syntax
+        .arguments
+        .into_iter()
+        .all(|argument| request_type_is_public(argument, bindings, seen))
+}
+
+fn request_value_adapter_models(
+    context: &RequestModelContext<'_>,
+    schema: &Value,
+    source_root: &str,
+    source_path: &[String],
+    raw: &str,
+    public_name: String,
+    seen: &mut BTreeSet<(String, String)>,
+) -> Result<(ProjectedModels, bool), &'static str> {
+    let syntax = expand_request_type(
+        parse_type(raw).map_err(|_| REQUEST_MODEL_UNPROVEN)?,
+        context.bindings,
+        &mut BTreeSet::new(),
+    )?;
+
+    if let Some(reference) = ref_name(schema) {
+        let referenced = context
+            .openapi
+            .schema(reference)
+            .map_err(|_| REQUEST_MODEL_UNPROVEN)?;
+        if request_union_schema(referenced) {
+            if !request_union_matches(
+                context.openapi,
+                referenced,
+                &syntax.spelling,
+                context.bindings,
+            ) {
+                return Err(REQUEST_MODEL_UNPROVEN);
+            }
+            return request_union_models(
+                context,
+                referenced,
+                reference,
+                &[],
+                &syntax.spelling,
+                public_name,
+                seen,
+            )
+            .map(|models| (models, true));
+        }
+        if referenced_request_object(context.openapi, reference, referenced).is_some()
+            && !flattened_json_response_object_matches(
+                &context
+                    .openapi
+                    .object_schema(reference)
+                    .map_err(|_| REQUEST_MODEL_UNPROVEN)?,
+                &syntax.spelling,
+                context.bindings,
+            )
+        {
+            return request_object_models(
+                context.openapi,
+                context.bindings,
+                reference,
+                &syntax.spelling,
+                public_name,
+                seen,
+            )
+            .map(|models| (models, true));
+        }
+        return request_type_is_public(syntax, context.bindings, &mut BTreeSet::new())
+            .then_some((Vec::new(), false))
+            .ok_or(REQUEST_MODEL_UNPROVEN);
+    }
+
+    if schema.get("type").and_then(Value::as_str) == Some("array") {
+        let items = schema.get("items").ok_or(REQUEST_MODEL_UNPROVEN)?;
+        let inner = syntax.unary("Vec").ok_or(REQUEST_MODEL_UNPROVEN)?;
+        let mut item_path = source_path.to_vec();
+        item_path.push("items".into());
+        let item_name = format!("{public_name}Item");
+        let (models, adapted) = request_value_adapter_models(
+            context,
+            items,
+            source_root,
+            &item_path,
+            &inner.spelling,
+            item_name,
+            seen,
+        )?;
+        if adapted {
+            return Ok((models, true));
+        }
+        return request_type_is_public(syntax, context.bindings, &mut BTreeSet::new())
+            .then_some((Vec::new(), false))
+            .ok_or(REQUEST_MODEL_UNPROVEN);
+    }
+
+    if request_union_schema(schema) {
+        if !request_union_matches(context.openapi, schema, &syntax.spelling, context.bindings) {
+            return Err(REQUEST_MODEL_UNPROVEN);
+        }
+        return request_union_models(
+            context,
+            schema,
+            source_root,
+            source_path,
+            &syntax.spelling,
+            public_name,
+            seen,
+        )
+        .map(|models| (models, true));
+    }
+
+    if schema.get("properties").is_some()
+        && !flattened_json_response_object_matches(schema, &syntax.spelling, context.bindings)
+    {
+        return request_object_models_value(
+            context,
+            schema,
+            source_root,
+            source_path,
+            &syntax.spelling,
+            public_name,
+            seen,
+        )
+        .map(|models| (models, true));
+    }
+
+    request_type_is_public(syntax, context.bindings, &mut BTreeSet::new())
+        .then_some((Vec::new(), false))
+        .ok_or(REQUEST_MODEL_UNPROVEN)
+}
+
+fn request_value_union_models(
+    context: &RequestModelContext<'_>,
+    schema: &Value,
+    source_root: &str,
+    source_path: &[String],
+    raw_union: &str,
+    public_name: String,
+    seen: &mut BTreeSet<(String, String)>,
+) -> Result<ProjectedModels, &'static str> {
+    let mapping =
+        request_value_union_mapping(context.openapi, schema, raw_union, context.bindings)
+            .ok_or(REQUEST_MODEL_UNPROVEN)?;
+    if !public_model_name_available(&public_name, context.bindings) {
+        return Err("capability.public_model_name_collision");
+    }
+
+    let mut models = Vec::new();
+    let mut variants = IndexMap::new();
+    let mut public_variants = BTreeSet::new();
+    for branch in mapping {
+        let public_variant = request_union_variant_name(&branch.schema)?;
+        if !public_variants.insert(public_variant.clone()) {
+            return Err("capability.public_model_name_collision");
+        }
+        let branch_adapter = format!("{public_name}{public_variant}");
+        let (nested, adapted) = request_value_adapter_models(
+            context,
+            &branch.schema,
+            source_root,
+            source_path,
+            &branch.raw_payload,
+            branch_adapter.clone(),
+            seen,
+        )?;
+        models.extend(nested);
+        variants.insert(
+            branch.raw_variant,
+            if adapted {
+                SimpleUnionVariant::Adapted {
+                    name: public_variant,
+                    adapter: if branch.schema.get("type").and_then(Value::as_str) == Some("array") {
+                        format!("{branch_adapter}Item")
+                    } else {
+                        branch_adapter
+                    },
+                }
+            } else {
+                SimpleUnionVariant::Name(public_variant)
             },
         );
     }
@@ -293,10 +564,6 @@ fn request_object_models_value(
             .as_ref()
             .map(|schema| (schema, true))
             .unwrap_or_else(|| request_non_null_schema(property));
-        if required_set.contains(field_name.as_str()) && nullable {
-            return Err(REQUEST_MODEL_UNPROVEN);
-        }
-
         let field = by_name
             .get(field_name.as_str())
             .ok_or(REQUEST_MODEL_UNPROVEN)?;
@@ -310,25 +577,7 @@ fn request_object_models_value(
                 .schema(reference)
                 .map_err(|_| REQUEST_MODEL_UNPROVEN)?;
             if request_union_schema(referenced) {
-                if request_union_mapping(
-                    context.openapi,
-                    referenced,
-                    &core.spelling,
-                    context.bindings,
-                )
-                .is_some()
-                {
-                    models.extend(request_union_models(
-                        context,
-                        referenced,
-                        reference,
-                        &[],
-                        &core.spelling,
-                        child_name.clone(),
-                        seen,
-                    )?);
-                    adapters.insert(field_name.clone(), child_name);
-                } else if !request_union_matches(
+                if !request_union_matches(
                     context.openapi,
                     referenced,
                     &core.spelling,
@@ -336,6 +585,16 @@ fn request_object_models_value(
                 ) {
                     return Err(REQUEST_MODEL_UNPROVEN);
                 }
+                models.extend(request_union_models(
+                    context,
+                    referenced,
+                    reference,
+                    &[],
+                    &core.spelling,
+                    child_name.clone(),
+                    seen,
+                )?);
+                adapters.insert(field_name.clone(), child_name);
             } else if referenced_request_object(context.openapi, reference, referenced).is_some_and(
                 |composed| {
                     !flattened_json_response_object_matches(
@@ -345,58 +604,35 @@ fn request_object_models_value(
                     )
                 },
             ) {
-                match request_object_models(
+                models.extend(request_object_models(
                     context.openapi,
                     context.bindings,
                     reference,
                     &core.spelling,
                     child_name.clone(),
                     seen,
-                ) {
-                    Ok(nested) => {
-                        models.extend(nested);
-                        adapters.insert(field_name.clone(), child_name);
-                    }
-                    // A fully proven raw nested object remains usable even when
-                    // its public constructor cannot safely express its shape
-                    // (for example, a required nullable field).
-                    Err(REQUEST_MODEL_UNPROVEN)
-                        if request_object_matches(
-                            context.openapi,
-                            reference,
-                            &core.spelling,
-                            context.bindings,
-                        ) => {}
-                    Err(reason) => return Err(reason),
-                }
+                )?);
+                adapters.insert(field_name.clone(), child_name);
             }
             continue;
         }
 
         if request_union_schema(wire) {
-            if request_union_mapping(context.openapi, wire, &core.spelling, context.bindings)
-                .is_some()
-            {
-                let mut child_path = source_path.to_vec();
-                child_path.push(field_name.clone());
-                models.extend(request_union_models(
-                    context,
-                    wire,
-                    source_root,
-                    &child_path,
-                    &core.spelling,
-                    child_name.clone(),
-                    seen,
-                )?);
-                adapters.insert(field_name.clone(), child_name);
-            } else if !request_union_matches(
-                context.openapi,
-                wire,
-                &core.spelling,
-                context.bindings,
-            ) {
+            if !request_union_matches(context.openapi, wire, &core.spelling, context.bindings) {
                 return Err(REQUEST_MODEL_UNPROVEN);
             }
+            let mut child_path = source_path.to_vec();
+            child_path.push(field_name.clone());
+            models.extend(request_union_models(
+                context,
+                wire,
+                source_root,
+                &child_path,
+                &core.spelling,
+                child_name.clone(),
+                seen,
+            )?);
+            adapters.insert(field_name.clone(), child_name);
             continue;
         }
 

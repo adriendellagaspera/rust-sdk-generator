@@ -18,13 +18,64 @@ use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
-use syn::{GenericArgument, PathArguments, Type};
+use syn::parse::Parser;
+use syn::{Attribute, GenericArgument, PathArguments, Type};
 
 pub(crate) const METADATA_NAME: &str = "bindings.json";
 const METADATA_SCHEMA_VERSION: u32 = 1;
 
 fn failure(code: &str, detail: impl std::fmt::Display) -> Error {
     Error::new(format!("{code}: {detail}"))
+}
+
+fn serialized_presence(attributes: &[String]) -> Result<&'static str, Error> {
+    let parser = Attribute::parse_outer;
+    let mut presence = "always";
+    for attribute in attributes {
+        let parsed = parser.parse_str(attribute).map_err(|error| {
+            failure(
+                "metadata.field_attribute_invalid",
+                format!("{attribute:?}: {error}"),
+            )
+        })?;
+        for attr in parsed.iter().filter(|attr| attr.path().is_ident("serde")) {
+            attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("skip") || meta.path.is_ident("skip_serializing") {
+                    if presence != "always" {
+                        return Err(meta.error("duplicate serde serialization-presence rule"));
+                    }
+                    presence = "never";
+                } else if meta.path.is_ident("skip_serializing_if") {
+                    if presence != "always" {
+                        return Err(meta.error("duplicate serde serialization-presence rule"));
+                    }
+                    let predicate: syn::LitStr = meta.value()?.parse()?;
+                    presence = if matches!(
+                        predicate.value().as_str(),
+                        "Option::is_none"
+                            | "std::option::Option::is_none"
+                            | "core::option::Option::is_none"
+                    ) {
+                        "omit_if_none"
+                    } else {
+                        "conditional"
+                    };
+                } else if meta.input.peek(syn::Token![=]) {
+                    let _: syn::Expr = meta.value()?.parse()?;
+                } else if meta.input.peek(syn::token::Paren) {
+                    meta.parse_nested_meta(|nested| {
+                        if nested.input.peek(syn::Token![=]) {
+                            let _: syn::Expr = nested.value()?.parse()?;
+                        }
+                        Ok(())
+                    })?;
+                }
+                Ok(())
+            })
+            .map_err(|error| failure("metadata.field_serde_invalid", error))?;
+        }
+    }
+    Ok(presence)
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -308,7 +359,7 @@ impl UpstreamMetadata {
                             name,
                             rust_type: field.rust_type.clone(),
                             wire_name: field.wire_name.clone(),
-                            serde_skip: false,
+                            serde_skip: serialized_presence(&field.attributes)? == "never",
                             location: location("types"),
                         })
                     })
@@ -470,11 +521,12 @@ impl UpstreamMetadata {
                                     format!("{} has an unnamed struct field", symbol.path),
                                 )
                             })?;
-                            let _ = (field.index, &field.attributes);
+                            let _ = field.index;
                             Ok(json!({
                                 "name": name,
                                 "wire_name": field.wire_name,
                                 "type": canonical_rust_type(&field.rust_type)?,
+                                "serialized_presence": serialized_presence(&field.attributes)?,
                             }))
                         })
                         .collect::<Result<Vec<_>, Error>>()?;
