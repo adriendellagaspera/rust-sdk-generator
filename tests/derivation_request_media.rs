@@ -84,7 +84,8 @@ fn derives_multipart_and_form_request_models_through_the_common_path() {
 
     assert!(generated.files.values().any(|source| {
         source.contains("self.raw.raw_upload_17(")
-            && source.contains("__RustSdkIntoRaw<") && source.contains("into_raw(request)")
+            && source.contains("__RustSdkIntoRaw<")
+            && source.contains("into_raw(request)")
             && source.contains("project_id")
             && source.contains("dry_run")
     }));
@@ -217,7 +218,9 @@ fn derives_exact_inline_multipart_request_as_owned_raw_view() {
     })
     .expect("generate inline multipart request");
     assert!(generated.files.values().any(|source| {
-        source.contains("self.raw.raw_upload_17(") && source.contains("__RustSdkIntoRaw<") && source.contains("into_raw(request)")
+        source.contains("self.raw.raw_upload_17(")
+            && source.contains("__RustSdkIntoRaw<")
+            && source.contains("into_raw(request)")
     }));
 
     openapi.0["paths"]["/projects/{project_id}/uploads"]["post"]["requestBody"]["content"]["multipart/form-data"]
