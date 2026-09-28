@@ -67,8 +67,15 @@ fn derives_nested_named_request_models_without_raw_name_identity() {
             .models
             .contains_key("CreatePlatformWidgetsRequestConfigMode")
     );
+    assert_eq!(
+        config
+            .adapters
+            .as_ref()
+            .and_then(|adapters| adapters.get("labels")),
+        Some(&"CreatePlatformWidgetsRequestConfigLabels".to_owned())
+    );
     assert!(
-        !derivation
+        derivation
             .definition
             .models
             .contains_key("CreatePlatformWidgetsRequestConfigLabels")
@@ -107,6 +114,7 @@ fn derives_nested_named_request_models_without_raw_name_identity() {
         "CreatePlatformWidgetsRequestConfig",
         "CreatePlatformWidgetsRequestMetadata",
         "CreatePlatformWidgetsRequestConfigMode",
+        "CreatePlatformWidgetsRequestConfigLabels",
     ] {
         assert!(generated.inventory.models.contains(&expected.to_owned()));
     }
@@ -119,6 +127,9 @@ fn derives_nested_named_request_models_without_raw_name_identity() {
     ));
     assert!(types.contains("pub struct CreatePlatformWidgetsRequestConfig { raw: OpaqueConfig4 }"));
     assert!(types.contains("mode: impl Into<CreatePlatformWidgetsRequestConfigMode>"));
+    assert!(types.contains(
+        "pub fn labels(mut self, labels: impl Into<CreatePlatformWidgetsRequestConfigLabels>)"
+    ));
     assert!(types.contains("pub struct CreatePlatformWidgetsRequestMetadata { raw: OpaqueMeta7 }"));
 }
 
