@@ -107,10 +107,15 @@ fn projects_optional_structured_query_parameter_without_backend_leak() {
     }))
     .expect("bindings");
 
+    let mut surface = PublicSdkSurface::default();
+    surface
+        .operations
+        .insert("list_widgets".into(), vec!["widgets.list".into()]);
+
     let derivation = derive(DeriveInput {
         openapi: openapi.clone(),
         bindings: bindings.clone(),
-        surface: PublicSdkSurface::default(),
+        surface,
         overrides: SdkOverrides::default(),
     })
     .expect("derive");
