@@ -767,22 +767,78 @@ fn resolve_view(raw: &str, model: &ModelDefinition, bindings: &Bindings) -> Resu
             }
             AccessorKindDefinition::View | AccessorKindDefinition::OptionalView => {
                 let optional = config.kind == AccessorKindDefinition::OptionalView;
-                let _ = if optional { generic_inner(&result_type, "Option")? } else { result_type.clone() };
-                let wrapper = config.wrapper.clone().ok_or_else(|| error("lower.view_wrapper", format!("accessor {name} requires a wrapper")))?;
-                (if optional { format!("Option<{wrapper}<'_>>") } else { format!("{wrapper}<'_>") }, Some(wrapper), None, None)
+                let _ = if optional {
+                    generic_inner(&result_type, "Option")?
+                } else {
+                    result_type.clone()
+                };
+                let wrapper = config.wrapper.clone().ok_or_else(|| {
+                    error(
+                        "lower.view_wrapper",
+                        format!("accessor {name} requires a wrapper"),
+                    )
+                })?;
+                (
+                    if optional {
+                        format!("Option<{wrapper}<'_>>")
+                    } else {
+                        format!("{wrapper}<'_>")
+                    },
+                    Some(wrapper),
+                    None,
+                    None,
+                )
             }
             AccessorKindDefinition::OptionalIter | AccessorKindDefinition::ConvertedIter => {
-                let inner = if config.kind == AccessorKindDefinition::OptionalIter { generic_inner(&result_type, "Option")? } else { result_type.clone() };
+                let inner = if config.kind == AccessorKindDefinition::OptionalIter {
+                    generic_inner(&result_type, "Option")?
+                } else {
+                    result_type.clone()
+                };
                 let _ = generic_inner(&inner, "Vec")?;
-                let wrapper = config.wrapper.clone().ok_or_else(|| error("lower.iter_wrapper", format!("accessor {name} requires a wrapper")))?;
-                let item = if config.kind == AccessorKindDefinition::OptionalIter { format!("{wrapper}<'_>") } else { wrapper.clone() };
+                let wrapper = config.wrapper.clone().ok_or_else(|| {
+                    error(
+                        "lower.iter_wrapper",
+                        format!("accessor {name} requires a wrapper"),
+                    )
+                })?;
+                let item = if config.kind == AccessorKindDefinition::OptionalIter {
+                    format!("{wrapper}<'_>")
+                } else {
+                    wrapper.clone()
+                };
                 let iter = format!("impl ExactSizeIterator<Item = {item}>");
-                (if config.kind == AccessorKindDefinition::OptionalIter { format!("Option<{iter}>") } else { iter }, Some(wrapper), None, None)
+                (
+                    if config.kind == AccessorKindDefinition::OptionalIter {
+                        format!("Option<{iter}>")
+                    } else {
+                        iter
+                    },
+                    Some(wrapper),
+                    None,
+                    None,
+                )
             }
             AccessorKindDefinition::Converted | AccessorKindDefinition::OptionalConverted => {
-                if config.kind == AccessorKindDefinition::OptionalConverted { let _ = generic_inner(&result_type, "Option")?; }
-                let wrapper = config.wrapper.clone().ok_or_else(|| error("lower.converted_wrapper", format!("accessor {name} requires a wrapper")))?;
-                (if config.kind == AccessorKindDefinition::OptionalConverted { format!("Option<{wrapper}>") } else { wrapper.clone() }, Some(wrapper), None, None)
+                if config.kind == AccessorKindDefinition::OptionalConverted {
+                    let _ = generic_inner(&result_type, "Option")?;
+                }
+                let wrapper = config.wrapper.clone().ok_or_else(|| {
+                    error(
+                        "lower.converted_wrapper",
+                        format!("accessor {name} requires a wrapper"),
+                    )
+                })?;
+                (
+                    if config.kind == AccessorKindDefinition::OptionalConverted {
+                        format!("Option<{wrapper}>")
+                    } else {
+                        wrapper.clone()
+                    },
+                    Some(wrapper),
+                    None,
+                    None,
+                )
             }
             AccessorKindDefinition::FirstStringVariant => {
                 let variant = bindings
@@ -2185,7 +2241,13 @@ pub(crate) fn lower(
             continue;
         };
         for accessor in &view.accessors {
-            if !matches!(accessor.kind, AccessorKindDefinition::Iter | AccessorKindDefinition::OptionalIter | AccessorKindDefinition::View | AccessorKindDefinition::OptionalView) {
+            if !matches!(
+                accessor.kind,
+                AccessorKindDefinition::Iter
+                    | AccessorKindDefinition::OptionalIter
+                    | AccessorKindDefinition::View
+                    | AccessorKindDefinition::OptionalView
+            ) {
                 continue;
             }
             let wrapper = accessor
@@ -2193,8 +2255,22 @@ pub(crate) fn lower(
                 .as_deref()
                 .expect("validated iter accessor wrapper");
             let raw_field = accessor_type(&model.raw, &accessor.path, bindings)?;
-            let inner = if matches!(accessor.kind, AccessorKindDefinition::OptionalView | AccessorKindDefinition::OptionalIter) { generic_inner(&raw_field, "Option")? } else { raw_field };
-            let raw_item = if matches!(accessor.kind, AccessorKindDefinition::Iter | AccessorKindDefinition::OptionalIter) { generic_inner(&inner, "Vec")? } else { inner };
+            let inner = if matches!(
+                accessor.kind,
+                AccessorKindDefinition::OptionalView | AccessorKindDefinition::OptionalIter
+            ) {
+                generic_inner(&raw_field, "Option")?
+            } else {
+                raw_field
+            };
+            let raw_item = if matches!(
+                accessor.kind,
+                AccessorKindDefinition::Iter | AccessorKindDefinition::OptionalIter
+            ) {
+                generic_inner(&inner, "Vec")?
+            } else {
+                inner
+            };
             let wrapper_model = models
                 .iter()
                 .find(|candidate| candidate.name == wrapper)

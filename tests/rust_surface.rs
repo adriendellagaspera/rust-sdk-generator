@@ -35,8 +35,8 @@ fn derivation_fixture_path(name: &str) -> PathBuf {
 }
 
 fn structured_response_fixture() -> (OpenApi, rust_sdk_generator::Bindings, PublicSdkSurface) {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/derivation-structured-response");
+    let root =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/derivation-structured-response");
     let read = |name| fs::read_to_string(root.join(name)).expect("structured response fixture");
     (
         OpenApi(serde_json::from_str(&read("openapi.json")).expect("OpenAPI")),
@@ -49,16 +49,43 @@ fn structured_response_fixture() -> (OpenApi, rust_sdk_generator::Bindings, Publ
 fn structured_response_exposes_nested_public_views_and_values() {
     let (openapi, bindings, surface) = structured_response_fixture();
     let definition = derive(DeriveInput {
-        openapi: openapi.clone(), bindings: bindings.clone(), surface,
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
         overrides: SdkOverrides::default(),
-    }).expect("derive response").definition;
-    let root = definition.models.values().find(|model| model.raw.as_deref() == Some("SensorResponse")).expect("root response");
+    })
+    .expect("derive response")
+    .definition;
+    let root = definition
+        .models
+        .values()
+        .find(|model| model.raw.as_deref() == Some("SensorResponse"))
+        .expect("root response");
     let accessors = root.accessors.as_ref().expect("view accessors");
-    for field in ["id", "usage", "choices", "detail", "nullable_choice", "state", "message"] {
+    for field in [
+        "id",
+        "usage",
+        "choices",
+        "detail",
+        "nullable_choice",
+        "state",
+        "message",
+    ] {
         assert!(accessors.contains_key(field), "missing {field}");
     }
-    let output = generate(GenerateInput { openapi, bindings, definition, runtime: Runtime::default() }).expect("generate response");
-    let source = output.files.values().cloned().collect::<Vec<_>>().join("\n");
+    let output = generate(GenerateInput {
+        openapi,
+        bindings,
+        definition,
+        runtime: Runtime::default(),
+    })
+    .expect("generate response");
+    let source = output
+        .files
+        .values()
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(source.contains("pub fn choices(&self) -> impl ExactSizeIterator<Item ="));
     assert!(source.contains("pub fn usage(&self) ->"));
     assert!(source.contains("pub fn detail(&self) -> Option<"));
@@ -69,37 +96,100 @@ fn structured_response_exposes_nested_public_views_and_values() {
 fn structured_response_rejects_field_type_drift() {
     let (openapi, mut bindings, surface) = structured_response_fixture();
     bindings.structs.get_mut("Usage").expect("Usage")[0].type_name = "String".into();
-    let derived = derive(DeriveInput { openapi, bindings, surface, overrides: SdkOverrides::default() }).expect("report drift");
-    assert!(!derived.definition.models.values().any(|model| model.accessors.as_ref().is_some_and(|accessors| accessors.contains_key("usage"))));
+    let derived = derive(DeriveInput {
+        openapi,
+        bindings,
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("report drift");
+    assert!(!derived.definition.models.values().any(|model| {
+        model
+            .accessors
+            .as_ref()
+            .is_some_and(|accessors| accessors.contains_key("usage"))
+    }));
 }
 
 #[test]
 fn structured_response_does_not_project_ambiguous_union() {
     let (mut openapi, bindings, surface) = structured_response_fixture();
-    let schemas = openapi.0["components"]["schemas"].as_object_mut().expect("schemas");
+    let schemas = openapi.0["components"]["schemas"]
+        .as_object_mut()
+        .expect("schemas");
     let duplicate = schemas["TextMessage"].clone();
     schemas.insert("CodeMessage".into(), duplicate);
-    let derived = derive(DeriveInput { openapi, bindings, surface, overrides: SdkOverrides::default() }).expect("report ambiguity");
-    let root = derived.definition.models.values().find(|model| model.raw.as_deref() == Some("SensorResponse")).expect("root");
-    assert!(!root.accessors.as_ref().expect("accessors").contains_key("message"));
+    let derived = derive(DeriveInput {
+        openapi,
+        bindings,
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("report ambiguity");
+    let root = derived
+        .definition
+        .models
+        .values()
+        .find(|model| model.raw.as_deref() == Some("SensorResponse"))
+        .expect("root");
+    assert!(
+        !root
+            .accessors
+            .as_ref()
+            .expect("accessors")
+            .contains_key("message")
+    );
 }
 
 #[test]
 fn composed_chat_response_has_navigable_choices_usage_and_message() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/derivation-chat-response");
+    let root =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/derivation-chat-response");
     let read = |name| fs::read_to_string(root.join(name)).expect("chat fixture");
     let openapi = OpenApi(serde_json::from_str(&read("openapi.json")).expect("OpenAPI"));
     let bindings = serde_json::from_str(&read("rust-bindings.json")).expect("bindings");
     let surface = serde_json::from_str(&read("surface.json")).expect("surface");
-    let definition = derive(DeriveInput { openapi: openapi.clone(), bindings: bindings.clone(), surface, overrides: SdkOverrides::default() }).expect("derive chat").definition;
-    let response = definition.models.get("CompleteChatResponse").expect("response");
+    let definition = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive chat")
+    .definition;
+    let response = definition
+        .models
+        .get("CompleteChatResponse")
+        .expect("response");
     let accessors = response.accessors.as_ref().expect("accessors");
-    for field in ["choices", "usage", "model"] { assert!(accessors.contains_key(field), "missing {field}"); }
-    let choice = definition.models.values().find(|model| model.raw.as_deref() == Some("ChatCompletionChoice")).expect("choice view");
-    assert!(choice.accessors.as_ref().expect("choice accessors").contains_key("message"));
-    let output = generate(GenerateInput { openapi, bindings, definition, runtime: Runtime::default() }).expect("generate chat");
-    let source = output.files.values().cloned().collect::<Vec<_>>().join("\n");
+    for field in ["choices", "usage", "model"] {
+        assert!(accessors.contains_key(field), "missing {field}");
+    }
+    let choice = definition
+        .models
+        .values()
+        .find(|model| model.raw.as_deref() == Some("ChatCompletionChoice"))
+        .expect("choice view");
+    assert!(
+        choice
+            .accessors
+            .as_ref()
+            .expect("choice accessors")
+            .contains_key("message")
+    );
+    let output = generate(GenerateInput {
+        openapi,
+        bindings,
+        definition,
+        runtime: Runtime::default(),
+    })
+    .expect("generate chat");
+    let source = output
+        .files
+        .values()
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(source.contains("pub fn choices(&self) -> impl ExactSizeIterator"));
     assert!(source.contains("pub fn model(&self) -> &str"));
 }
