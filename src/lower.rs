@@ -1129,14 +1129,11 @@ fn resolve_map(
     })
 }
 
-fn resolve_scalar_enum(
+fn resolve_scalar_enum_schema(
     raw: &str,
-    model: &ModelDefinition,
-    openapi: &OpenApiIndex,
+    schema: &Value,
     bindings: &Bindings,
 ) -> Result<ScalarEnumModelSpec> {
-    let config = model.scalar_enum.as_ref().expect("scalar enum policy");
-    let schema = schema_at(openapi, &config.root, &config.path)?;
     let values = if let Some(values) = schema.get("enum").and_then(Value::as_array) {
         values.clone()
     } else if let Some(value) = schema.get("const").filter(|value| value.is_string()) {
@@ -1189,6 +1186,56 @@ fn resolve_scalar_enum(
             .iter()
             .map(|value| by_wire[value.as_str().expect("string enum")].clone())
             .collect(),
+    })
+}
+
+fn resolve_scalar_enum(
+    raw: &str,
+    model: &ModelDefinition,
+    openapi: &OpenApiIndex,
+    bindings: &Bindings,
+) -> Result<ScalarEnumModelSpec> {
+    let config = model.scalar_enum.as_ref().expect("scalar enum policy");
+    let schema = schema_at(openapi, &config.root, &config.path)?;
+    resolve_scalar_enum_schema(raw, &schema, bindings)
+}
+
+fn operation_parameter_schema<'a>(
+    openapi: &'a OpenApiIndex,
+    operation_id: &str,
+    location: &str,
+    wire_name: &str,
+) -> Result<&'a Value> {
+    let operation = openapi.operation(operation_id)?;
+    let matches = operation
+        .get("parameters")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|parameter| {
+            let candidate_location = parameter.get("in").and_then(Value::as_str);
+            let candidate_name = parameter.get("name").and_then(Value::as_str);
+            if candidate_location != Some(location) {
+                return false;
+            }
+            match (location, candidate_name) {
+                ("header", Some(name)) => name.eq_ignore_ascii_case(wire_name),
+                (_, Some(name)) => name == wire_name,
+                _ => false,
+            }
+        })
+        .collect::<Vec<_>>();
+    if matches.len() != 1 {
+        return Err(error(
+            "lower.parameter_identity",
+            format!("parameter adapter source drift for {operation_id}: {location} {wire_name}"),
+        ));
+    }
+    matches[0].get("schema").ok_or_else(|| {
+        error(
+            "lower.parameter_schema",
+            format!("parameter adapter schema missing for {operation_id}: {location} {wire_name}"),
+        )
     })
 }
 
@@ -1695,8 +1742,34 @@ fn owned_parameter(type_name: &str) -> Result<(String, bool)> {
     Ok((type_name.into(), false))
 }
 
-fn direct_parameter(parameter: &RawParameter, bindings: &Bindings) -> Result<(String, String)> {
+fn direct_parameter(
+    parameter: &RawParameter,
+    adapters: &BTreeMap<String, String>,
+    bindings: &Bindings,
+) -> Result<(String, String)> {
     let name = field_identifier(&parameter.name)?;
+    if let Some(adapter) = adapters.get(&parameter.name) {
+        let syntax = parse_type(&parameter.type_name)?;
+        if let Some(inner) = syntax.unary("Option") {
+            if inner.unary("Option").is_some() {
+                return Err(error(
+                    "lower.parameter_adapter",
+                    format!(
+                        "nested optional parameter adapter is unsupported: {}",
+                        parameter.name
+                    ),
+                ));
+            }
+            return Ok((
+                format!("{name}: Option<{adapter}>"),
+                format!("{name}.map(__RustSdkIntoRaw::into_raw)"),
+            ));
+        }
+        return Ok((
+            format!("{name}: {adapter}"),
+            format!("__RustSdkIntoRaw::into_raw({name})"),
+        ));
+    }
     if parameter.type_name == "impl AsRef<str>" {
         return Ok((
             format!("{name}: impl AsRef<str>"),
@@ -1737,6 +1810,30 @@ fn parameter_request(
     }
     let mut fields = Vec::new();
     for parameter in &operation.raw_signature.parameters {
+        if let Some(adapter) = operation.parameter_adapters.get(&parameter.name) {
+            let optional = option(&parameter.type_name)?;
+            let public = field_identifier(&parameter.name)?;
+            if optional.is_some() {
+                fields.push(ParameterField {
+                    name: parameter.name.clone(),
+                    type_name: format!("Option<{adapter}>"),
+                    constructor_argument: None,
+                    constructor_value: None,
+                    setter_argument: Some(format!("{public}: {adapter}")),
+                    setter_value: Some(public),
+                });
+            } else {
+                fields.push(ParameterField {
+                    name: parameter.name.clone(),
+                    type_name: adapter.clone(),
+                    constructor_argument: Some(format!("{public}: {adapter}")),
+                    constructor_value: Some(public),
+                    setter_argument: None,
+                    setter_value: None,
+                });
+            }
+            continue;
+        }
         let (owned, _) = owned_parameter(&parameter.type_name)?;
         let owned = bindings.qualified_type(&owned)?;
         let optional = option(&owned)?;
@@ -1817,7 +1914,8 @@ fn operation_call(
                         "request.map(|request| request.map(|request| <{model} as __RustSdkIntoRaw<{raw_type}>>::into_raw(request)))"
                     ));
                 } else {
-                    let (declaration, value) = direct_parameter(parameter, bindings)?;
+                    let (declaration, value) =
+                        direct_parameter(parameter, &operation.parameter_adapters, bindings)?;
                     declarations.push(declaration);
                     values.push(value);
                 }
@@ -1853,7 +1951,8 @@ fn operation_call(
                 declarations.push(format!("request: {model}"));
                 values.push(body.clone());
             } else {
-                let (declaration, value) = direct_parameter(parameter, bindings)?;
+                let (declaration, value) =
+                    direct_parameter(parameter, &operation.parameter_adapters, bindings)?;
                 declarations.push(declaration);
                 values.push(value);
             }
@@ -1878,11 +1977,13 @@ fn operation_call(
                     name: public_name.clone(),
                     type_name: parameter.type_name.clone(),
                 };
-                let (declaration, value) = direct_parameter(&public, bindings)?;
+                let (declaration, value) =
+                    direct_parameter(&public, &operation.parameter_adapters, bindings)?;
                 declarations.push(declaration);
                 values.push(value);
             } else {
-                let (declaration, value) = direct_parameter(parameter, bindings)?;
+                let (declaration, value) =
+                    direct_parameter(parameter, &operation.parameter_adapters, bindings)?;
                 declarations.push(declaration);
                 values.push(value);
             }
@@ -1906,7 +2007,7 @@ fn operation_call(
     if !has_optional {
         let (declarations, values): (Vec<_>, Vec<_>) = parameters
             .iter()
-            .map(|parameter| direct_parameter(parameter, bindings))
+            .map(|parameter| direct_parameter(parameter, &operation.parameter_adapters, bindings))
             .collect::<Result<Vec<_>>>()?
             .into_iter()
             .unzip();
@@ -1918,6 +2019,15 @@ fn operation_call(
     }
     let mut values = Vec::new();
     for parameter in parameters {
+        if operation.parameter_adapters.contains_key(&parameter.name) {
+            let value = if option(&parameter.type_name)?.is_some() {
+                format!("request.{}.map(__RustSdkIntoRaw::into_raw)", parameter.name)
+            } else {
+                format!("__RustSdkIntoRaw::into_raw(request.{})", parameter.name)
+            };
+            values.push(value);
+            continue;
+        }
         let (_, borrowed) = owned_parameter(&parameter.type_name)?;
         let mut value = format!("request.{}", parameter.name);
         if borrowed {
@@ -2023,7 +2133,8 @@ fn multipart_filenames_call(
                 name: parameter.name.clone(),
                 type_name: parameter.type_name.clone(),
             };
-            let (declaration, value) = direct_parameter(&parameter, bindings)?;
+            let (declaration, value) =
+                direct_parameter(&parameter, &operation.parameter_adapters, bindings)?;
             declarations.push(declaration);
             values.push(value);
         }
@@ -2364,7 +2475,7 @@ pub(crate) fn lower(
         });
     }
 
-    let model_names: BTreeSet<_> = models.iter().map(|model| model.name.as_str()).collect();
+    let model_names: BTreeSet<_> = models.iter().map(|model| model.name.clone()).collect();
     for (name, config) in &definition.models {
         let mut references = Vec::new();
         references.extend(
@@ -2387,7 +2498,7 @@ pub(crate) fn lower(
         }));
         let unknown: Vec<_> = references
             .into_iter()
-            .filter(|reference| !model_names.contains(reference))
+            .filter(|reference| !model_names.contains(*reference))
             .collect();
         if !unknown.is_empty() {
             return Err(error(
@@ -3089,6 +3200,78 @@ pub(crate) fn lower(
                 RequestProjection::Parameters
             };
 
+            let mut parameter_adapters = BTreeMap::new();
+            for (raw_name, adapter) in &item.parameter_adapters {
+                let raw_parameter = raw_operation
+                    .parameters
+                    .iter()
+                    .find(|parameter| parameter.name == *raw_name)
+                    .ok_or_else(|| {
+                        error(
+                            "lower.parameter_adapter",
+                            format!(
+                                "configured parameter adapter references missing raw parameter: {raw_method}.{raw_name}"
+                            ),
+                        )
+                    })?;
+                let syntax = parse_type(&raw_parameter.type_name)?;
+                let core = if let Some(inner) = syntax.unary("Option") {
+                    if inner.unary("Option").is_some() {
+                        return Err(error(
+                            "lower.parameter_adapter",
+                            format!(
+                                "nested optional parameter adapter is unsupported: {raw_method}.{raw_name}"
+                            ),
+                        ));
+                    }
+                    inner.clone()
+                } else {
+                    syntax
+                };
+                if !bindings.enums.contains_key(&core.spelling) {
+                    return Err(error(
+                        "lower.parameter_adapter",
+                        format!(
+                            "parameter adapter raw type is not a scalar enum: {raw_method}.{raw_name}"
+                        ),
+                    ));
+                }
+                let schema = operation_parameter_schema(
+                    &index,
+                    operation_id,
+                    &adapter.location,
+                    &adapter.wire_name,
+                )?;
+                if !rust_type_matches_schema(schema, &core.spelling, bindings) {
+                    return Err(error(
+                        "lower.parameter_enum_drift",
+                        format!(
+                            "OpenAPI/raw parameter enum drift for {operation_id}: {} {}",
+                            adapter.location, adapter.wire_name
+                        ),
+                    ));
+                }
+                if models.iter().any(|model| model.name == adapter.model) {
+                    return Err(error(
+                        "lower.parameter_adapter_collision",
+                        format!(
+                            "parameter adapter public model collides with existing model: {}",
+                            adapter.model
+                        ),
+                    ));
+                }
+                models.push(ModelSpec {
+                    name: adapter.model.clone(),
+                    raw: core.spelling.clone(),
+                    render: ModelRenderSpec::ScalarEnum(resolve_scalar_enum_schema(
+                        &core.spelling,
+                        schema,
+                        bindings,
+                    )?),
+                });
+                parameter_adapters.insert(raw_name.clone(), adapter.model.clone());
+            }
+
             let mut operation = OperationSpec {
                 name: public_name.clone(),
                 operation_id: operation_id.clone(),
@@ -3114,6 +3297,7 @@ pub(crate) fn lower(
                 },
                 multipart_filenames: None,
                 parameter_request: None,
+                parameter_adapters,
             };
             operation.call = operation_call(&operation, &resource, bindings)?;
             if item.multipart_filenames == Some(true) {
