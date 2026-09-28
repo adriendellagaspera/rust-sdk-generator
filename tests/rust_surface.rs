@@ -153,7 +153,7 @@ mod sdk {{ include!("facade_types.rs"); }}
 pub fn navigate(response: &sdk::{response_name}) {{
     let _: &str = response.id();
     let _: i64 = response.usage().count();
-    let _: Vec<&str> = response.choices().map(|choice| choice.text()).collect();
+    let _: Vec<String> = response.choices().map(|choice| choice.text().to_owned()).collect();
     let _ = response.detail().map(|choice| choice.text().len());
     let _ = response.nullable_choice().map(|choice| choice.text().len());
     let _ = response.state();
