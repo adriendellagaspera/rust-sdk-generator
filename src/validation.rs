@@ -46,7 +46,7 @@ fn require_unique(path: &str, values: &[String]) -> Result<()> {
 impl Bindings {
     /// Validate the versioned backend-neutral sidecar independently of any SDK definition.
     pub fn validate(&self) -> Result<()> {
-        if !matches!(self.schema_version, 2..=4) {
+        if !matches!(self.schema_version, 2..=5) {
             return Err(invalid(
                 "bindings.schema_version",
                 format!(
@@ -87,6 +87,12 @@ impl Bindings {
                         error.to_string(),
                     )
                 })?;
+                if self.schema_version == 5 && field.serialized_presence.is_none() {
+                    return Err(invalid(
+                        format!("bindings.structs.{name}[{index}].serialized_presence"),
+                        "Bindings v5 fields require explicit serialized-presence evidence",
+                    ));
+                }
             }
         }
         for (name, variants) in &self.enums {
@@ -159,10 +165,10 @@ impl Bindings {
                 (2, Some(_)) => {
                     return Err(invalid(
                         format!("bindings.operations.{key}.metadata"),
-                        "operation metadata requires Bindings schema version 3 or 4",
+                        "operation metadata requires Bindings schema version 3, 4, or 5",
                     ));
                 }
-                (3 | 4, None) => {
+                (3..=5, None) => {
                     return Err(invalid(
                         format!("bindings.operations.{key}.metadata"),
                         format!(
@@ -171,7 +177,7 @@ impl Bindings {
                         ),
                     ));
                 }
-                (3 | 4, Some(metadata)) => {
+                (3..=5, Some(metadata)) => {
                     if operation.name != *key {
                         return Err(invalid(
                             format!("bindings.operations.{key}.name"),
@@ -294,11 +300,11 @@ impl Bindings {
                                 }
                             }
                         }
-                        4 => {
+                        4 | 5 => {
                             if metadata.stream_abi.is_some() {
                                 return Err(invalid(
                                     format!("bindings.operations.{key}.metadata.stream_abi"),
-                                    "Bindings v4 uses stream_transport instead of stream_abi",
+                                    "Bindings v4/v5 use stream_transport instead of stream_abi",
                                 ));
                             }
                             if representation_streams != metadata.stream_transport.is_some() {

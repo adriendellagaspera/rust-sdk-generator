@@ -23,6 +23,15 @@ pub struct Bindings {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SerializedPresenceBinding {
+    Always,
+    OmitIfNone,
+    Never,
+    Conditional,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FieldBinding {
     pub name: String,
@@ -30,6 +39,8 @@ pub struct FieldBinding {
     pub wire_name: Option<String>,
     #[serde(rename = "type")]
     pub type_name: String,
+    #[serde(default)]
+    pub serialized_presence: Option<SerializedPresenceBinding>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

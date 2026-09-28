@@ -9,6 +9,7 @@ use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use syn::parse::Parser;
 use syn::spanned::Spanned;
 use syn::{Attribute, Fields, FnArg, ImplItem, Item, ReturnType, Type, Visibility};
 
@@ -19,12 +20,22 @@ pub struct EvidenceLocation {
     pub module: String,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SerializedPresenceEvidence {
+    Always,
+    OmitIfNone,
+    Never,
+    Conditional,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct FieldEvidence {
     pub name: String,
     pub rust_type: String,
     pub wire_name: Option<String>,
     pub serde_skip: bool,
+    pub serialized_presence: SerializedPresenceEvidence,
     pub location: EvidenceLocation,
 }
 
@@ -192,12 +203,77 @@ fn flattened_additional_properties_type(ty: &Type) -> bool {
         && arguments.next().is_none()
 }
 
+fn serde_serialized_presence(
+    attrs: &[Attribute],
+    loc: &EvidenceLocation,
+) -> Result<SerializedPresenceEvidence, Error> {
+    let mut presence = SerializedPresenceEvidence::Always;
+    for attr in attrs.iter().filter(|attr| attr.path().is_ident("serde")) {
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("skip") || meta.path.is_ident("skip_serializing") {
+                if presence != SerializedPresenceEvidence::Always {
+                    return Err(meta.error("duplicate serde serialization-presence rule"));
+                }
+                presence = SerializedPresenceEvidence::Never;
+            } else if meta.path.is_ident("skip_serializing_if") {
+                if presence != SerializedPresenceEvidence::Always {
+                    return Err(meta.error("duplicate serde serialization-presence rule"));
+                }
+                let predicate: syn::LitStr = meta.value()?.parse()?;
+                presence = if matches!(
+                    predicate.value().as_str(),
+                    "Option::is_none"
+                        | "std::option::Option::is_none"
+                        | "core::option::Option::is_none"
+                ) {
+                    SerializedPresenceEvidence::OmitIfNone
+                } else {
+                    SerializedPresenceEvidence::Conditional
+                };
+            } else if meta.input.peek(syn::Token![=]) {
+                let _: syn::Expr = meta.value()?.parse()?;
+            } else if meta.input.peek(syn::token::Paren) {
+                meta.parse_nested_meta(|nested| {
+                    if nested.input.peek(syn::Token![=]) {
+                        let _: syn::Expr = nested.value()?.parse()?;
+                    }
+                    Ok(())
+                })?;
+            }
+            Ok(())
+        })
+        .map_err(|error| failure(loc, "extract.serde_presence_unsupported", error))?;
+    }
+    Ok(presence)
+}
+
+pub(crate) fn serialized_presence_from_attribute_strings(
+    attributes: &[String],
+) -> Result<SerializedPresenceEvidence, Error> {
+    let parser = Attribute::parse_outer;
+    let mut parsed = Vec::new();
+    for attribute in attributes {
+        parsed.extend(parser.parse_str(attribute).map_err(|error| {
+            Error::new(format!(
+                "metadata.field_attribute_invalid: {attribute:?}: {error}"
+            ))
+        })?);
+    }
+    let location = EvidenceLocation {
+        file: "bindings.json".into(),
+        line: 1,
+        module: "types".into(),
+    };
+    serde_serialized_presence(&parsed, &location)
+}
+
 fn serde_name(
     attrs: &[Attribute],
     rust_name: &str,
     field_type: Option<&Type>,
     loc: &EvidenceLocation,
-) -> Result<(Option<String>, bool), Error> {
+) -> Result<(Option<String>, bool, SerializedPresenceEvidence), Error> {
+    let serialized_presence = serde_serialized_presence(attrs, loc)?;
     let mut renamed: Option<String> = None;
     let mut serialize_rename: Option<String> = None;
     let mut deserialize_rename: Option<String> = None;
@@ -270,7 +346,7 @@ fn serde_name(
                 "flatten cannot be combined with skip or rename",
             ));
         }
-        return Ok((None, false));
+        return Ok((None, false, serialized_presence));
     }
     let default =
         renamed.unwrap_or_else(|| rust_name.strip_prefix("r#").unwrap_or(rust_name).to_owned());
@@ -286,9 +362,9 @@ fn serde_name(
         ));
     }
     if skipped {
-        Ok((None, true))
+        Ok((None, true, serialized_presence))
     } else {
-        Ok((Some(serialization), false))
+        Ok((Some(serialization), false, serialized_presence))
     }
 }
 
@@ -431,13 +507,14 @@ fn inspect_items(
                                 failure(&f_at, "extract.field_unidentified", &path)
                             })?;
                             let f_name = name(ident);
-                            let (wire_name, serde_skip) =
+                            let (wire_name, serde_skip, serialized_presence) =
                                 serde_name(&field.attrs, &f_name, Some(&field.ty), &f_at)?;
                             fields.push(FieldEvidence {
                                 name: f_name,
                                 rust_type: tokens(&field.ty),
                                 wire_name,
                                 serde_skip,
+                                serialized_presence,
                                 location: f_at,
                             });
                         }
@@ -473,7 +550,7 @@ fn inspect_items(
                 for variant in &e.variants {
                     let v_at = location(root, file, module, variant.span().start().line);
                     let v_name = name(&variant.ident);
-                    let (wire, skipped) = serde_name(&variant.attrs, &v_name, None, &v_at)?;
+                    let (wire, skipped, _) = serde_name(&variant.attrs, &v_name, None, &v_at)?;
                     if skipped {
                         return Err(failure(&v_at, "extract.enum_variant_skipped", v_name));
                     }
@@ -492,13 +569,14 @@ fn inspect_items(
                                     ));
                                 };
                                 let field_name = name(ident);
-                                let (wire_name, serde_skip) =
+                                let (wire_name, serde_skip, serialized_presence) =
                                     serde_name(&field.attrs, &field_name, Some(&field.ty), &at)?;
                                 named_payload.push(FieldEvidence {
                                     name: field_name,
                                     rust_type: tokens(&field.ty),
                                     wire_name,
                                     serde_skip,
+                                    serialized_presence,
                                     location: at,
                                 });
                             }

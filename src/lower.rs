@@ -6,7 +6,7 @@ use serde_json::Value;
 use crate::contracts::{
     AccessorKindDefinition, Bindings, FieldBinding, ModelDefinition, OpenApi, OperationBinding,
     RequestMediaDefinition, ResponseRepresentationBinding, ResponseRepresentationDefinition,
-    SdkDefinition, SimpleUnionVariant, StreamTransportBinding,
+    SdkDefinition, SerializedPresenceBinding, SimpleUnionVariant, StreamTransportBinding,
 };
 use crate::error::{GenerationError, Result};
 use crate::ir::*;
@@ -105,8 +105,40 @@ fn constructor_argument(
     name: &str,
     field: &FieldBinding,
     adapter: Option<&str>,
+    bindings: &Bindings,
 ) -> Result<(ArgumentSpec, ValueSpec)> {
     let public_name = field_identifier(name)?;
+    let required_nullable = field.serialized_presence.as_ref()
+        == Some(&SerializedPresenceBinding::Always)
+        && option(&field.type_name)?.is_some_and(|(_, depth)| depth == 1);
+    if required_nullable {
+        let (inner, _) = option(&field.type_name)?.expect("checked one option layer");
+        if let Some(adapter) = adapter {
+            let (public_type, depth) =
+                adapted_public_type(parse_type(&inner)?, adapter, bindings)?;
+            return Ok((
+                ArgumentSpec {
+                    name: public_name.clone(),
+                    kind: ArgumentKind::Exact,
+                    type_name: format!("Option<{public_type}>"),
+                },
+                ValueSpec::OptionMapInto {
+                    name: public_name,
+                    depth,
+                },
+            ));
+        }
+        let public_type =
+            public_alias_type(parse_type(&inner)?, bindings, &mut Vec::new())?;
+        return Ok((
+            ArgumentSpec {
+                name: public_name.clone(),
+                kind: ArgumentKind::Exact,
+                type_name: format!("Option<{public_type}>"),
+            },
+            ValueSpec::Variable(public_name),
+        ));
+    }
     if let Some(adapter) = adapter {
         if parse_type(&field.type_name)?.unary("Vec").is_some() {
             return Ok((
@@ -254,6 +286,7 @@ fn resolve_wrapper(
                 field_name,
                 field,
                 adapters.get(field_name).map(String::as_str),
+                bindings,
             )?;
             arguments.push(argument);
             values.insert(field_name.clone(), value);
@@ -385,8 +418,9 @@ fn resolve_wrapper(
                 name: field.name.clone(),
                 wire_name: field.wire_name.clone(),
                 type_name: inner.clone(),
+                serialized_presence: field.serialized_presence.clone(),
             };
-            constructor_argument(name, &synthetic, Some(adapter))?
+            constructor_argument(name, &synthetic, Some(adapter), bindings)?
         } else {
             argument(name, &inner)?
         };
@@ -663,7 +697,10 @@ fn resolve_simple_union(
             let (type_name, depth) = adapted_public_type(raw_syntax, adapter, bindings)?;
             (type_name, Some(depth))
         } else {
-            (bindings.qualified_type(&raw_syntax.spelling)?, None)
+            (
+                public_alias_type(raw_syntax, bindings, &mut Vec::new())?,
+                None,
+            )
         };
         branches.push(SimpleUnionBranchSpec {
             raw_name: raw_name.clone(),

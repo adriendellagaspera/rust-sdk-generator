@@ -8,8 +8,10 @@ use crate::rust_type::canonical_rust_type;
 use crate::semantic::{
     OperationSemanticEvidence, RepresentationEvidence, SemanticEvidence, SourceOperationEvidence,
 };
-use crate::structural::EvidenceLocation;
-use crate::{Error, structural::StructuralEvidence};
+use crate::structural::{
+    EvidenceLocation, StructuralEvidence, serialized_presence_from_attribute_strings,
+};
+use crate::Error;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -299,11 +301,14 @@ impl UpstreamMetadata {
                                     format!("{} has an unnamed struct field", symbol.path),
                                 )
                             })?;
-                            let _ = (field.index, &field.attributes);
+                            let _ = field.index;
                             Ok(json!({
                                 "name": name,
                                 "wire_name": field.wire_name,
                                 "type": canonical_rust_type(&field.rust_type)?,
+                                "serialized_presence": serialized_presence_from_attribute_strings(
+                                    &field.attributes,
+                                )?,
                             }))
                         })
                         .collect::<Result<Vec<_>, Error>>()?;

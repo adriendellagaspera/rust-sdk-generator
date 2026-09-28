@@ -31,7 +31,7 @@ pub struct Bindings {
 }
 
 impl Bindings {
-    /// Validate and normalize a backend-neutral Bindings v2/v3/v4 JSON value.
+    /// Validate and normalize a backend-neutral Bindings v2/v3/v4/v5 JSON value.
     pub fn from_value(mut value: Value) -> Result<Self, Error> {
         validate_bindings(&value)?;
         if let Some(operations) = value.get_mut("operations").and_then(Value::as_object_mut) {
@@ -132,7 +132,14 @@ fn validate_name_type(value: &Value, context: &str) -> Result<(), Error> {
 
 fn validate_field(value: &Value, context: &str, version: u64) -> Result<(), Error> {
     let value = object(value, context)?;
-    if matches!(version, 3 | 4) {
+    if version == 5 {
+        exact_keys(
+            value,
+            &["name", "wire_name", "type", "serialized_presence"],
+            &[],
+            context,
+        )?;
+    } else if matches!(version, 3..=5) {
         exact_keys(value, &["name", "wire_name", "type"], &[], context)?;
     } else {
         exact_keys(value, &["name", "type"], &["wire_name"], context)?;
@@ -141,6 +148,17 @@ fn validate_field(value: &Value, context: &str, version: u64) -> Result<(), Erro
     string(&value["type"], &format!("{context}.type"))?;
     if let Some(wire_name) = value.get("wire_name") {
         nullable_string(wire_name, &format!("{context}.wire_name"))?;
+    }
+    if version == 5 {
+        let presence = string(
+            &value["serialized_presence"],
+            &format!("{context}.serialized_presence"),
+        )?;
+        if !matches!(presence, "always" | "omit_if_none" | "never" | "conditional") {
+            return Err(invalid(format!(
+                "{context}.serialized_presence has unsupported value {presence:?}"
+            )));
+        }
     }
     Ok(())
 }
@@ -388,8 +406,8 @@ fn validate_metadata(
     let metadata = object(value, context)?;
     let stream_key = match version {
         3 => "stream_abi",
-        4 => "stream_transport",
-        _ => return Err(invalid(format!("{context} requires Bindings v3 or v4"))),
+        4 | 5 => "stream_transport",
+        _ => return Err(invalid(format!("{context} requires Bindings v3, v4, or v5"))),
     };
     exact_keys(
         metadata,
@@ -508,7 +526,7 @@ fn validate_metadata(
                 }
             }
         }
-        4 => {
+        4 | 5 => {
             let transport = &metadata["stream_transport"];
             if transport.is_null() != !streaming {
                 return Err(invalid(format!(
@@ -547,9 +565,9 @@ fn validate_bindings(value: &Value) -> Result<(), Error> {
     let version = root["schema_version"]
         .as_u64()
         .ok_or_else(|| invalid("schema_version must be an integer"))?;
-    if !matches!(version, 2..=4) {
+    if !matches!(version, 2..=5) {
         return Err(invalid(format!(
-            "unsupported schema_version {version}; expected 2, 3, or 4"
+            "unsupported schema_version {version}; expected 2, 3, 4, or 5"
         )));
     }
 
@@ -588,7 +606,7 @@ fn validate_bindings(value: &Value) -> Result<(), Error> {
     for (name, operation) in operations {
         let context = format!("operations.{name}");
         let operation = object(operation, &context)?;
-        if matches!(version, 3 | 4) {
+        if matches!(version, 3..=5) {
             exact_keys(
                 operation,
                 &[
@@ -610,7 +628,7 @@ fn validate_bindings(value: &Value) -> Result<(), Error> {
             )?;
         }
         let operation_name = string(&operation["name"], &format!("{context}.name"))?;
-        if matches!(version, 3 | 4) && operation_name != name {
+        if matches!(version, 3..=5) && operation_name != name {
             return Err(invalid(format!(
                 "{context}.name must equal its operation map key"
             )));
@@ -632,7 +650,7 @@ fn validate_bindings(value: &Value) -> Result<(), Error> {
             validate_stream(stream, &format!("{context}.stream"))?;
         }
 
-        if matches!(version, 3 | 4) {
+        if matches!(version, 3..=5) {
             let identity = validate_metadata(
                 &operation["metadata"],
                 &format!("{context}.metadata"),

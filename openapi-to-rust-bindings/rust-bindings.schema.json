@@ -10,6 +10,9 @@
     },
     {
       "$ref": "#/$defs/bindingsV4"
+    },
+    {
+      "$ref": "#/$defs/bindingsV5"
     }
   ],
   "$defs": {
@@ -872,6 +875,95 @@
         },
         "request_discriminator_unproven": {
           "const": true
+        }
+      }
+    },
+    "fieldV5": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "wire_name",
+        "type",
+        "serialized_presence"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "wire_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "type": "string"
+        },
+        "serialized_presence": {
+          "enum": [
+            "always",
+            "omit_if_none",
+            "never",
+            "conditional"
+          ]
+        }
+      }
+    },
+    "bindingsV5": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "structs",
+        "enums",
+        "aliases",
+        "operations",
+        "symbol_paths",
+        "binding"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 5
+        },
+        "structs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/fieldV5"
+            }
+          }
+        },
+        "enums": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/variant"
+            }
+          }
+        },
+        "aliases": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "operations": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/operationV4"
+          }
+        },
+        "symbol_paths": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "binding": {
+          "$ref": "#/$defs/bindingLayout"
         }
       }
     }

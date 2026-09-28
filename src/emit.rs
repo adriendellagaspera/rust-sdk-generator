@@ -55,6 +55,9 @@ fn emit_value(value: &ValueSpec) -> String {
         }
         ValueSpec::CollectInto(name) => format!("{name}.into_iter().map(Into::into).collect()"),
         ValueSpec::MapInto { name, depth } => map_into(name, *depth),
+        ValueSpec::OptionMapInto { name, depth } => {
+            format!("{name}.map(|value| {})", map_into("value", *depth))
+        }
         ValueSpec::Some { value, depth } => {
             let mut rendered = emit_value(value);
             for _ in 0..*depth {

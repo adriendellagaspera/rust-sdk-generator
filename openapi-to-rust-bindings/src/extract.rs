@@ -1,4 +1,4 @@
-//! Canonical Bindings v4 normalization from proved structural + semantic
+//! Canonical Bindings v5 normalization from proved structural + semantic
 //! evidence. The CLI uses this as its default; the legacy metadata reader is explicit.
 use crate::details::{
     OperationKindEvidence, StreamTransportEvidence, inspect_details,
@@ -139,6 +139,7 @@ fn normalize_structural(structural: &StructuralEvidence) -> Result<CanonicalStru
                     "name": field.name,
                     "wire_name": field.wire_name,
                     "type": canonical_rust_type(&field.rust_type)?,
+                    "serialized_presence": field.serialized_presence,
                 }))
             })
             .collect::<Result<Vec<_>, Error>>()?;
@@ -244,7 +245,7 @@ fn client_layout(structural: &StructuralEvidence) -> Result<Value, Error> {
     }))
 }
 
-/// Produce canonical Bindings v4 only for call shapes whose complete required
+/// Produce canonical Bindings v5 only for call shapes whose complete required
 /// semantics are directly observable. Streaming shapes require a proven owned
 /// transport; anonymous transports without explicit static/capture proof fail closed.
 pub fn extract_bindings(
@@ -444,7 +445,7 @@ pub fn extract_bindings(
     }
 
     Bindings::from_value(json!({
-        "schema_version": 4,
+        "schema_version": 5,
         "structs": canonical.structs,
         "enums": canonical.enums,
         "aliases": canonical.aliases,
@@ -607,7 +608,7 @@ pub fn extract_bindings_from_rust(
     }
 
     Bindings::from_value(json!({
-        "schema_version": 4,
+        "schema_version": 5,
         "structs": canonical.structs,
         "enums": canonical.enums,
         "aliases": canonical.aliases,
