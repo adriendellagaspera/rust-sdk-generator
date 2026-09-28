@@ -1177,11 +1177,7 @@ fn response_view_for_schema_named(
         false,
         &mut BTreeSet::new(),
     ) {
-        models
-            .last_mut()
-            .ok_or(RESPONSE_VIEW_UNPROVEN)?
-            .1
-            .schema = Some(schema_name.into());
+        models.last_mut().ok_or(RESPONSE_VIEW_UNPROVEN)?.1.schema = Some(schema_name.into());
         return Ok((name, models));
     }
     if !public_model_name_available(&name, bindings) {
@@ -1225,11 +1221,7 @@ fn response_view_named(
     name: String,
 ) -> Result<(String, ProjectedModels), &'static str> {
     let (name, mut models) = response_view_for_schema_named(openapi, bindings, raw, raw, name)?;
-    models
-        .last_mut()
-        .ok_or(RESPONSE_VIEW_UNPROVEN)?
-        .1
-        .schema = None;
+    models.last_mut().ok_or(RESPONSE_VIEW_UNPROVEN)?.1.schema = None;
     Ok((name, models))
 }
 
