@@ -154,7 +154,7 @@ fn derives_exact_tri_state_root_and_preserves_public_absent_null_value() {
     );
     assert!(
         generated_source
-            .contains("request.map(|request| request.map(|request| request.into_raw()))"),
+            .contains("request.map(|request| request.map(|request| <PauseWorkflowsSchedulesRequest as __RustSdkIntoRaw<PauseAlias>>::into_raw(request)))"),
         "{generated_source}"
     );
 }
