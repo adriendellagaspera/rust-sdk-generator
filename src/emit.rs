@@ -1116,3 +1116,52 @@ mod optional_ref_tests {
         assert!(emit_accessor(&accessor).contains("self.raw.trace_id.as_deref()"));
     }
 }
+
+
+#[cfg(test)]
+mod private_transport_tests {
+    use super::emit;
+    use crate::contracts::{Bindings, OpenApi, Runtime, SdkDefinition};
+    use crate::lower;
+
+    #[test]
+    fn emitted_facade_keeps_backend_transport_interop_private() {
+        let openapi = OpenApi(
+            serde_json::from_str(include_str!("../tests/fixtures/library/openapi.json")).unwrap(),
+        );
+        let bindings: Bindings =
+            serde_json::from_str(include_str!("../tests/fixtures/library/rust-bindings.json"))
+                .unwrap();
+        let definition: SdkDefinition =
+            serde_json::from_str(include_str!("../tests/fixtures/library/policy.json")).unwrap();
+        let ir = lower::lower(&openapi, &bindings, &definition, &Runtime::default()).unwrap();
+        let files = emit(&ir, &bindings, &Runtime::default()).unwrap();
+        let source = files.values().cloned().collect::<Vec<_>>().join("\n");
+
+        for forbidden in [
+            "pub fn raw(&self)",
+            "pub fn as_raw(",
+            "pub fn into_raw(",
+            "pub fn from_raw(",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "generated public transport escape hatch: {forbidden}"
+            );
+        }
+
+        for line in source.lines().filter(|line| line.starts_with("impl From<")) {
+            for raw in bindings.symbol_paths.keys() {
+                assert!(
+                    !line.contains(raw),
+                    "public From conversion exposes backend symbol {raw}: {line}"
+                );
+            }
+        }
+
+        assert!(source.contains("pub(crate) trait __RustSdkFromRaw"));
+        assert!(source.contains("pub(crate) trait __RustSdkIntoRaw"));
+        assert!(source.contains("impl __RustSdkFromRaw<"));
+        assert!(source.contains("impl __RustSdkIntoRaw<"));
+    }
+}
