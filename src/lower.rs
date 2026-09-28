@@ -967,13 +967,10 @@ fn schema_at(openapi: &OpenApiIndex, root: &str, path: &[String]) -> Result<Valu
     };
     for segment in path {
         schema = unwrap_nullable_schema(&schema).clone();
-        schema = if segment == "items" {
-            schema.get("items")
-        } else {
-            schema
-                .get("properties")
-                .and_then(|properties| properties.get(segment))
-        }
+        schema = schema
+            .get("properties")
+            .and_then(|properties| properties.get(segment))
+            .or_else(|| (segment == "items").then(|| schema.get("items")).flatten())
         .cloned()
         .ok_or_else(|| {
             error(
