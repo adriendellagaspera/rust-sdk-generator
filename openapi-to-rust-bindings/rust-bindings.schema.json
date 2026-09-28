@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Canonical Bindings v4 emitted by openapi-to-rust-bindings",
-  "$ref": "#/$defs/bindingsV4",
+  "title": "Canonical Bindings v5 emitted by openapi-to-rust-bindings",
+  "$ref": "#/$defs/bindingsV5",
   "$defs": {
     "fieldV3": {
       "type": "object",
@@ -482,6 +482,95 @@
             "type": "array",
             "items": {
               "$ref": "#/$defs/fieldV3"
+            }
+          }
+        },
+        "enums": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/variant"
+            }
+          }
+        },
+        "aliases": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "operations": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/operationV4"
+          }
+        },
+        "symbol_paths": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "binding": {
+          "$ref": "#/$defs/bindingLayout"
+        }
+      }
+    },
+    "fieldV5": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "wire_name",
+        "type",
+        "serialized_presence"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "wire_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "type": "string"
+        },
+        "serialized_presence": {
+          "enum": [
+            "always",
+            "omit_if_none",
+            "never",
+            "conditional"
+          ]
+        }
+      }
+    },
+    "bindingsV5": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "structs",
+        "enums",
+        "aliases",
+        "operations",
+        "symbol_paths",
+        "binding"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 5
+        },
+        "structs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/fieldV5"
             }
           }
         },

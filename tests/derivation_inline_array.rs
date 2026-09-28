@@ -128,6 +128,7 @@ fn wraps_referenced_array_items_without_leaking_generated_rust_symbols() {
             name: "name".into(),
             wire_name: Some("name".into()),
             type_name: "String".into(),
+            serialized_presence: None,
         }],
     );
     bindings

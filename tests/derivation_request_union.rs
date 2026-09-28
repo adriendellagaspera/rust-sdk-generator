@@ -131,6 +131,7 @@ fn rejects_ambiguous_request_union_branch_matching() {
             name: "address".into(),
             wire_name: None,
             type_name: "String".into(),
+            serialized_presence: Some(rust_sdk_generator::SerializedPresenceBinding::Always),
         }],
     );
 

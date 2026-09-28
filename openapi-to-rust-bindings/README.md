@@ -1,6 +1,6 @@
 # openapi-to-rust-bindings
 
-Temporary compatibility shim between `gpu-cli/openapi-to-rust` bindings metadata and the backend-neutral Bindings v4 contract consumed by `rust-sdk-generator`.
+Temporary compatibility shim between `gpu-cli/openapi-to-rust` bindings metadata and the backend-neutral Bindings v5 contract consumed by `rust-sdk-generator`.
 
 Production uses unmodified upstream `openapi-to-rust`. The generator-owned `bindings.json` is authoritative for emitted symbols, exact signatures, source-operation identity and response planning. This crate exists only because metadata v1 does not yet expose every invocation detail required by the root generator.
 

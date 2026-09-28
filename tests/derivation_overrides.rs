@@ -28,6 +28,7 @@ fn fixture() -> (OpenApi, Bindings, PublicSdkSurface) {
             name: "archived".into(),
             wire_name: None,
             type_name: "Option<bool>".into(),
+            serialized_presence: None,
         });
 
     let surface: PublicSdkSurface =

@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use crate::contracts::{
     Bindings, OperationBinding, OperationBindingKind, RequestDiscriminatorBinding,
-    RequestDiscriminatorValue,
+    RequestDiscriminatorValue, SerializedPresenceBinding,
 };
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::rust_type::{Type, TypeKind, parse_type};
@@ -115,6 +115,13 @@ pub(crate) struct ScalarFieldShape {
 pub(crate) struct RequestUnionBranch {
     pub raw_variant: String,
     pub schema: String,
+    pub raw_payload: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RequestValueUnionBranch {
+    pub raw_variant: String,
+    pub schema: Value,
     pub raw_payload: String,
 }
 
@@ -752,7 +759,11 @@ pub(crate) fn legacy_nullable_request_property(schema: &Value) -> Option<Value> 
     Some(Value::Object(non_null))
 }
 
-fn canonical_unconstrained_map_branch(schema: &Value, raw: &str, bindings: &Bindings) -> bool {
+pub(crate) fn canonical_unconstrained_map_branch(
+    schema: &Value,
+    raw: &str,
+    bindings: &Bindings,
+) -> bool {
     let Some(shape) = schema.as_object() else {
         return false;
     };
@@ -863,6 +874,68 @@ pub(crate) fn request_union_mapping(
     bindings: &Bindings,
 ) -> Option<Vec<RequestUnionBranch>> {
     request_union_mapping_inner(openapi, schema, raw_union, bindings, &mut BTreeSet::new())
+}
+
+pub(crate) fn request_value_union_mapping(
+    openapi: &OpenApiIndex,
+    schema: &Value,
+    raw_union: &str,
+    bindings: &Bindings,
+) -> Option<Vec<RequestValueUnionBranch>> {
+    let normalized = nullable_request_union(schema);
+    let schema = normalized.as_ref().unwrap_or(schema);
+    let branches = union_branches(schema)?;
+    let variants = bindings.enums.get(raw_union)?;
+    if variants.len() != branches.len() || variants.iter().any(|variant| variant.payload.is_none())
+    {
+        return None;
+    }
+
+    let branch_matches = |branch: &Value, payload: &str, seen: &mut BTreeSet<(String, String)>| {
+        if let Some(reference) = ref_name(branch) {
+            let Ok(referenced) = openapi.schema(reference) else {
+                return false;
+            };
+            let raw = transparent_box_raw(payload).unwrap_or_else(|| payload.to_owned());
+            if union_branches(referenced).is_some() {
+                return request_union_matches_inner(openapi, referenced, &raw, bindings, seen);
+            }
+            if referenced_request_object(openapi, reference, referenced).is_some() {
+                return request_object_matches_inner(openapi, reference, &raw, bindings, seen);
+            }
+            return rust_type_matches_schema(referenced, payload, bindings);
+        }
+        if branch.get("properties").is_some() {
+            return request_object_value_matches(openapi, branch, payload, bindings, seen);
+        }
+        canonical_unconstrained_map_branch(branch, payload, bindings)
+            || rust_type_matches_schema(branch, payload, bindings)
+    };
+
+    let mut used = BTreeSet::new();
+    let mut mapping = Vec::new();
+    for branch in branches {
+        let matches = variants
+            .iter()
+            .enumerate()
+            .filter(|(_, variant)| {
+                variant.payload.as_deref().is_some_and(|payload| {
+                    let mut seen = BTreeSet::new();
+                    branch_matches(branch, payload, &mut seen)
+                })
+            })
+            .collect::<Vec<_>>();
+        if matches.len() != 1 || !used.insert(matches[0].0) {
+            return None;
+        }
+        let (_, variant) = matches[0];
+        mapping.push(RequestValueUnionBranch {
+            raw_variant: variant.name.clone(),
+            schema: branch.clone(),
+            raw_payload: variant.payload.clone()?,
+        });
+    }
+    (used.len() == variants.len()).then_some(mapping)
 }
 
 fn unconstrained_request_object_branch(schema: &Value) -> bool {
@@ -1091,6 +1164,17 @@ fn single_all_of_annotation_branch(schema: &Value) -> Option<&Value> {
     (branches.len() == 1).then(|| &branches[0])
 }
 
+fn serialized_presence_matches(
+    bindings: &Bindings,
+    actual: Option<&SerializedPresenceBinding>,
+    expected: &SerializedPresenceBinding,
+) -> bool {
+    match actual {
+        Some(actual) => actual == expected,
+        None => bindings.schema_version < 5,
+    }
+}
+
 fn request_object_value_matches(
     openapi: &OpenApiIndex,
     schema: &Value,
@@ -1162,8 +1246,21 @@ fn request_object_value_matches(
             .as_ref()
             .map(|schema| (schema, true))
             .unwrap_or((property, false));
-        let expected_depth = usize::from(!required.contains(name.as_str())) + usize::from(nullable);
+        let field_required = required.contains(name.as_str());
+        let expected_depth = usize::from(!field_required) + usize::from(nullable);
         if option_depth != expected_depth {
+            return false;
+        }
+        let expected_presence = if field_required {
+            SerializedPresenceBinding::Always
+        } else {
+            SerializedPresenceBinding::OmitIfNone
+        };
+        if !serialized_presence_matches(
+            bindings,
+            field.serialized_presence.as_ref(),
+            &expected_presence,
+        ) {
             return false;
         }
 
@@ -1300,7 +1397,11 @@ pub(crate) fn request_optional_boolean_field(
     let Ok(syntax) = parse_type(&raw_field.type_name) else {
         return false;
     };
-    syntax
+    serialized_presence_matches(
+        bindings,
+        raw_field.serialized_presence.as_ref(),
+        &SerializedPresenceBinding::OmitIfNone,
+    ) && syntax
         .unary("Option")
         .is_some_and(|inner| inner.spelling == "bool" && inner.unary("Option").is_none())
 }

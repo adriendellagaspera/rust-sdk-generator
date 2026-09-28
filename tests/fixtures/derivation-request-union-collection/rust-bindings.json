@@ -2,24 +2,64 @@
   "schema_version": 2,
   "structs": {
     "OpaqueBatch9": [
-      {"name": "note", "type": "Option<String>"},
-      {"name": "commands", "type": "Vec<OpaqueCommand7>"},
-      {"name": "label", "type": "String"}
+      {
+        "name": "note",
+        "type": "Option<String>",
+        "serialized_presence": "omit_if_none"
+      },
+      {
+        "name": "commands",
+        "type": "Vec<OpaqueCommand7>",
+        "serialized_presence": "always"
+      },
+      {
+        "name": "label",
+        "type": "String",
+        "serialized_presence": "always"
+      }
     ],
     "OpaqueEmail3": [
-      {"name": "cc", "type": "Option<String>"},
-      {"name": "subject", "type": "String"},
-      {"name": "address", "type": "String"}
+      {
+        "name": "cc",
+        "type": "Option<String>",
+        "serialized_presence": "omit_if_none"
+      },
+      {
+        "name": "subject",
+        "type": "String",
+        "serialized_presence": "always"
+      },
+      {
+        "name": "address",
+        "type": "String",
+        "serialized_presence": "always"
+      }
     ],
     "OpaqueSms4": [
-      {"name": "message", "type": "String"},
-      {"name": "number", "type": "String"}
+      {
+        "name": "message",
+        "type": "String",
+        "serialized_presence": "always"
+      },
+      {
+        "name": "number",
+        "type": "String",
+        "serialized_presence": "always"
+      }
     ]
   },
   "enums": {
     "OpaqueCommand7": [
-      {"name": "VariantB", "payload": "OpaqueSms4", "wire_name": null},
-      {"name": "VariantA", "payload": "OpaqueEmail3", "wire_name": null}
+      {
+        "name": "VariantB",
+        "payload": "OpaqueSms4",
+        "wire_name": null
+      },
+      {
+        "name": "VariantA",
+        "payload": "OpaqueEmail3",
+        "wire_name": null
+      }
     ]
   },
   "aliases": {},
@@ -27,9 +67,18 @@
     "opaque_send_31": {
       "name": "unrelated_send_method",
       "parameters": [
-        {"name": "dry_run", "type": "Option<bool>"},
-        {"name": "request", "type": "OpaqueBatch9"},
-        {"name": "tenant_id", "type": "impl AsRef<str>"}
+        {
+          "name": "dry_run",
+          "type": "Option<bool>"
+        },
+        {
+          "name": "request",
+          "type": "OpaqueBatch9"
+        },
+        {
+          "name": "tenant_id",
+          "type": "impl AsRef<str>"
+        }
       ],
       "return_type": "Result<(), Error>",
       "success_type": "()"
@@ -48,6 +97,8 @@
       "api_key_builder": "with_api_key",
       "base_url_builder": "with_base_url"
     },
-    "type_preludes": ["crate::generated::types::*"]
+    "type_preludes": [
+      "crate::generated::types::*"
+    ]
   }
 }

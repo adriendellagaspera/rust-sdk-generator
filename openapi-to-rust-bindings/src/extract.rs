@@ -1,4 +1,4 @@
-//! Canonical Bindings v4 normalization from upstream bindings metadata plus
+//! Canonical Bindings v5 normalization from upstream bindings metadata plus
 //! the residual invocation evidence that metadata v1 does not expose yet.
 
 use crate::details::{StreamTransportEvidence, inspect_metadata_backed_details};
@@ -56,7 +56,7 @@ fn client_layout(structural: &StructuralEvidence) -> Result<Value, Error> {
     }))
 }
 
-/// Normalize current openapi-to-rust bindings metadata into canonical Bindings v4.
+/// Normalize current openapi-to-rust bindings metadata into canonical Bindings v5.
 ///
 /// Upstream metadata is authoritative for emitted symbols, signatures, source
 /// identities and response planning. Generated client source is inspected only
@@ -227,7 +227,7 @@ pub fn extract_bindings(
     }
 
     let bindings: Bindings = serde_json::from_value(json!({
-        "schema_version": 4,
+        "schema_version": 5,
         "structs": canonical.structs,
         "enums": canonical.enums,
         "aliases": canonical.aliases,
@@ -236,10 +236,10 @@ pub fn extract_bindings(
         "binding": client_layout(&structural)?,
     }))
     .map_err(|error| extraction_error("extract.canonical_bindings_invalid", error))?;
-    if bindings.schema_version != 4 {
+    if bindings.schema_version != 5 {
         return Err(extraction_error(
             "extract.canonical_bindings_invalid",
-            "compatibility shim must emit Bindings v4",
+            "compatibility shim must emit Bindings v5",
         ));
     }
     bindings
