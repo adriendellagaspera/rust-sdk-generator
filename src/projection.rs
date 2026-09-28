@@ -1014,6 +1014,7 @@ fn unwrap_nullable_schema(schema: &Value) -> &Value {
 fn response_object_models(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
+    naming: &ModelNaming<'_>,
     schema: &Value,
     raw: &str,
     name: String,
@@ -1023,8 +1024,9 @@ fn response_object_models(
     if !active.insert(raw.to_owned()) {
         return Err(RESPONSE_VIEW_UNPROVEN);
     }
-    let result =
-        response_object_models_inner(openapi, bindings, schema, raw, name, borrowed, active);
+    let result = response_object_models_inner(
+        openapi, bindings, naming, schema, raw, name, borrowed, active,
+    );
     active.remove(raw);
     result
 }
@@ -1032,6 +1034,7 @@ fn response_object_models(
 fn response_object_models_inner(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
+    naming: &ModelNaming<'_>,
     schema: &Value,
     raw: &str,
     name: String,
@@ -1084,25 +1087,28 @@ fn response_object_models_inner(
         } else {
             (syntax, false)
         };
-        let non_null = unwrap_nullable_schema(property);
-        let non_null = if let Some(reference) = ref_name(non_null) {
+        let non_null_source = unwrap_nullable_schema(property);
+        let non_null = if let Some(reference) = ref_name(non_null_source) {
             openapi
                 .schema(reference)
                 .map_err(|_| RESPONSE_VIEW_UNPROVEN)?
         } else {
-            non_null
+            non_null_source
         };
-        let item_schema = if collection {
+        let item_source = if collection {
+            non_null.get("items").ok_or(RESPONSE_VIEW_UNPROVEN)?
+        } else {
+            non_null_source
+        };
+        let source_reference = ref_name(item_source);
+        let item_schema = if let Some(reference) = source_reference {
+            openapi
+                .schema(reference)
+                .map_err(|_| RESPONSE_VIEW_UNPROVEN)?
+        } else if collection {
             non_null.get("items").ok_or(RESPONSE_VIEW_UNPROVEN)?
         } else {
             non_null
-        };
-        let item_schema = if let Some(reference) = ref_name(item_schema) {
-            openapi
-                .schema(reference)
-                .map_err(|_| RESPONSE_VIEW_UNPROVEN)?
-        } else {
-            item_schema
         };
         let field_proven = rust_type_matches_schema(item_schema, &value.spelling, bindings)
             || (item_schema.get("properties").is_some()
@@ -1112,7 +1118,7 @@ fn response_object_models_inner(
         if !field_proven {
             continue;
         }
-        let child_name = format!("{name}{}", semantic_pascal_identifier(field_name)?);
+        let child_fallback = format!("{name}{}", semantic_pascal_identifier(field_name)?);
         let (kind, wrapper) = if bindings.structs.contains_key(&value.spelling)
             && item_schema.get("properties").is_some()
         {
@@ -1127,9 +1133,19 @@ fn response_object_models_inner(
             } else {
                 item_schema.clone()
             };
+            let child_name = if let Some(reference) = source_reference {
+                naming.named(
+                    reference,
+                    ModelRepresentation::Borrowed,
+                    child_fallback.clone(),
+                )?
+            } else {
+                child_fallback.clone()
+            };
             let Ok(child_models) = response_object_models(
                 openapi,
                 bindings,
+                naming,
                 &child_schema,
                 &value.spelling,
                 child_name.clone(),
@@ -1151,13 +1167,22 @@ fn response_object_models_inner(
         } else if bindings.enums.contains_key(&value.spelling)
             && (item_schema.get("oneOf").is_some() || item_schema.get("anyOf").is_some())
         {
+            let union_name = if let Some(reference) = source_reference {
+                naming.named(
+                    reference,
+                    ModelRepresentation::Owned,
+                    child_fallback.clone(),
+                )?
+            } else {
+                child_fallback.clone()
+            };
             let Ok((union_name, union_models)) = union_response_model(
                 openapi,
                 bindings,
+                naming,
                 item_schema,
                 &value.spelling,
-                &[],
-                &child_name,
+                union_name,
             ) else {
                 continue;
             };
@@ -1172,7 +1197,15 @@ fn response_object_models_inner(
                 Some(union_name),
             )
         } else if bindings.enums.contains_key(&value.spelling) && !collection {
-            let enum_name = child_name;
+            let enum_name = if let Some(reference) = source_reference {
+                naming.named(
+                    reference,
+                    ModelRepresentation::Owned,
+                    child_fallback.clone(),
+                )?
+            } else {
+                child_fallback.clone()
+            };
             let enum_model = if item_schema.get("enum").is_some()
                 && item_schema.get("type").and_then(Value::as_str) == Some("string")
             {
@@ -1286,6 +1319,7 @@ fn empty_response_model(raw: &str, borrowed: bool) -> ModelDefinition {
 fn response_view_for_schema_named(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
+    naming: &ModelNaming<'_>,
     schema_name: &str,
     raw: &str,
     name: String,
@@ -1308,6 +1342,7 @@ fn response_view_for_schema_named(
     if let Ok(mut models) = response_object_models(
         openapi,
         bindings,
+        naming,
         &schema,
         raw,
         name.clone(),
@@ -1354,33 +1389,33 @@ fn response_view_for_schema_named(
 fn response_view_named(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
+    naming: &ModelNaming<'_>,
     raw: &str,
     name: String,
 ) -> Result<(String, ProjectedModels), &'static str> {
-    let (name, mut models) = response_view_for_schema_named(openapi, bindings, raw, raw, name)?;
-    models.last_mut().ok_or(RESPONSE_VIEW_UNPROVEN)?.1.schema = None;
-    Ok((name, models))
+    response_view_for_schema_named(openapi, bindings, naming, raw, raw, name)
 }
 
 fn response_view(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
+    naming: &ModelNaming<'_>,
     raw: &str,
     resource_path: &[String],
     public_name: &str,
 ) -> Result<(String, ProjectedModels), &'static str> {
-    let mut name = response_model_name(resource_path, public_name);
-    if name == raw {
-        // A public view and its raw source type cannot share one Rust symbol.
-        // Only exact self-collisions receive this deterministic distinct name.
-        name.push_str("View");
-    }
-    response_view_named(openapi, bindings, raw, name)
+    let name = naming.named(
+        raw,
+        ModelRepresentation::Owned,
+        response_model_name(resource_path, public_name),
+    )?;
+    response_view_named(openapi, bindings, naming, raw, name)
 }
 
 fn inline_response_view_named(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
+    naming: &ModelNaming<'_>,
     schema: &Value,
     raw: &str,
     name: String,
@@ -1389,6 +1424,7 @@ fn inline_response_view_named(
         let models = response_object_models(
             openapi,
             bindings,
+            naming,
             schema,
             raw,
             name.clone(),
@@ -1439,6 +1475,7 @@ fn inline_response_view_named(
 fn inline_response_view(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
+    naming: &ModelNaming<'_>,
     schema: &Value,
     raw: &str,
     resource_path: &[String],
@@ -1447,6 +1484,7 @@ fn inline_response_view(
     inline_response_view_named(
         openapi,
         bindings,
+        naming,
         schema,
         raw,
         response_model_name(resource_path, public_name),
@@ -1456,6 +1494,7 @@ fn inline_response_view(
 fn inline_array_response_model(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
+    naming: &ModelNaming<'_>,
     schema: &Value,
     raw: &str,
     resource_path: &[String],
@@ -1474,13 +1513,30 @@ fn inline_array_response_model(
     let inline_item = inline_array_object_item(schema, raw, bindings);
     let named_item = ref_name(items).filter(|reference| bindings.structs.contains_key(*reference));
     if let Some(raw_item) = inline_item.as_deref().or(named_item) {
-        let item_name = format!("{name}Item");
+        let item_fallback = format!("{name}Item");
+        let item_name = if inline_item.is_some() {
+            item_fallback
+        } else {
+            naming.named(
+                raw_item,
+                ModelRepresentation::Borrowed,
+                item_fallback,
+            )?
+        };
         let (_, mut item_models) = if inline_item.is_some() {
-            inline_response_view_named(openapi, bindings, items, raw_item, item_name.clone())?
+            inline_response_view_named(
+                openapi,
+                bindings,
+                naming,
+                items,
+                raw_item,
+                item_name.clone(),
+            )?
         } else {
             response_view_for_schema_named(
                 openapi,
                 bindings,
+                naming,
                 raw_item,
                 raw_item,
                 item_name.clone(),
