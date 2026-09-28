@@ -1768,7 +1768,9 @@ fn parameter_schema<'a>(
                 == Some(raw_name)
         })
         .collect::<Vec<_>>();
-    (matched.len() == 1).then(|| matched[0].get("schema")).flatten()
+    (matched.len() == 1)
+        .then(|| matched[0].get("schema"))
+        .flatten()
 }
 
 fn parameter_scalar_enum_model(
@@ -2102,10 +2104,12 @@ fn operation_call(
             default_raw_arguments: None,
         });
     }
-    let request = operation
-        .parameter_request
-        .as_ref()
-        .ok_or_else(|| error("lower.parameter_request", "missing parameter request projection"))?;
+    let request = operation.parameter_request.as_ref().ok_or_else(|| {
+        error(
+            "lower.parameter_request",
+            "missing parameter request projection",
+        )
+    })?;
     let mut values = Vec::new();
     for parameter in parameters {
         let field = request
