@@ -8,6 +8,7 @@ use std::process;
 use rust_sdk_generator::{
     ApiInventory, Bindings, DerivationError, DeriveInput, GenerateInput, GenerationError, OpenApi,
     PublicSdkSurface, Runtime, SdkDefinition, SdkOverrides, derive, generate,
+    inspect_public_facade,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -15,7 +16,7 @@ use serde_json::json;
 
 mod output;
 
-const USAGE: &str = "usage:\n  rust-sdk-generator derive --openapi FILE --bindings FILE [--surface FILE] [--overrides FILE] [--definition-output FILE]\n  rust-sdk-generator generate --openapi FILE --bindings FILE --definition FILE --output DIR [--runtime FILE] [--inventory FILE]\n  rust-sdk-generator check --openapi FILE --bindings FILE --definition FILE [--runtime FILE] [--inventory FILE]\n  rust-sdk-generator check-generated --openapi FILE --bindings FILE --definition FILE --output DIR [--runtime FILE]";
+const USAGE: &str = "usage:\n  rust-sdk-generator derive --openapi FILE --bindings FILE [--surface FILE] [--overrides FILE] [--definition-output FILE]\n  rust-sdk-generator generate --openapi FILE --bindings FILE --definition FILE --output DIR [--runtime FILE] [--inventory FILE]\n  rust-sdk-generator check --openapi FILE --bindings FILE --definition FILE [--runtime FILE] [--inventory FILE]\n  rust-sdk-generator check-generated --openapi FILE --bindings FILE --definition FILE --output DIR [--runtime FILE]\n  rust-sdk-generator audit --openapi FILE --bindings FILE --definition FILE [--runtime FILE] [--strict]";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CommandKind {
@@ -23,6 +24,7 @@ enum CommandKind {
     Generate,
     Check,
     CheckGenerated,
+    Audit,
 }
 
 #[derive(Debug)]
@@ -37,6 +39,7 @@ struct Cli {
     runtime: Option<PathBuf>,
     output: Option<PathBuf>,
     inventory: Option<PathBuf>,
+    strict: bool,
 }
 
 #[derive(Debug)]
@@ -100,16 +103,25 @@ where
         "generate" => CommandKind::Generate,
         "check" => CommandKind::Check,
         "check-generated" => CommandKind::CheckGenerated,
+        "audit" => CommandKind::Audit,
         _ => return Err(CliError::new("cli.usage", USAGE)),
     };
 
     let mut options = BTreeMap::new();
+    let mut strict = false;
     while let Some(flag) = args.next() {
         if !flag.starts_with("--") {
             return Err(CliError::new(
                 "cli.usage",
                 format!("unexpected argument {flag:?}\n{USAGE}"),
             ));
+        }
+        if flag == "--strict" && command == CommandKind::Audit {
+            if strict {
+                return Err(CliError::new("cli.usage", "duplicate --strict"));
+            }
+            strict = true;
+            continue;
         }
         let value = args.next().ok_or_else(|| {
             CliError::new("cli.usage", format!("missing value for {flag}\n{USAGE}"))
@@ -145,6 +157,7 @@ where
             "--output",
             "--inventory",
         ],
+        CommandKind::Audit => &["--openapi", "--bindings", "--definition", "--runtime"],
     };
     for flag in options.keys() {
         if !allowed.contains(&flag.as_str()) {
@@ -178,9 +191,10 @@ where
 
     let definition = match command {
         CommandKind::Derive => None,
-        CommandKind::Generate | CommandKind::Check | CommandKind::CheckGenerated => {
-            Some(required("--definition")?)
-        }
+        CommandKind::Generate
+        | CommandKind::Check
+        | CommandKind::CheckGenerated
+        | CommandKind::Audit => Some(required("--definition")?),
     };
 
     Ok(Some(Cli {
@@ -194,6 +208,7 @@ where
         runtime: options.get("--runtime").map(PathBuf::from),
         output,
         inventory: options.get("--inventory").map(PathBuf::from),
+        strict,
     }))
 }
 
@@ -271,12 +286,24 @@ fn run(cli: Cli) -> Result<i32, CliError> {
         None => Runtime::default(),
     };
     let marker = runtime.generated_marker.clone();
-    let generated = generate(GenerateInput {
+    let input = GenerateInput {
         openapi,
         bindings,
         definition,
         runtime,
-    })?;
+    };
+    if cli.command == CommandKind::Audit {
+        let report = inspect_public_facade(&input)?;
+        io::stdout()
+            .write_all(&json_bytes(&report)?)
+            .map_err(|error| CliError::new("cli.io", format!("failed to write stdout: {error}")))?;
+        return Ok(if cli.strict && !report.is_closed() {
+            1
+        } else {
+            0
+        });
+    }
+    let generated = generate(input)?;
 
     if cli.command == CommandKind::CheckGenerated {
         let output = cli.output.as_deref().expect("checked output");
