@@ -1892,7 +1892,7 @@ fn multipart_filenames_call(
     })
 }
 
-fn validate_symbols(ir: &FacadeIr, bindings: &Bindings) -> Result<()> {
+fn validate_symbols(ir: &FacadeIr) -> Result<()> {
     let mut symbols = SymbolProvider::default();
     symbols.claim(&ir.client_name, "sdk", "client", "")?;
     for reserved in ["new", "raw", "with_base_url"] {
@@ -2976,7 +2976,7 @@ pub(crate) fn lower(
         models,
         resources,
     };
-    validate_symbols(&ir, bindings)?;
+    validate_symbols(&ir)?;
     validate_runtime(&ir, runtime)?;
     Ok(ir)
 }
