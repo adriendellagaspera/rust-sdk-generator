@@ -156,6 +156,7 @@ fn rejects_recursive_named_request_shapes_deterministically() {
             name: "parent".into(),
             wire_name: None,
             type_name: "OpaqueRequest9".into(),
+            serialized_presence: Some(rust_sdk_generator::SerializedPresenceBinding::Always),
         }],
     );
 
@@ -189,6 +190,7 @@ fn derives_annotation_only_json_request_field_without_guessing_a_scalar_type() {
             name: "payload".into(),
             wire_name: Some("payload".into()),
             type_name: "serde_json::Value".into(),
+            serialized_presence: Some(rust_sdk_generator::SerializedPresenceBinding::Always),
         });
 
     let derivation = derive(DeriveInput {
@@ -230,6 +232,7 @@ fn rejects_typed_request_field_against_unconstrained_raw_json_value() {
             name: "payload".into(),
             wire_name: Some("payload".into()),
             type_name: "serde_json::Value".into(),
+            serialized_presence: Some(rust_sdk_generator::SerializedPresenceBinding::Always),
         });
 
     let derivation = derive(DeriveInput {
@@ -258,6 +261,7 @@ fn derives_one_variant_string_const_request_fields_without_name_inference() {
             name: "kind".into(),
             wire_name: Some("kind".into()),
             type_name: "Option<OpaqueKind>".into(),
+            serialized_presence: Some(rust_sdk_generator::SerializedPresenceBinding::OmitIfNone),
         });
     bindings.enums.insert(
         "OpaqueKind".into(),
@@ -371,6 +375,7 @@ fn derives_nested_flattened_json_as_a_proven_raw_request_field() {
             name: "payload".into(),
             wire_name: Some("payload".into()),
             type_name: "FlexiblePayload".into(),
+            serialized_presence: Some(rust_sdk_generator::SerializedPresenceBinding::Always),
         });
     bindings.structs.insert(
         "FlexiblePayload".into(),
@@ -562,6 +567,7 @@ fn derives_nullable_union_of_named_object_and_canonical_raw_json_map() {
             name: "input".into(),
             wire_name: Some("input".into()),
             type_name: "Option<Option<OpaqueInputUnion>>".into(),
+            serialized_presence: Some(rust_sdk_generator::SerializedPresenceBinding::OmitIfNone),
         });
     bindings.enums.insert(
         "OpaqueInputUnion".into(),
@@ -861,6 +867,7 @@ fn derives_lossless_unchecked_json_attributes_map_without_claiming_typed_values(
             name: "attributes".into(),
             wire_name: Some("attributes".into()),
             type_name: "Option<Option<OpaqueAttributes>>".into(),
+            serialized_presence: Some(rust_sdk_generator::SerializedPresenceBinding::OmitIfNone),
         });
     bindings.structs.insert(
         "OpaqueAttributes".into(),
