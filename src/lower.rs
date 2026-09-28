@@ -1049,29 +1049,53 @@ fn resolve_map(
             format!("raw map wrapper {raw} has non-String keys"),
         ));
     }
-    let effective = expand_alias(mapping.arguments[1].clone(), bindings, &mut Vec::new())?;
-    if effective.spelling != "serde_json::Value" {
-        let additional = unwrap_nullable_schema(additional);
-        let expected = match additional.get("type").and_then(Value::as_str) {
-            Some("string") => Some("String"),
-            Some("integer") => Some("i64"),
-            Some("number") => Some("f64"),
-            Some("boolean") => Some("bool"),
-            _ => None,
-        };
-        if expected != Some(effective.spelling.as_str()) {
+    let raw_value = mapping.arguments[1].clone();
+    let effective = expand_alias(raw_value.clone(), bindings, &mut Vec::new())?;
+    let value_adapter = model
+        .adapters
+        .as_ref()
+        .and_then(|adapters| adapters.get(&fields[0].name));
+    let (public_value, value_adapt_depth) = if let Some(adapter) = value_adapter {
+        if !rust_type_matches_schema(additional, &effective.spelling, bindings) {
             return Err(error(
                 "lower.map_value",
                 format!(
-                    "raw map value drift for {raw}: {} != {expected:?}",
+                    "raw map value drift for {raw}: {} does not match additionalProperties",
                     effective.spelling
                 ),
             ));
         }
-    }
+        let (public, depth) = adapted_public_type(raw_value, adapter, bindings)?;
+        (public, Some(depth))
+    } else {
+        if effective.spelling != "serde_json::Value" {
+            let additional = unwrap_nullable_schema(additional);
+            let expected = match additional.get("type").and_then(Value::as_str) {
+                Some("string") => Some("String"),
+                Some("integer") => Some("i64"),
+                Some("number") => Some("f64"),
+                Some("boolean") => Some("bool"),
+                _ => None,
+            };
+            if expected != Some(effective.spelling.as_str()) {
+                return Err(error(
+                    "lower.map_value",
+                    format!(
+                        "raw map value drift for {raw}: {} != {expected:?}",
+                        effective.spelling
+                    ),
+                ));
+            }
+        }
+        (
+            public_alias_type(mapping.arguments[1].clone(), bindings, &mut Vec::new())?,
+            None,
+        )
+    };
     Ok(MapModelSpec {
-        public_type: public_alias_type(mapping, bindings, &mut Vec::new())?,
+        public_type: format!("std::collections::BTreeMap<String, {public_value}>"),
         raw_field: fields[0].name.clone(),
+        value_adapt_depth,
     })
 }
 
