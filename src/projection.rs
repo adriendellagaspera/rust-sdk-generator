@@ -347,6 +347,39 @@ fn request_value_adapter_models(
             )
             .map(|models| (models, true));
         }
+        if referenced.get("type").and_then(Value::as_str) == Some("string")
+            && referenced.get("enum").and_then(Value::as_array).is_some()
+            && context.bindings.enums.contains_key(&syntax.spelling)
+        {
+            if !public_model_name_available(&public_name, context.bindings) {
+                return Err("capability.public_model_name_collision");
+            }
+            return Ok((
+                vec![(
+                    public_name,
+                    ModelDefinition {
+                        schema: Some(reference.into()),
+                        schema_path: None,
+                        raw: Some(syntax.spelling.clone()),
+                        constructor: None,
+                        exclude: None,
+                        adapters: None,
+                        union: None,
+                        simple_union: None,
+                        type_alias: None,
+                        map: None,
+                        scalar_enum: Some(ScalarEnumDefinition {
+                            root: reference.into(),
+                            path: Vec::new(),
+                        }),
+                        union_factory: None,
+                        borrowed: None,
+                        accessors: None,
+                    },
+                )],
+                true,
+            ));
+        }
         if referenced_request_object(context.openapi, reference, referenced).is_some()
             && !flattened_json_response_object_matches(
                 &context
