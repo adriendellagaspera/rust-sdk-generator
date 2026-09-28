@@ -6,10 +6,10 @@ use serde_json::Value;
 
 use crate::contracts::{
     AccessorDefinition, AccessorKindDefinition, Bindings, MapDefinition, ModelDefinition,
-    OperationDefinition, RequestDiscriminatorValue, RequestMediaDefinition, ResourceDefinition,
-    ResponseRepresentationBinding, ResponseRepresentationDefinition, ScalarEnumDefinition,
-    SdkDefinition, SimpleUnionDefinition, SimpleUnionVariant, StreamDefinition,
-    StreamVariantDefinition,
+    OperationDefinition, ParameterAdapterDefinition, RequestDiscriminatorValue,
+    RequestMediaDefinition, ResourceDefinition, ResponseRepresentationBinding,
+    ResponseRepresentationDefinition, ScalarEnumDefinition, SdkDefinition, SimpleUnionDefinition,
+    SimpleUnionVariant, StreamDefinition, StreamVariantDefinition,
 };
 use crate::openapi::{OpenApiIndex, ref_name};
 use crate::reconcile::unconstrained_json_alias_matches;
@@ -3299,6 +3299,124 @@ fn response_projection(
     }
 }
 
+fn normalized_parameter_name(value: &str) -> String {
+    value.replace('-', "_")
+}
+
+fn raw_parameter_name(value: &str) -> &str {
+    value.strip_prefix("r#").unwrap_or(value)
+}
+
+fn source_parameter_for_raw(
+    operation: &Value,
+    raw_binding: &crate::OperationBinding,
+    raw_name: &str,
+) -> Option<(String, String, Value)> {
+    let parameters = operation.get("parameters")?.as_array()?;
+    if let Some(metadata) = &raw_binding.metadata
+        && let Some(wire) = metadata
+            .parameter_wires
+            .iter()
+            .find(|wire| raw_parameter_name(&wire.rust_name) == raw_parameter_name(raw_name))
+    {
+        let source = parameters.iter().find(|parameter| {
+            let location = parameter.get("in").and_then(Value::as_str);
+            let name = parameter.get("name").and_then(Value::as_str);
+            if location != Some(wire.location.as_str()) {
+                return false;
+            }
+            match (wire.location.as_str(), name) {
+                ("header", Some(name)) => name.eq_ignore_ascii_case(&wire.wire_name),
+                (_, Some(name)) => name == wire.wire_name,
+                _ => false,
+            }
+        })?;
+        return Some((
+            wire.location.clone(),
+            wire.wire_name.clone(),
+            source.clone(),
+        ));
+    }
+
+    let raw_name = raw_parameter_name(raw_name);
+    let matches = parameters
+        .iter()
+        .filter_map(|parameter| {
+            let location = parameter.get("in").and_then(Value::as_str)?;
+            let name = parameter.get("name").and_then(Value::as_str)?;
+            (normalized_parameter_name(name) == raw_name).then_some((
+                location.to_owned(),
+                name.to_owned(),
+                parameter.clone(),
+            ))
+        })
+        .collect::<Vec<_>>();
+    (matches.len() == 1).then(|| matches[0].clone())
+}
+
+fn parameter_scalar_enum_adapters(
+    openapi: &OpenApiIndex,
+    bindings: &Bindings,
+    operation_id: &str,
+    binding: &str,
+    resource_path: &[String],
+    public_name: &str,
+) -> Result<IndexMap<String, ParameterAdapterDefinition>, &'static str> {
+    let operation = openapi
+        .operation(operation_id)
+        .map_err(|_| "openapi.unknown_operation")?;
+    let raw_binding = bindings
+        .operations
+        .get(binding)
+        .ok_or("bindings.no_structural_match")?;
+    let mut adapters = IndexMap::new();
+
+    for parameter in &raw_binding.parameters {
+        let (core, depth) = request_raw_core(&parameter.type_name)?;
+        if depth > 1
+            || !bindings.symbol_paths.contains_key(&core.spelling)
+            || !bindings.enums.contains_key(&core.spelling)
+        {
+            continue;
+        }
+        let Some((location, wire_name, source)) =
+            source_parameter_for_raw(operation, raw_binding, &parameter.name)
+        else {
+            continue;
+        };
+        let Some(schema) = source.get("schema") else {
+            continue;
+        };
+        let string_enum = schema.get("type").and_then(Value::as_str) == Some("string")
+            && (schema.get("enum").and_then(Value::as_array).is_some()
+                || schema.get("const").is_some_and(Value::is_string));
+        if !string_enum {
+            continue;
+        }
+        if !rust_type_matches_schema(schema, &core.spelling, bindings) {
+            return Err("bindings.parameter_enum_drift");
+        }
+        let segment = semantic_pascal_identifier(&wire_name).map_err(|_| REQUEST_MODEL_UNPROVEN)?;
+        let model = format!(
+            "{}{}",
+            request_model_name(resource_path, public_name),
+            segment
+        );
+        if !public_model_name_available(&model, bindings) {
+            return Err("capability.public_model_name_collision");
+        }
+        adapters.insert(
+            parameter.name.clone(),
+            ParameterAdapterDefinition {
+                model,
+                location,
+                wire_name,
+            },
+        );
+    }
+    Ok(adapters)
+}
+
 pub(crate) fn project_operation(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
@@ -3349,6 +3467,14 @@ pub(crate) fn project_operation(
         bindings,
         &naming,
         operation,
+        binding,
+        &path,
+        &public_name,
+    )?;
+    let parameter_adapters = parameter_scalar_enum_adapters(
+        openapi,
+        bindings,
+        operation_id,
         binding,
         &path,
         &public_name,
@@ -3406,6 +3532,7 @@ pub(crate) fn project_operation(
             binary_response,
             stream,
             request_overrides,
+            parameter_adapters,
             multipart_filenames,
         },
     })
@@ -3660,6 +3787,7 @@ mod model_identity_tests {
                 binary_response: None,
                 stream: None,
                 request_overrides: None,
+                parameter_adapters: IndexMap::new(),
                 multipart_filenames: None,
             },
         }
