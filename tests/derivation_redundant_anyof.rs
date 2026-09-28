@@ -63,6 +63,7 @@ fn fixture() -> (OpenApi, Bindings, PublicSdkSurface) {
             "synthesize".into(),
             vec!["audio.synthesize".into()],
         )]),
+        models: std::collections::BTreeMap::new(),
     };
     (openapi, bindings, surface)
 }
