@@ -122,7 +122,7 @@ test ! -e "$work/unsupported-sdk"
 
 # No producer manifest or fabricated Bindings from absent ordinary Rust.
 mkdir -p "$work/empty-raw"
-if cargo run --locked -p openapi-to-rust-bindings -- "$work/empty-raw" "$fixture/initial.json"   > /dev/null 2> "$work/missing-evidence.err"; then
+if cargo run --locked --manifest-path "$repo/Cargo.toml" -p openapi-to-rust-bindings -- "$work/empty-raw" "$fixture/initial.json"   > /dev/null 2> "$work/missing-evidence.err"; then
   echo 'missing backend evidence was accepted' >&2; exit 1
 fi
 grep -q adapter.extract "$work/missing-evidence.err"
