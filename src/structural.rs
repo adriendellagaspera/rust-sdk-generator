@@ -1160,6 +1160,17 @@ fn single_all_of_annotation_branch(schema: &Value) -> Option<&Value> {
     (branches.len() == 1).then(|| &branches[0])
 }
 
+fn serialized_presence_matches(
+    bindings: &Bindings,
+    actual: Option<&SerializedPresenceBinding>,
+    expected: &SerializedPresenceBinding,
+) -> bool {
+    match actual {
+        Some(actual) => actual == expected,
+        None => bindings.schema_version < 5,
+    }
+}
+
 fn request_object_value_matches(
     openapi: &OpenApiIndex,
     schema: &Value,
@@ -1241,7 +1252,11 @@ fn request_object_value_matches(
         } else {
             SerializedPresenceBinding::OmitIfNone
         };
-        if field.serialized_presence.as_ref() != Some(&expected_presence) {
+        if !serialized_presence_matches(
+            bindings,
+            field.serialized_presence.as_ref(),
+            &expected_presence,
+        ) {
             return false;
         }
 
@@ -1378,8 +1393,11 @@ pub(crate) fn request_optional_boolean_field(
     let Ok(syntax) = parse_type(&raw_field.type_name) else {
         return false;
     };
-    raw_field.serialized_presence.as_ref() == Some(&SerializedPresenceBinding::OmitIfNone)
-        && syntax
+    serialized_presence_matches(
+        bindings,
+        raw_field.serialized_presence.as_ref(),
+        &SerializedPresenceBinding::OmitIfNone,
+    ) && syntax
             .unary("Option")
             .is_some_and(|inner| inner.spelling == "bool" && inner.unary("Option").is_none())
 }
