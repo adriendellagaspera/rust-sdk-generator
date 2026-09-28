@@ -1516,13 +1516,7 @@ pub(crate) fn response_object_value_matches(
     raw: &str,
     bindings: &Bindings,
 ) -> bool {
-    response_object_value_matches_inner(
-        openapi,
-        schema,
-        raw,
-        bindings,
-        &mut BTreeSet::new(),
-    )
+    response_object_value_matches_inner(openapi, schema, raw, bindings, &mut BTreeSet::new())
 }
 
 fn response_object_value_matches_inner(
@@ -1567,7 +1561,10 @@ fn response_object_value_matches_inner(
             .collect();
         if by_name.len() + usize::from(flattened) != fields.len()
             || by_name.keys().copied().collect::<BTreeSet<_>>()
-                != properties.keys().map(String::as_str).collect::<BTreeSet<_>>()
+                != properties
+                    .keys()
+                    .map(String::as_str)
+                    .collect::<BTreeSet<_>>()
         {
             return false;
         }
@@ -1655,7 +1652,10 @@ fn response_type_matches_schema(
     }
 
     if schema.get("type").and_then(Value::as_str) == Some("object")
-        && schema.get("properties").and_then(Value::as_object).is_some()
+        && schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .is_some()
     {
         return response_object_value_matches_inner(
             openapi,
