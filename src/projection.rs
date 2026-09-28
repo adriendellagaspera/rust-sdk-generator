@@ -24,7 +24,7 @@ use crate::structural::{
     request_optional_boolean_field, request_union_mapping, request_union_matches,
     request_value_union_mapping, response_array_union_matches, response_constant_fields_match,
     rust_type_matches_schema, scalar_named_object_matches, scalar_object_shape,
-    sse_payload_schema_names,
+    single_one_of_alternative, sse_payload_schema_names,
 };
 use crate::symbols::field_identifier;
 
@@ -492,6 +492,20 @@ fn request_value_adapter_models(
         &mut BTreeSet::new(),
     )?;
 
+    if let Some(alternative) = single_one_of_alternative(schema)
+        && ref_name(alternative).is_some()
+    {
+        return request_value_adapter_models(
+            context,
+            alternative,
+            source_root,
+            source_path,
+            &syntax.spelling,
+            public_name,
+            seen,
+        );
+    }
+
     if let Some(reference) = ref_name(schema) {
         let public_name =
             context
@@ -805,6 +819,27 @@ fn request_object_models_value(
         let (core, _) = request_raw_core(&field.type_name)?;
         let segment = semantic_pascal_identifier(field_name).map_err(|_| REQUEST_MODEL_UNPROVEN)?;
         let child_fallback = format!("{public_name}{segment}");
+
+        if let Some(alternative) = single_one_of_alternative(wire)
+            && ref_name(alternative).is_some()
+        {
+            let mut child_path = source_path.to_vec();
+            child_path.push(field_name.clone());
+            let (projected, adapter) = request_value_adapter_models(
+                context,
+                alternative,
+                source_root,
+                &child_path,
+                &core.spelling,
+                child_fallback.clone(),
+                seen,
+            )?;
+            models.extend(projected);
+            if let Some(adapter) = adapter {
+                adapters.insert(field_name.clone(), adapter);
+            }
+            continue;
+        }
 
         if let Some(reference) = ref_name(wire) {
             let child_name = context.naming.named(
