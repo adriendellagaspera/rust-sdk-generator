@@ -170,7 +170,7 @@ fn rejects_ambiguous_inline_union_branch_shapes() {
 }
 
 #[test]
-fn allows_public_model_name_to_shadow_backend_symbol() {
+fn rejects_inline_union_public_model_name_collision() {
     let (openapi, mut bindings, surface) = fixture();
     bindings
         .structs
@@ -189,12 +189,10 @@ fn allows_public_model_name_to_shadow_backend_symbol() {
     .expect("derive");
 
     let outcome = &derivation.report.operations["read_latest_event"];
-    assert_eq!(outcome.status, DerivationStatus::Derived);
-    assert!(
-        derivation
-            .definition
-            .models
-            .contains_key("LatestEventsResponse")
+    assert_eq!(outcome.status, DerivationStatus::Rejected);
+    assert_eq!(
+        outcome.reason.code,
+        "capability.public_model_name_collision"
     );
 }
 
