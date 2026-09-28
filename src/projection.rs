@@ -421,11 +421,10 @@ fn request_value_adapter_models(
     )?;
 
     if let Some(reference) = ref_name(schema) {
-        let public_name = context.naming.named(
-            reference,
-            ModelRepresentation::Owned,
-            public_name,
-        )?;
+        let public_name =
+            context
+                .naming
+                .named(reference, ModelRepresentation::Owned, public_name)?;
         let referenced = context
             .openapi
             .schema(reference)
@@ -1811,6 +1810,7 @@ fn inline_array_response_model(
         return Err(RESPONSE_VIEW_UNPROVEN);
     }
 
+    let name = response_model_name(resource_path, public_name);
     if !public_model_name_available(&name, bindings) {
         return Err("capability.public_model_name_collision");
     }
@@ -2129,7 +2129,6 @@ fn scalar_enum_response_model(
         return Err(RESPONSE_VIEW_UNPROVEN);
     }
 
-    let name = response_model_name(resource_path, public_name);
     if !public_model_name_available(&name, bindings) {
         return Err("capability.public_model_name_collision");
     }
@@ -3552,8 +3551,7 @@ mod model_identity_tests {
         request.operation.request = Some("Shared".into());
         request.operation.response = None;
         request.operation.response_representation = None;
-        insert_projection(&mut definition, &mut registry, request)
-            .expect("request projection");
+        insert_projection(&mut definition, &mut registry, request).expect("request projection");
 
         insert_projection(
             &mut definition,
