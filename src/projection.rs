@@ -411,9 +411,38 @@ fn request_value_adapter_models(
         .map(|models| (models, true));
     }
 
-    if schema.get("properties").is_some()
-        && !flattened_json_response_object_matches(schema, &syntax.spelling, context.bindings)
-    {
+    if flattened_json_response_object_matches(schema, &syntax.spelling, context.bindings) {
+        if !public_model_name_available(&public_name, context.bindings) {
+            return Err("capability.public_model_name_collision");
+        }
+        return Ok((
+            vec![(
+                public_name,
+                ModelDefinition {
+                    schema: Some(source_root.into()),
+                    schema_path: (!source_path.is_empty()).then(|| source_path.to_vec()),
+                    raw: Some(syntax.spelling.clone()),
+                    constructor: None,
+                    exclude: None,
+                    adapters: None,
+                    union: None,
+                    simple_union: None,
+                    type_alias: None,
+                    map: Some(MapDefinition {
+                        root: source_root.into(),
+                        path: source_path.to_vec(),
+                    }),
+                    scalar_enum: None,
+                    union_factory: None,
+                    borrowed: None,
+                    accessors: None,
+                },
+            )],
+            true,
+        ));
+    }
+
+    if schema.get("properties").is_some() {
         return request_object_models_value(
             context,
             schema,
