@@ -19,7 +19,7 @@ Canonical Bindings include Rust symbols, qualified paths, call shapes and source
 
 ### Public model identity
 
-`PublicSdkSurface` v2 adds an explicit model-naming policy without moving API design into Bindings:
+`PublicSdkSurface` v2 adds an explicit model-naming policy without moving API design into Bindings. The default remains v1 so existing consumers keep operation-derived model names until they deliberately opt in:
 
 ```json
 {
