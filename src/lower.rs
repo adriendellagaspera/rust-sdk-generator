@@ -1729,9 +1729,9 @@ fn operation_call(
                     == Some(raw.as_str())
                 {
                     declarations.push(format!("request: Option<Option<{model}>>"));
-                    values.push(
-                        "request.map(|request| request.map(|request| request.into_raw()))".into(),
-                    );
+                    values.push(format!(
+                        "request.map(|request| request.map(|request| <{model} as __RustSdkIntoRaw<{raw}>>::into_raw(request)))"
+                    ));
                 } else {
                     let (declaration, value) = direct_parameter(parameter, bindings)?;
                     declarations.push(declaration);
@@ -1744,7 +1744,7 @@ fn operation_call(
                 default_raw_arguments: None,
             });
         }
-        let mut body = "request.into_raw()".to_owned();
+        let mut body = format!("<{model} as __RustSdkIntoRaw<{raw}>>::into_raw(request)");
         if !overrides.is_empty() {
             let assignments = overrides
                 .iter()
@@ -1758,7 +1758,9 @@ fn operation_call(
                 })
                 .collect::<Vec<_>>()
                 .join(" ");
-            body = format!("{{ let mut raw = request.into_raw(); {assignments} raw }}");
+            body = format!(
+                "{{ let mut raw = <{model} as __RustSdkIntoRaw<{raw}>>::into_raw(request); {assignments} raw }}"
+            );
         }
         let mut declarations = Vec::new();
         let mut values = Vec::new();
@@ -1897,7 +1899,7 @@ fn multipart_filenames_call(
         ));
     }
 
-    let mut body = "request.into_raw()".to_owned();
+    let mut body = format!("<{model} as __RustSdkIntoRaw<{raw}>>::into_raw(request)");
     if !overrides.is_empty() {
         let assignments = overrides
             .iter()
@@ -1911,7 +1913,9 @@ fn multipart_filenames_call(
             })
             .collect::<Vec<_>>()
             .join(" ");
-        body = format!("{{ let mut raw = request.into_raw(); {assignments} raw }}");
+        body = format!(
+            "{{ let mut raw = <{model} as __RustSdkIntoRaw<{raw}>>::into_raw(request); {assignments} raw }}"
+        );
     }
 
     let mut declarations = Vec::new();
@@ -1952,6 +1956,9 @@ fn validate_symbols(ir: &FacadeIr) -> Result<()> {
     symbols.claim(&ir.client_name, "sdk", "client", "")?;
     for reserved in ["new", "raw", "with_base_url"] {
         symbols.claim(reserved, &ir.client_name, "client runtime", "")?;
+    }
+    for reserved in ["__RustSdkFromRaw", "__RustSdkIntoRaw"] {
+        symbols.claim(reserved, "sdk", "internal transport adapter", "facade_types")?;
     }
     for model in &ir.models {
         symbols.claim(
