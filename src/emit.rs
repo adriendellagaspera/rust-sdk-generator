@@ -1,11 +1,122 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::contracts::{BindingLayout, Runtime};
+use crate::contracts::{BindingLayout, Bindings, Runtime};
 use crate::error::{GenerationError, Result};
 use crate::ir::*;
 
 fn error(code: &'static str, message: impl Into<String>) -> GenerationError {
     GenerationError::new(code, message)
+}
+
+fn mentions_shadowed_symbol(spelling: &str, shadowed: &BTreeSet<String>) -> bool {
+    spelling
+        .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+        .any(|token| shadowed.contains(token))
+}
+
+fn qualify_if_shadowed(
+    spelling: &mut String,
+    bindings: &Bindings,
+    shadowed: &BTreeSet<String>,
+) -> Result<()> {
+    if mentions_shadowed_symbol(spelling, shadowed) {
+        *spelling = bindings.qualified_type(spelling)?;
+    }
+    Ok(())
+}
+
+fn qualify_struct_value(
+    value: &mut StructValue,
+    bindings: &Bindings,
+    shadowed: &BTreeSet<String>,
+) -> Result<()> {
+    qualify_if_shadowed(&mut value.type_name, bindings, shadowed)?;
+    for field in &mut value.fields {
+        qualify_value(&mut field.value, bindings, shadowed)?;
+    }
+    Ok(())
+}
+
+fn qualify_value(
+    value: &mut ValueSpec,
+    bindings: &Bindings,
+    shadowed: &BTreeSet<String>,
+) -> Result<()> {
+    match value {
+        ValueSpec::Some { value, .. } => qualify_value(value, bindings, shadowed)?,
+        ValueSpec::Enum {
+            type_name, value, ..
+        } => {
+            qualify_if_shadowed(type_name, bindings, shadowed)?;
+            qualify_value(value, bindings, shadowed)?;
+        }
+        ValueSpec::Struct(value) => qualify_struct_value(value, bindings, shadowed)?,
+        ValueSpec::Variable(_)
+        | ValueSpec::IntoString(_)
+        | ValueSpec::IntoModel { .. }
+        | ValueSpec::CollectInto(_)
+        | ValueSpec::MapInto { .. }
+        | ValueSpec::OptionMapInto { .. }
+        | ValueSpec::Literal(_) => {}
+    }
+    Ok(())
+}
+
+fn qualify_transport_symbols(ir: &mut FacadeIr, bindings: &Bindings) -> Result<()> {
+    let shadowed: BTreeSet<_> = ir
+        .models
+        .iter()
+        .map(|model| model.name.clone())
+        .filter(|name| bindings.symbol_paths.contains_key(name))
+        .collect();
+    if shadowed.is_empty() {
+        return Ok(());
+    }
+    for model in &mut ir.models {
+        qualify_if_shadowed(&mut model.raw, bindings, &shadowed)?;
+        match &mut model.render {
+            ModelRenderSpec::Wrapper(spec) => {
+                if let Some(constructor) = &mut spec.constructor {
+                    qualify_struct_value(&mut constructor.value, bindings, &shadowed)?;
+                }
+                for factory in &mut spec.factories {
+                    qualify_struct_value(&mut factory.value, bindings, &shadowed)?;
+                }
+                for setter in &mut spec.setters {
+                    qualify_value(&mut setter.value, bindings, &shadowed)?;
+                }
+            }
+            ModelRenderSpec::Union(spec) => {
+                for branch in &mut spec.branches {
+                    qualify_value(&mut branch.raw_value, bindings, &shadowed)?;
+                }
+                for target in &mut spec.targets {
+                    qualify_if_shadowed(&mut target.raw, bindings, &shadowed)?;
+                }
+            }
+            ModelRenderSpec::View(spec) => {
+                for accessor in &mut spec.accessors {
+                    if let Some(enum_type) = &mut accessor.enum_type {
+                        qualify_if_shadowed(enum_type, bindings, &shadowed)?;
+                    }
+                }
+            }
+            ModelRenderSpec::SimpleUnion(_)
+            | ModelRenderSpec::Alias(_)
+            | ModelRenderSpec::Map(_)
+            | ModelRenderSpec::ScalarEnum(_) => {}
+        }
+    }
+    for resource in &mut ir.resources {
+        for operation in &mut resource.operations {
+            if let ResponseProjection::Sse(stream) = &mut operation.response_projection {
+                for variant in &mut stream.variants {
+                    qualify_if_shadowed(&mut variant.raw, bindings, &shadowed)?;
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn indent(value: &str, spaces: usize) -> String {
@@ -923,9 +1034,13 @@ fn emit_facade_types(ir: &FacadeIr, binding: &BindingLayout, runtime: &Runtime) 
 
 pub(crate) fn emit(
     ir: &FacadeIr,
-    binding: &BindingLayout,
+    bindings: &Bindings,
     runtime: &Runtime,
 ) -> Result<BTreeMap<String, String>> {
+    let mut ir = ir.clone();
+    qualify_transport_symbols(&mut ir, bindings)?;
+    let ir = &ir;
+    let binding = &bindings.binding;
     let mut files = BTreeMap::new();
     files.insert(
         "facade_types.rs".into(),

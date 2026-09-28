@@ -8,9 +8,11 @@ use crate::contracts::{
     ResponseRepresentationDefinition, SdkDefinition,
 };
 use crate::error::{Diagnostic, GenerationError};
-use crate::naming::derive_public_paths;
+use crate::naming::{derive_public_paths, valid_public_identifier};
 use crate::openapi::OpenApiIndex;
-use crate::projection::{insert_projection, project_operation};
+use crate::projection::{
+    ProjectionFailure, ProjectionRegistry, insert_projection, project_operation,
+};
 use crate::reconcile::{OperationMatch, reconcile};
 use crate::structural::request_optional_boolean_field;
 
@@ -20,12 +22,27 @@ use crate::structural::request_optional_boolean_field;
 /// remain authoritative for structural and transport decisions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct PublicModelSurface {
+    /// Stable Rust façade name for one OpenAPI component schema.
+    pub name: String,
+}
+
+/// Consumer-provided public resource, method and model naming evidence.
+///
+/// Schema v1 contains only client/operation naming and keeps operation-derived
+/// model names. Schema v2 additionally treats OpenAPI component-schema names as
+/// authoritative source-model identities. `models` may rename those identities;
+/// unnamed component schemas use their component name as the stable public base.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PublicSdkSurface {
     pub schema_version: u32,
     #[serde(default)]
     pub client: Option<String>,
     #[serde(default)]
     pub operations: BTreeMap<String, Vec<String>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub models: BTreeMap<String, PublicModelSurface>,
 }
 
 impl Default for PublicSdkSurface {
@@ -34,6 +51,7 @@ impl Default for PublicSdkSurface {
             schema_version: 1,
             client: None,
             operations: BTreeMap::new(),
+            models: BTreeMap::new(),
         }
     }
 }
@@ -209,11 +227,12 @@ fn operation_ids(openapi: &OpenApi) -> Result<BTreeSet<String>, DerivationError>
 }
 
 fn validate_evidence(
+    openapi: &OpenApi,
     operation_ids: &BTreeSet<String>,
     surface: &PublicSdkSurface,
     overrides: &SdkOverrides,
 ) -> Result<(), DerivationError> {
-    if surface.schema_version != 1 {
+    if !matches!(surface.schema_version, 1 | 2) {
         return Err(DerivationError::at(
             "surface.schema_version",
             "surface.schema_version",
@@ -222,6 +241,36 @@ fn validate_evidence(
                 surface.schema_version
             ),
         ));
+    }
+    if surface.schema_version == 1 && !surface.models.is_empty() {
+        return Err(DerivationError::at(
+            "surface.models_schema_version",
+            "surface.models",
+            "public model identities require PublicSdkSurface schema version 2",
+        ));
+    }
+    let schemas = openapi
+        .0
+        .pointer("/components/schemas")
+        .and_then(serde_json::Value::as_object);
+    for (source, model) in &surface.models {
+        if schemas.is_none_or(|schemas| !schemas.contains_key(source)) {
+            return Err(DerivationError::at(
+                "surface.unknown_model",
+                format!("surface.models.{source}"),
+                format!("PublicSdkSurface references unknown component schema {source}"),
+            ));
+        }
+        if !valid_public_identifier(&model.name) {
+            return Err(DerivationError::at(
+                "surface.invalid_model_name",
+                format!("surface.models.{source}.name"),
+                format!(
+                    "public model name {:?} is not a Rust identifier",
+                    model.name
+                ),
+            ));
+        }
     }
     if overrides.schema_version != 1 {
         return Err(DerivationError::at(
@@ -535,7 +584,7 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
         .validate()
         .map_err(DerivationError::from_generation)?;
     let operation_ids = operation_ids(&openapi)?;
-    validate_evidence(&operation_ids, &surface, &overrides)?;
+    validate_evidence(&openapi, &operation_ids, &surface, &overrides)?;
     let naming =
         derive_public_paths(&openapi, &surface).map_err(DerivationError::from_generation)?;
     let reconciliation =
@@ -565,6 +614,13 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
         models: Default::default(),
         resources: Default::default(),
     };
+    let public_models: BTreeMap<String, String> = surface
+        .models
+        .iter()
+        .map(|(source, model)| (source.clone(), model.name.clone()))
+        .collect();
+    let stable_model_identity = surface.schema_version >= 2;
+    let mut projection_registry = ProjectionRegistry::default();
     let mut operations = BTreeMap::new();
     for operation_id in operation_ids {
         let named = naming.get(&operation_id).ok_or_else(|| {
@@ -668,17 +724,28 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                         })
                         .collect();
                 let mut candidate = definition.clone();
-                let projection = selections.and_then(|selections| {
-                    for (path, binding) in &selections {
-                        let projected =
-                            project_operation(&index, &bindings, &operation_id, binding, path)?;
-                        insert_projection(&mut candidate, projected)?;
-                    }
-                    Ok(selections)
-                });
+                let mut candidate_registry = projection_registry.clone();
+                let projection: std::result::Result<_, ProjectionFailure> = selections
+                    .map_err(ProjectionFailure::from)
+                    .and_then(|selections| {
+                        for (path, binding) in &selections {
+                            let projected = project_operation(
+                                &index,
+                                &bindings,
+                                &operation_id,
+                                binding,
+                                path,
+                                stable_model_identity,
+                                &public_models,
+                            )?;
+                            insert_projection(&mut candidate, &mut candidate_registry, projected)?;
+                        }
+                        Ok(selections)
+                    });
                 match projection {
                     Ok(selections) => {
                         definition = candidate;
+                        projection_registry = candidate_registry;
                         let unique: BTreeSet<_> = selections.values().cloned().collect();
                         let binding = (unique.len() == 1)
                             .then(|| unique.into_iter().next().expect("single binding"));
@@ -700,8 +767,8 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                     Err(reason) => OperationDerivation {
                         status: DerivationStatus::Rejected,
                         reason: DerivationReason {
-                            code: reason.into(),
-                            detail: None,
+                            code: reason.code,
+                            detail: reason.detail,
                         },
                         public_paths,
                         public_path,
@@ -1167,5 +1234,178 @@ mod tests {
         assert_eq!(generated.inventory.resources.len(), 2);
         assert_eq!(generated.inventory.resources[1].path, vec!["work", "jobs"]);
         assert_eq!(generated.inventory.resources[1].operations, vec!["update"]);
+    }
+
+    fn structured_response_v2_input() -> DeriveInput {
+        DeriveInput {
+            openapi: serde_json::from_str(include_str!(
+                "../tests/fixtures/derivation-structured-response/openapi.json"
+            ))
+            .expect("structured response OpenAPI"),
+            bindings: serde_json::from_str(include_str!(
+                "../tests/fixtures/derivation-structured-response/rust-bindings.json"
+            ))
+            .expect("structured response bindings"),
+            surface: serde_json::from_str(include_str!(
+                "../tests/fixtures/derivation-structured-response/surface-v2.json"
+            ))
+            .expect("stable public model surface"),
+            overrides: SdkOverrides::default(),
+        }
+    }
+
+    #[test]
+    fn stable_model_identity_projects_named_components_and_stays_facade_closed() {
+        let input = structured_response_v2_input();
+        let derivation = derive(input.clone()).expect("derive stable model identities");
+
+        let models: BTreeSet<_> = derivation
+            .definition
+            .models
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert!(models.contains("Sensor"));
+        assert!(models.contains("UsageRef"));
+        assert!(models.contains("ChoiceRef"));
+        assert!(models.contains("SensorState"));
+        assert!(models.contains("Message"));
+        assert!(models.contains("TextMessage"));
+        assert!(models.contains("CodeMessage"));
+        assert!(!models.contains("GetFleetSensorsResponseUsage"));
+
+        let operation = &derivation.definition.resources["fleet_sensors"].operations["get"];
+        assert_eq!(operation.response.as_deref(), Some("Sensor"));
+
+        let generate_input = GenerateInput {
+            openapi: input.openapi,
+            bindings: input.bindings,
+            definition: derivation.definition,
+            runtime: Runtime::default(),
+        };
+        let report = crate::inspect_public_facade(&generate_input).expect("inspect public façade");
+        let consumer_leaks: Vec<_> = report.consumer_leaks().collect();
+        assert!(
+            consumer_leaks.is_empty(),
+            "consumer-signature leaks: {consumer_leaks:#?}"
+        );
+
+        let generated = crate::generate(generate_input).expect("generate stable public models");
+        let facade_types = &generated.files["facade_types.rs"];
+        assert!(facade_types.contains("pub struct Sensor"));
+        assert!(facade_types.contains("pub struct UsageRef"));
+        assert!(
+            facade_types.contains("crate::generated::types::Message"),
+            "backend symbols that shadow public model names must be qualified"
+        );
+    }
+
+    #[test]
+    fn incompatible_explicit_public_model_collision_names_both_sources() {
+        let mut input = structured_response_v2_input();
+        input
+            .surface
+            .models
+            .get_mut("Usage")
+            .expect("Usage policy")
+            .name = "Value".into();
+        input
+            .surface
+            .models
+            .get_mut("Choice")
+            .expect("Choice policy")
+            .name = "Value".into();
+
+        let derivation = derive(input).expect("collision remains reportable");
+        let outcome = &derivation.report.operations["read_sensor"];
+        assert_eq!(outcome.status, DerivationStatus::Rejected);
+        assert_eq!(
+            outcome.reason.code,
+            "capability.public_model_identity_collision"
+        );
+        let detail = outcome.reason.detail.as_deref().expect("collision detail");
+        assert!(detail.contains("Usage"));
+        assert!(detail.contains("Choice"));
+        assert!(detail.contains("ValueRef"));
+    }
+
+    #[test]
+    fn repeated_named_schema_reuse_is_stable_across_openapi_operation_order() {
+        let mut input = structured_response_v2_input();
+        let operation = input
+            .openapi
+            .0
+            .pointer("/paths/~1sensors~1{sensor_id}/get")
+            .expect("source operation")
+            .clone();
+        let mut duplicate = operation;
+        duplicate["operationId"] = serde_json::json!("read_sensor_again");
+        duplicate["parameters"] = serde_json::json!([
+            {
+                "name": "sensor_id",
+                "in": "path",
+                "required": true,
+                "schema": {"type": "string"}
+            },
+            {
+                "name": "alternate",
+                "in": "query",
+                "required": false,
+                "schema": {"type": "boolean"}
+            }
+        ]);
+        input
+            .openapi
+            .0
+            .pointer_mut("/paths")
+            .and_then(serde_json::Value::as_object_mut)
+            .expect("paths")
+            .insert(
+                "/alternate-sensors/{sensor_id}".into(),
+                serde_json::json!({"get": duplicate}),
+            );
+        let mut alternate_binding = input.bindings.operations["opaque_read"].clone();
+        alternate_binding.name = "opaque_read_again".into();
+        alternate_binding
+            .parameters
+            .iter_mut()
+            .find(|parameter| parameter.name == "detail")
+            .expect("detail parameter")
+            .name = "alternate".into();
+        input
+            .bindings
+            .operations
+            .insert("opaque_read_again".into(), alternate_binding);
+        input.surface.operations.insert(
+            "read_sensor_again".into(),
+            vec!["fleet.sensors.get_again".into()],
+        );
+
+        let first = derive(input.clone()).expect("derive repeated source schema");
+        assert_eq!(
+            first.definition.resources["fleet_sensors"].operations["get"]
+                .response
+                .as_deref(),
+            Some("Sensor")
+        );
+        assert_eq!(
+            first.definition.resources["fleet_sensors"].operations["get_again"]
+                .response
+                .as_deref(),
+            Some("Sensor")
+        );
+
+        let paths = input
+            .openapi
+            .0
+            .pointer_mut("/paths")
+            .and_then(serde_json::Value::as_object_mut)
+            .expect("paths");
+        let entries: Vec<_> = std::mem::take(paths).into_iter().rev().collect();
+        paths.extend(entries);
+
+        let second = derive(input).expect("derive reordered operations");
+        assert_eq!(first.definition.models, second.definition.models);
+        assert_eq!(first.definition.resources, second.definition.resources);
     }
 }

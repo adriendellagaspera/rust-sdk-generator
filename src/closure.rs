@@ -144,10 +144,14 @@ pub(crate) fn inspect(ir: &FacadeIr, bindings: &Bindings) -> FacadeReport {
             ]
         })
         .collect();
+    let public_models: BTreeSet<_> = ir.models.iter().map(|model| model.name.as_str()).collect();
     let mut leaks = Vec::new();
     let mut check = |path: String, kind: FacadeLeakKind, type_name: &str| {
         let mut seen = BTreeSet::new();
         for token in paths(type_name) {
+            if kind == FacadeLeakKind::ConsumerSignature && public_models.contains(token) {
+                continue;
+            }
             if let Some(&(symbol, symbol_path)) = owned.get(token)
                 && seen.insert(symbol)
             {

@@ -1947,7 +1947,7 @@ fn multipart_filenames_call(
     })
 }
 
-fn validate_symbols(ir: &FacadeIr, bindings: &Bindings) -> Result<()> {
+fn validate_symbols(ir: &FacadeIr) -> Result<()> {
     let mut symbols = SymbolProvider::default();
     symbols.claim(&ir.client_name, "sdk", "client", "")?;
     for reserved in ["new", "raw", "with_base_url"] {
@@ -1960,15 +1960,6 @@ fn validate_symbols(ir: &FacadeIr, bindings: &Bindings) -> Result<()> {
             &format!("model {}", model.raw),
             "facade_types",
         )?;
-        if bindings.structs.contains_key(&model.name) || bindings.enums.contains_key(&model.name) {
-            return Err(error(
-                "symbol.shadow_raw",
-                format!(
-                    "facade model {} shadows imported raw type; choose an explicit semantic name",
-                    model.name
-                ),
-            ));
-        }
     }
     symbols.claim("facade_types", "modules", "compiler", "")?;
     symbols.claim("mod_file", "modules", "compiler", "")?;
@@ -3055,7 +3046,7 @@ pub(crate) fn lower(
         models,
         resources,
     };
-    validate_symbols(&ir, bindings)?;
+    validate_symbols(&ir)?;
     validate_runtime(&ir, runtime)?;
     Ok(ir)
 }
