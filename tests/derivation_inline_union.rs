@@ -118,8 +118,12 @@ fn derives_inline_object_union_by_shape_not_raw_order_or_names() {
     let types = &generated.files["facade_types.rs"];
     assert!(types.contains("impl __RustSdkIntoRaw<OpaqueUnion3> for LatestEventsResponse"));
     assert!(types.contains("impl __RustSdkFromRaw<OpaqueUnion3> for LatestEventsResponse"));
-    assert!(types.contains("OpaqueUnion3::RawA(value) => Self::Variant1(__RustSdkFromRaw::from_raw(value))"));
-    assert!(types.contains("OpaqueUnion3::RawB(value) => Self::Variant2(__RustSdkFromRaw::from_raw(value))"));
+    assert!(types.contains(
+        "OpaqueUnion3::RawA(value) => Self::Variant1(__RustSdkFromRaw::from_raw(value))"
+    ));
+    assert!(types.contains(
+        "OpaqueUnion3::RawB(value) => Self::Variant2(__RustSdkFromRaw::from_raw(value))"
+    ));
 }
 
 #[test]
