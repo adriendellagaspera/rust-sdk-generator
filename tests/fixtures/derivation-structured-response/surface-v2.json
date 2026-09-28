@@ -1,0 +1,16 @@
+{
+  "schema_version": 2,
+  "client": "FleetClient",
+  "operations": {
+    "read_sensor": ["fleet.sensors.get"]
+  },
+  "models": {
+    "SensorResponse": {"name": "Sensor"},
+    "Usage": {"name": "Usage"},
+    "Choice": {"name": "Choice"},
+    "State": {"name": "SensorState"},
+    "Message": {"name": "Message"},
+    "TextMessage": {"name": "TextMessage"},
+    "CodeMessage": {"name": "CodeMessage"}
+  }
+}
