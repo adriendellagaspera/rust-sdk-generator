@@ -18,7 +18,8 @@ use crate::structural::{
     inline_object_union_mapping, multipart_filenames_binding, object_field_names_match,
     object_value_matches, plain_string_json_alias_matches, raw_scalar_struct_shape,
     request_object_matches_with_discriminators, request_optional_boolean_field,
-    request_union_mapping, response_array_union_matches, rust_type_matches_schema,
+    request_union_mapping, request_value_union_mapping, response_array_union_matches,
+    rust_type_matches_schema,
     scalar_named_object_matches, scalar_object_shape, sse_payload_schema_name,
     sse_payload_schema_names,
 };
@@ -2123,16 +2124,29 @@ pub(crate) fn lower(
             if let Some(root) = config.schema.as_deref() {
                 let path = config.schema_path.as_deref().unwrap_or(&[]);
                 let schema = schema_at(&index, root, path)?;
-                let mapping =
-                    request_union_mapping(&index, &schema, &raw, bindings).ok_or_else(|| {
+                let mapping = request_union_mapping(&index, &schema, &raw, bindings)
+                    .map(|mapping| {
+                        mapping
+                            .into_iter()
+                            .map(|branch| branch.raw_variant)
+                            .collect::<BTreeSet<_>>()
+                    })
+                    .or_else(|| {
+                        request_value_union_mapping(&index, &schema, &raw, bindings).map(|mapping| {
+                            mapping
+                                .into_iter()
+                                .map(|branch| branch.raw_variant)
+                                .collect::<BTreeSet<_>>()
+                        })
+                    })
+                    .ok_or_else(|| {
                         error(
                             "lower.request_union_drift",
                             format!("OpenAPI/raw request union drift for {raw}"),
                         )
                     })?;
-                let proven: BTreeSet<_> =
-                    mapping.iter().map(|branch| &branch.raw_variant).collect();
-                if configured != proven {
+                let configured: BTreeSet<_> = configured.into_iter().cloned().collect();
+                if configured != mapping {
                     return Err(error(
                         "lower.request_union_drift",
                         format!("OpenAPI/raw request union drift for {raw}"),
