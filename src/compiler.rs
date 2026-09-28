@@ -16,7 +16,7 @@ pub(crate) fn compile(
     runtime: &Runtime,
 ) -> Result<(FacadeIr, BTreeMap<String, String>)> {
     let ir = lower::lower(openapi, bindings, definition, runtime)?;
-    let files = emit::emit(&ir, &bindings.binding, runtime)?;
+    let files = emit::emit(&ir, bindings, runtime)?;
     Ok((ir, files))
 }
 
