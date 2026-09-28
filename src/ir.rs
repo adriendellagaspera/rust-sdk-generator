@@ -175,6 +175,7 @@ pub(crate) struct AliasModelSpec {
 pub(crate) struct MapModelSpec {
     pub public_type: String,
     pub raw_field: String,
+    pub value_adapt_depth: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
