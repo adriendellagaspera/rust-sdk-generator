@@ -328,9 +328,10 @@ fn derives_one_variant_string_const_request_fields_without_name_inference() {
         runtime: Runtime::default(),
     })
     .expect("generate const enum");
-    assert!(generated.files["facade_types.rs"].contains(
-        "pub fn kind(mut self, kind: impl Into<CreatePlatformWidgetsRequestKind>)"
-    ));
+    assert!(
+        generated.files["facade_types.rs"]
+            .contains("pub fn kind(mut self, kind: impl Into<CreatePlatformWidgetsRequestKind>)")
+    );
 
     let mut bad_value = openapi.clone();
     bad_value.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["kind"]["const"] =
@@ -474,9 +475,7 @@ fn derives_nested_flattened_json_as_a_proven_raw_request_field() {
     })
     .expect("nested canonical JSON map request generation");
     let types = &emitted.files["facade_types.rs"];
-    assert!(types.contains(
-        "payload: impl Into<CreatePlatformWidgetsRequestPayload>"
-    ));
+    assert!(types.contains("payload: impl Into<CreatePlatformWidgetsRequestPayload>"));
     assert!(types.contains(
         "pub fn additional_properties(mut self, additional_properties: std::collections::BTreeMap<String, serde_json::Value>)"
     ));
