@@ -98,23 +98,28 @@ mod tests {
 
     #[test]
     fn generic_fixtures_match_frozen_python_oracle_byte_for_byte() {
-        let mut actual_oracle = BTreeMap::new();
+        let oracle: BTreeMap<String, BTreeMap<String, String>> =
+            serde_json::from_str(include_str!("../tests/oracle/current-generator.json"))
+                .expect("frozen oracle");
+
         for fixture_name in ["menagerie", "library"] {
             let (openapi, bindings, definition) = fixture(fixture_name);
             let (_, files) = compile(&openapi, &bindings, &definition, &Runtime::default())
                 .unwrap_or_else(|error| panic!("{fixture_name}: {error:?}"));
-            actual_oracle.insert(
-                fixture_name.to_owned(),
-                files
-                    .into_iter()
-                    .map(|(name, source)| (name, sha256(&source)))
-                    .collect::<BTreeMap<_, _>>(),
+            let expected = &oracle[fixture_name];
+            assert_eq!(
+                files.keys().collect::<Vec<_>>(),
+                expected.keys().collect::<Vec<_>>(),
+                "{fixture_name}: generated file set drift"
             );
+            for (name, source) in files {
+                let actual = sha256(&source);
+                assert_eq!(
+                    expected[&name], actual,
+                    "{fixture_name}/{name} output drift:\n{source}"
+                );
+            }
         }
-        panic!(
-            "ACTUAL_ORACLE={} ",
-            serde_json::to_string_pretty(&actual_oracle).expect("serialize oracle")
-        );
     }
 
     #[test]
