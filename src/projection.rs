@@ -2188,6 +2188,7 @@ fn buffered_binary_success_type(type_name: &str) -> bool {
 fn project_json_response_schema(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
+    naming: &ModelNaming<'_>,
     schema: &Value,
     raw_success: &str,
     resource_path: &[String],
@@ -2199,17 +2200,23 @@ fn project_json_response_schema(
         }
         let resolved = openapi.schema(raw).map_err(|_| RESPONSE_VIEW_UNPROVEN)?;
         if resolved.get("oneOf").is_some() || resolved.get("anyOf").is_some() {
+            let union_name = naming.named(
+                raw,
+                ModelRepresentation::Owned,
+                response_model_name(resource_path, public_name),
+            )?;
             let (name, models) = union_response_model(
                 openapi,
                 bindings,
+                naming,
                 resolved,
                 raw_success,
-                resource_path,
-                public_name,
+                union_name,
             )?;
             return Ok(ProjectedResponse::Json { name, models });
         }
-        let (name, models) = response_model(openapi, bindings, raw, resource_path, public_name)?;
+        let (name, models) =
+            response_model(openapi, bindings, naming, raw, resource_path, public_name)?;
         return Ok(ProjectedResponse::Json { name, models });
     }
     if unconstrained_json_alias_matches(schema, raw_success, bindings)
@@ -2246,10 +2253,10 @@ fn project_json_response_schema(
         let (name, models) = union_response_model(
             openapi,
             bindings,
+            naming,
             schema,
             raw_success,
-            resource_path,
-            public_name,
+            response_model_name(resource_path, public_name),
         )?;
         return Ok(ProjectedResponse::Json { name, models });
     }
@@ -2257,6 +2264,7 @@ fn project_json_response_schema(
         let (name, models) = inline_response_view(
             openapi,
             bindings,
+            naming,
             schema,
             raw_success,
             resource_path,
@@ -2268,6 +2276,7 @@ fn project_json_response_schema(
         let (name, models) = inline_array_response_model(
             openapi,
             bindings,
+            naming,
             schema,
             raw_success,
             resource_path,
@@ -2342,6 +2351,7 @@ fn sse_raw_payload(
 fn event_stream_projection(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
+    naming: &ModelNaming<'_>,
     operation: &Value,
     raw_binding: &crate::contracts::OperationBinding,
     resource_path: &[String],
@@ -2384,12 +2394,18 @@ fn event_stream_projection(
         return Err("capability.event_stream_payload_not_structurally_provable");
     }
 
-    let wrapper = stream_item_model_name(resource_path, public_name);
+    let wrapper_fallback = stream_item_model_name(resource_path, public_name);
     if payloads.len() == 1 {
         let raw_item = sse_raw_payload(openapi, bindings, &payloads[0])?;
+        let wrapper = naming.named(
+            &payloads[0],
+            ModelRepresentation::Owned,
+            wrapper_fallback,
+        )?;
         let (_, wrapper_model) = response_view_for_schema_named(
             openapi,
             bindings,
+            naming,
             &payloads[0],
             &raw_item,
             wrapper.clone(),
@@ -2405,6 +2421,7 @@ fn event_stream_projection(
         });
     }
 
+    let wrapper = wrapper_fallback;
     if !public_model_name_available(&wrapper, bindings) {
         return Err("capability.public_model_name_collision");
     }
@@ -2426,10 +2443,15 @@ fn event_stream_projection(
         if !public_variants.insert(name.clone()) {
             return Err("capability.public_model_name_collision");
         }
-        let branch_wrapper = format!("{wrapper}{name}");
+        let branch_wrapper = naming.named(
+            schema_name,
+            ModelRepresentation::Owned,
+            format!("{wrapper}{name}"),
+        )?;
         let (_, model) = response_view_for_schema_named(
             openapi,
             bindings,
+            naming,
             schema_name,
             &raw,
             branch_wrapper.clone(),
@@ -2531,6 +2553,7 @@ fn canonical_request_discriminators(
 fn response_projection(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
+    naming: &ModelNaming<'_>,
     operation: &Value,
     binding: &str,
     resource_path: &[String],
@@ -2573,6 +2596,7 @@ fn response_projection(
                 project_json_response_schema(
                     openapi,
                     bindings,
+                    naming,
                     schema,
                     &raw_binding.success_type,
                     resource_path,
@@ -2611,6 +2635,7 @@ fn response_projection(
             ResponseRepresentationBinding::EventStream { .. } => event_stream_projection(
                 openapi,
                 bindings,
+                naming,
                 operation,
                 raw_binding,
                 resource_path,
@@ -2651,6 +2676,7 @@ fn response_projection(
         return project_json_response_schema(
             openapi,
             bindings,
+            naming,
             schema,
             &raw_binding.success_type,
             resource_path,
@@ -2672,19 +2698,23 @@ pub(crate) fn project_operation(
     operation_id: &str,
     binding: &str,
     public_path: &str,
-) -> Result<ProjectedOperation, &'static str> {
+    stable_model_identity: bool,
+    public_models: &BTreeMap<String, String>,
+) -> ProjectionResult<ProjectedOperation> {
     let mut path: Vec<_> = public_path.split('.').map(str::to_owned).collect();
     let public_name = path.pop().ok_or("surface.invalid_public_path")?;
     if path.is_empty() || public_name.is_empty() {
         return Err("surface.invalid_public_path");
     }
 
+    let naming = ModelNaming::new(stable_model_identity, public_models);
     let operation = openapi
         .operation(operation_id)
         .map_err(|_| "openapi.unknown_operation")?;
     let mut request_model = request_model(
         openapi,
         bindings,
+        &naming,
         operation_id,
         binding,
         &path,
@@ -2707,7 +2737,15 @@ pub(crate) fn project_operation(
                 .flatten()
                 .map(|body| body.media)
         });
-    let response = response_projection(openapi, bindings, operation, binding, &path, &public_name)?;
+    let response = response_projection(
+        openapi,
+        bindings,
+        &naming,
+        operation,
+        binding,
+        &path,
+        &public_name,
+    )?;
     let multipart_filenames = match multipart_filenames_binding(bindings, binding)? {
         Some(_) if request_media == Some(RequestMediaDefinition::MultipartFormData) => Some(true),
         Some(_) => return Err("capability.multipart_filenames_requires_multipart"),
@@ -2749,6 +2787,7 @@ pub(crate) fn project_operation(
         resource_path: path,
         public_name,
         models,
+        model_identities: naming.identities(),
         operation: OperationDefinition {
             operation_id: operation_id.into(),
             raw_method: Some(binding.into()),
@@ -2765,17 +2804,117 @@ pub(crate) fn project_operation(
     })
 }
 
+fn identities_can_share_name(
+    left: &BTreeSet<ModelIdentity>,
+    right: &BTreeSet<ModelIdentity>,
+) -> bool {
+    if left.is_empty() || right.is_empty() {
+        return false;
+    }
+    let combined: BTreeSet<_> = left.iter().chain(right).cloned().collect();
+    let representations: BTreeSet<_> =
+        combined.iter().map(|identity| identity.representation).collect();
+    if representations.len() != 1 {
+        return false;
+    }
+    let sources: BTreeSet<_> = combined
+        .iter()
+        .map(|identity| identity.source_schema.as_str())
+        .collect();
+    sources.len() == 1 || combined.iter().all(|identity| identity.explicit)
+}
+
+fn identity_description(identities: &BTreeSet<ModelIdentity>) -> String {
+    if identities.is_empty() {
+        return "anonymous/inline projection".into();
+    }
+    identities
+        .iter()
+        .map(|identity| {
+            let representation = match identity.representation {
+                ModelRepresentation::Owned => "owned",
+                ModelRepresentation::Borrowed => "borrowed",
+            };
+            let policy = if identity.explicit { "explicit" } else { "implicit" };
+            format!("{} ({representation}, {policy})", identity.source_schema)
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn model_collision(
+    name: &str,
+    left: &BTreeSet<ModelIdentity>,
+    right: &BTreeSet<ModelIdentity>,
+    incompatible_definition: bool,
+) -> ProjectionFailure {
+    let mismatch = if incompatible_definition {
+        "project to incompatible public definitions"
+    } else {
+        "do not share an authoritative public identity"
+    };
+    ProjectionFailure {
+        code: "capability.public_model_identity_collision".into(),
+        detail: Some(format!(
+            "public model {name} collides: [{}] and [{}] {mismatch}",
+            identity_description(left),
+            identity_description(right),
+        )),
+    }
+}
+
 pub(crate) fn insert_projection(
     definition: &mut SdkDefinition,
+    registry: &mut ProjectionRegistry,
     projected: ProjectedOperation,
-) -> Result<(), &'static str> {
-    let model_names: BTreeSet<_> = projected.models.iter().map(|(name, _)| name).collect();
-    if model_names.len() != projected.models.len()
-        || model_names
-            .iter()
-            .any(|name| definition.models.contains_key(*name))
-    {
-        return Err("capability.public_model_name_collision");
+) -> ProjectionResult<()> {
+    let mut pending: Vec<(String, ModelDefinition, BTreeSet<ModelIdentity>)> = Vec::new();
+    for (name, model) in projected.models {
+        let identities = projected
+            .model_identities
+            .get(&name)
+            .cloned()
+            .unwrap_or_default();
+        if let Some((_, existing_model, existing_identities)) =
+            pending.iter_mut().find(|(candidate, _, _)| candidate == &name)
+        {
+            let compatible_identity = identities_can_share_name(existing_identities, &identities);
+            let compatible_definition = existing_model == &model;
+            if !compatible_identity || !compatible_definition {
+                return Err(model_collision(
+                    &name,
+                    existing_identities,
+                    &identities,
+                    !compatible_definition,
+                ));
+            }
+            existing_identities.extend(identities);
+        } else {
+            pending.push((name, model, identities));
+        }
+    }
+
+    for (name, model, identities) in &pending {
+        if let Some(existing) = registry.models.get(name) {
+            let compatible_identity =
+                identities_can_share_name(&existing.identities, identities);
+            let compatible_definition = existing.model == *model;
+            if !compatible_identity || !compatible_definition {
+                return Err(model_collision(
+                    name,
+                    &existing.identities,
+                    identities,
+                    !compatible_definition,
+                ));
+            }
+        } else if definition.models.contains_key(name) {
+            return Err(ProjectionFailure {
+                code: "capability.public_model_identity_collision".into(),
+                detail: Some(format!(
+                    "public model {name} collides with a definition that has no projected source identity"
+                )),
+            });
+        }
     }
 
     for depth in 1..=projected.resource_path.len() {
@@ -2783,12 +2922,12 @@ pub(crate) fn insert_projection(
         let module = path.join("_");
         let name = resource_name(&path);
         if name.is_empty() {
-            return Err("surface.invalid_public_path");
+            return Err("surface.invalid_public_path".into());
         }
         if let Some(existing) = definition.resources.get(&module)
             && (existing.path.as_ref() != Some(&path) || existing.name != name)
         {
-            return Err("surface.resource_name_collision");
+            return Err("surface.resource_name_collision".into());
         }
     }
     let leaf_module = projected.resource_path.join("_");
@@ -2797,11 +2936,22 @@ pub(crate) fn insert_projection(
         .get(&leaf_module)
         .is_some_and(|resource| resource.operations.contains_key(&projected.public_name))
     {
-        return Err("surface.public_path_collision");
+        return Err("surface.public_path_collision".into());
     }
 
-    for (name, model) in projected.models {
-        definition.models.insert(name, model);
+    for (name, model, identities) in pending {
+        if let Some(existing) = registry.models.get_mut(&name) {
+            existing.identities.extend(identities);
+            continue;
+        }
+        definition.models.insert(name.clone(), model.clone());
+        registry.models.insert(
+            name,
+            RegisteredProjection {
+                model,
+                identities,
+            },
+        );
     }
     for depth in 1..=projected.resource_path.len() {
         let path = projected.resource_path[..depth].to_vec();
