@@ -816,13 +816,10 @@ impl OpenApiIndex {
     pub fn union(&self, root: &str, path: &[String]) -> Result<(String, BTreeMap<String, String>)> {
         let mut schema = self.schema(root)?;
         for segment in path {
-            schema = if segment == "items" {
-                schema.get("items")
-            } else {
-                schema
-                    .get("properties")
-                    .and_then(|properties| properties.get(segment))
-            }
+            schema = schema
+                .get("properties")
+                .and_then(|properties| properties.get(segment))
+                .or_else(|| (segment == "items").then(|| schema.get("items")).flatten())
             .ok_or_else(|| {
                 error(
                     "openapi.union_path",
