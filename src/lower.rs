@@ -14,8 +14,9 @@ use crate::openapi::{OpenApiIndex, ref_name};
 use crate::reconcile::{parameter_bindings_match, unconstrained_json_alias_matches};
 use crate::rust_type::{Type, TypeKind, parse_type};
 use crate::structural::{
-    constant_enum_response_object_matches, flattened_json_response_object_matches,
-    inline_object_union_mapping, multipart_filenames_binding, object_field_names_match,
+    canonical_unconstrained_map_branch, constant_enum_response_object_matches,
+    flattened_json_response_object_matches, inline_object_union_mapping,
+    multipart_filenames_binding, object_field_names_match,
     object_value_matches, plain_string_json_alias_matches, raw_scalar_struct_shape,
     request_object_matches_with_discriminators, request_optional_boolean_field,
     request_union_mapping, request_value_union_mapping, response_array_union_matches,
@@ -962,11 +963,26 @@ fn resolve_map(
     bindings: &Bindings,
 ) -> Result<MapModelSpec> {
     let config = model.map.as_ref().expect("map policy");
-    let schema = schema_at(openapi, &config.root, &config.path)?;
+    let mut schema = schema_at(openapi, &config.root, &config.path)?;
+    if schema.get("additionalProperties").is_none()
+        && let Some(branches) = schema
+            .get("oneOf")
+            .or_else(|| schema.get("anyOf"))
+            .and_then(Value::as_array)
+    {
+        let mut matching = branches
+            .iter()
+            .filter(|branch| canonical_unconstrained_map_branch(branch, raw, bindings));
+        if let Some(branch) = matching.next()
+            && matching.next().is_none()
+        {
+            schema = branch.clone();
+        }
+    }
     let additional = schema.get("additionalProperties").ok_or_else(|| {
         error(
             "lower.map_schema",
-            format!("map policy does not resolve to additionalProperties"),
+            "map policy does not resolve to additionalProperties",
         )
     })?;
     if schema.get("type").and_then(Value::as_str) != Some("object")
