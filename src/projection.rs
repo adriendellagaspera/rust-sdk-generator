@@ -1675,13 +1675,22 @@ fn response_object_models_inner(
             } else {
                 child_fallback.clone()
             };
-            let enum_model = if item_schema.get("enum").is_some()
-                && item_schema.get("type").and_then(Value::as_str) == Some("string")
+            let enum_model = if item_schema.get("type").and_then(Value::as_str)
+                == Some("string")
+                && (item_schema.get("enum").is_some()
+                    || item_schema.get("const").is_some_and(Value::is_string))
             {
-                let values = item_schema
-                    .get("enum")
-                    .and_then(Value::as_array)
-                    .ok_or(RESPONSE_VIEW_UNPROVEN)?;
+                let values = if let Some(values) = item_schema.get("enum").and_then(Value::as_array)
+                {
+                    values.clone()
+                } else {
+                    vec![
+                        item_schema
+                            .get("const")
+                            .cloned()
+                            .ok_or(RESPONSE_VIEW_UNPROVEN)?,
+                    ]
+                };
                 let variants = bindings
                     .enums
                     .get(&value.spelling)
