@@ -2840,6 +2840,16 @@ fn identity_description(identities: &BTreeSet<ModelIdentity>) -> String {
         .join(", ")
 }
 
+fn projected_contract_eq(left: &ModelDefinition, right: &ModelDefinition) -> bool {
+    let mut left = left.clone();
+    let mut right = right.clone();
+    left.schema = None;
+    left.schema_path = None;
+    right.schema = None;
+    right.schema_path = None;
+    left == right
+}
+
 fn model_collision(
     name: &str,
     left: &BTreeSet<ModelIdentity>,
@@ -2878,7 +2888,7 @@ pub(crate) fn insert_projection(
             .find(|(candidate, _, _)| candidate == &name)
         {
             let compatible_identity = identities_can_share_name(existing_identities, &identities);
-            let compatible_definition = existing_model == &model;
+            let compatible_definition = projected_contract_eq(existing_model, &model);
             if !compatible_identity || !compatible_definition {
                 return Err(model_collision(
                     &name,
@@ -2896,7 +2906,7 @@ pub(crate) fn insert_projection(
     for (name, model, identities) in &pending {
         if let Some(existing) = registry.models.get(name) {
             let compatible_identity = identities_can_share_name(&existing.identities, identities);
-            let compatible_definition = &existing.model == model;
+            let compatible_definition = projected_contract_eq(&existing.model, model);
             if !compatible_identity || !compatible_definition {
                 return Err(model_collision(
                     name,
