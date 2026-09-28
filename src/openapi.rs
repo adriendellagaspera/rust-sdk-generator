@@ -769,6 +769,11 @@ impl OpenApiIndex {
                 .get("properties")
                 .and_then(Value::as_object)
                 .and_then(|properties| properties.get(segment))
+                .or_else(|| {
+                    (segment == "additionalProperties")
+                        .then(|| schema.get("additionalProperties"))
+                        .flatten()
+                })
                 .cloned()
                 .ok_or_else(|| {
                     error(
@@ -820,6 +825,11 @@ impl OpenApiIndex {
                 .get("properties")
                 .and_then(|properties| properties.get(segment))
                 .or_else(|| (segment == "items").then(|| schema.get("items")).flatten())
+                .or_else(|| {
+                    (segment == "additionalProperties")
+                        .then(|| schema.get("additionalProperties"))
+                        .flatten()
+                })
                 .ok_or_else(|| {
                     error(
                         "openapi.union_path",
