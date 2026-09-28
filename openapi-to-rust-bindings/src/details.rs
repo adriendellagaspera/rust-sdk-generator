@@ -11,7 +11,7 @@ use std::fs;
 use std::path::Path;
 use syn::visit::{self, Visit};
 use syn::{
-    Expr, FnArg, GenericArgument, ImplItem, Item, Lit, Pat, PathArguments, ReturnType, Stmt, Type,
+    Expr, GenericArgument, ImplItem, Item, Lit, Pat, PathArguments, Stmt, Type,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
