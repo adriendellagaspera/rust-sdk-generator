@@ -632,6 +632,37 @@ fn request_object_models_value(
                     seen,
                 )?);
                 adapters.insert(field_name.clone(), child_name);
+            } else if referenced.get("type").and_then(Value::as_str) == Some("string")
+                && referenced.get("enum").and_then(Value::as_array).is_some()
+                && context.bindings.enums.contains_key(&core.spelling)
+                && rust_type_matches_schema(referenced, &core.spelling, context.bindings)
+            {
+                if !public_model_name_available(&child_name, context.bindings) {
+                    return Err("capability.public_model_name_collision");
+                }
+                models.push((
+                    child_name.clone(),
+                    ModelDefinition {
+                        schema: Some(reference.into()),
+                        schema_path: None,
+                        raw: Some(core.spelling.clone()),
+                        constructor: None,
+                        exclude: None,
+                        adapters: None,
+                        union: None,
+                        simple_union: None,
+                        type_alias: None,
+                        map: None,
+                        scalar_enum: Some(ScalarEnumDefinition {
+                            root: reference.into(),
+                            path: Vec::new(),
+                        }),
+                        union_factory: None,
+                        borrowed: None,
+                        accessors: None,
+                    },
+                ));
+                adapters.insert(field_name.clone(), child_name);
             }
             continue;
         }
