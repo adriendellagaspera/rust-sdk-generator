@@ -14,7 +14,7 @@ that contract. SDK repositories own their API source, runtime policy and release
 With Rust 1.88+, Cargo, Git and first-run network access:
 
 ```sh
-cargo install rust-sdk-cli
+cargo install --locked rust-sdk-cli
 rust-sdk init \
   --openapi /path/to/your-api.json --output /path/to/your-sdk --name your-sdk
 rust-sdk sync --crate /path/to/your-sdk --check

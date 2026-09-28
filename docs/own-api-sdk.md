@@ -7,7 +7,7 @@ This workflow is distinct from the fixed notebook quickstart. It accepts a local
 Requirements: Rust 1.88+ (Cargo), Git, a working native toolchain, and first-run network access to GitHub/crates.io. Install the versioned CLI:
 
 ```sh
-cargo install rust-sdk-cli
+cargo install --locked rust-sdk-cli
 rust-sdk init \
   --openapi /absolute/path/to/your-openapi.json \
   --output /absolute/path/to/your-new-sdk --name your-new-sdk

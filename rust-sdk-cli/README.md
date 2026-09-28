@@ -1,6 +1,6 @@
 # rust-sdk
 
-Install the OpenAPI-to-Rust SDK generator CLI with `cargo install rust-sdk-cli`.
+Install the OpenAPI-to-Rust SDK generator CLI with `cargo install --locked rust-sdk-cli`.
 The installed executable is `rust-sdk`.
 
 Run `rust-sdk init --openapi path/to/api.json --output path/to/sdk --name my-sdk`,
