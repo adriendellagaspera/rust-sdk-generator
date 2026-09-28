@@ -820,12 +820,12 @@ impl OpenApiIndex {
                 .get("properties")
                 .and_then(|properties| properties.get(segment))
                 .or_else(|| (segment == "items").then(|| schema.get("items")).flatten())
-            .ok_or_else(|| {
-                error(
-                    "openapi.union_path",
-                    format!("invalid OpenAPI union path {root}.{}", path.join(".")),
-                )
-            })?;
+                .ok_or_else(|| {
+                    error(
+                        "openapi.union_path",
+                        format!("invalid OpenAPI union path {root}.{}", path.join(".")),
+                    )
+                })?;
 
             if let Some(branches) = schema.get("anyOf").and_then(Value::as_array) {
                 let non_null: Vec<_> = branches
