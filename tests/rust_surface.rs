@@ -34,15 +34,21 @@ fn derivation_fixture_path(name: &str) -> PathBuf {
         .join(name)
 }
 
-fn structured_response_fixture() -> (OpenApi, rust_sdk_generator::Bindings, PublicSdkSurface) {
+fn structured_response_fixture_with_surface(
+    surface: &str,
+) -> (OpenApi, rust_sdk_generator::Bindings, PublicSdkSurface) {
     let root =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/derivation-structured-response");
     let read = |name| fs::read_to_string(root.join(name)).expect("structured response fixture");
     (
         OpenApi(serde_json::from_str(&read("openapi.json")).expect("OpenAPI")),
         serde_json::from_str(&read("rust-bindings.json")).expect("bindings"),
-        serde_json::from_str(&read("surface.json")).expect("surface"),
+        serde_json::from_str(&read(surface)).expect("surface"),
     )
+}
+
+fn structured_response_fixture() -> (OpenApi, rust_sdk_generator::Bindings, PublicSdkSurface) {
+    structured_response_fixture_with_surface("surface.json")
 }
 
 #[test]
@@ -189,6 +195,115 @@ pub fn navigate(response: &sdk::{response_name}) {{
         .args([
             "--crate-name",
             "response_consumer",
+            "--crate-type",
+            "lib",
+            "--edition",
+            "2024",
+            "lib.rs",
+            "--extern",
+            "futures_util=libfutures_util.rlib",
+            "--out-dir",
+            ".",
+        ])
+        .output()
+        .expect("compile consumer");
+    assert!(
+        consumer.status.success(),
+        "{}",
+        String::from_utf8_lossy(&consumer.stderr)
+    );
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
+fn stable_public_model_names_compile_when_backend_symbols_match() {
+    let (openapi, bindings, surface) =
+        structured_response_fixture_with_surface("surface-v2.json");
+    let definition = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive stable model identities")
+    .definition;
+    let output = generate(GenerateInput {
+        openapi,
+        bindings,
+        definition,
+        runtime: Runtime::default(),
+    })
+    .expect("generate stable model identities");
+
+    let dir = temp_dir();
+    fs::create_dir_all(&dir).expect("temp dir");
+    fs::write(
+        dir.join("facade_types.rs"),
+        &output.files["facade_types.rs"],
+    )
+    .expect("facade");
+    fs::write(
+        dir.join("futures_util.rs"),
+        "pub trait Stream { type Item; }",
+    )
+    .expect("stream stub");
+    fs::write(
+        dir.join("lib.rs"),
+        r#"
+pub struct SdkError;
+pub mod generated {
+    pub mod types {
+        #[derive(Debug, Clone)] pub struct Usage { pub count: i64 }
+        #[derive(Debug, Clone)] pub struct Choice { pub text: String }
+        #[derive(Debug, Clone)] pub enum State { Ready, Waiting }
+        #[derive(Debug, Clone)] pub struct TextMessage { pub text: String }
+        #[derive(Debug, Clone)] pub struct CodeMessage { pub code: i64 }
+        #[derive(Debug, Clone)] pub enum Message { Text(TextMessage), Code(CodeMessage) }
+        #[derive(Debug, Clone)] pub struct SensorResponse {
+            pub id: String, pub usage: Usage, pub choices: Vec<Choice>,
+            pub detail: Option<Choice>, pub nullable_choice: Option<Choice>,
+            pub state: State, pub message: Message,
+        }
+    }
+}
+mod sdk { include!("facade_types.rs"); }
+pub fn navigate(response: &sdk::Sensor) {
+    let _: &str = response.id();
+    let _: i64 = response.usage().count();
+    let _: Vec<String> = response.choices().map(|choice| choice.text().to_owned()).collect();
+    let _ = response.state();
+    let _ = response.message();
+}
+"#,
+    )
+    .expect("consumer");
+
+    let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".into());
+    let stub = Command::new(&rustc)
+        .current_dir(&dir)
+        .args([
+            "--crate-name",
+            "futures_util",
+            "--crate-type",
+            "lib",
+            "--edition",
+            "2024",
+            "futures_util.rs",
+            "--out-dir",
+            ".",
+        ])
+        .output()
+        .expect("compile stream stub");
+    assert!(
+        stub.status.success(),
+        "{}",
+        String::from_utf8_lossy(&stub.stderr)
+    );
+    let consumer = Command::new(&rustc)
+        .current_dir(&dir)
+        .args([
+            "--crate-name",
+            "stable_model_consumer",
             "--crate-type",
             "lib",
             "--edition",
