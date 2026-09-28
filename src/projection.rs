@@ -3238,6 +3238,52 @@ mod model_identity_tests {
     }
 
     #[test]
+    fn same_projection_can_be_shared_by_request_and_response() {
+        let mut definition = definition();
+        let mut registry = ProjectionRegistry::default();
+
+        let mut request = projected(
+            "write_shared",
+            "write_shared",
+            "Shared",
+            model(Some("SharedSchema"), "RawShared"),
+            identity("SharedSchema", false),
+        );
+        request.operation.request = Some("Shared".into());
+        request.operation.response = None;
+        request.operation.response_representation = None;
+        insert_projection(&mut definition, &mut registry, request)
+            .expect("request projection");
+
+        insert_projection(
+            &mut definition,
+            &mut registry,
+            projected(
+                "read_shared",
+                "read_shared",
+                "Shared",
+                model(Some("SharedSchema"), "RawShared"),
+                identity("SharedSchema", false),
+            ),
+        )
+        .expect("compatible response projection");
+
+        assert_eq!(definition.models.len(), 1);
+        assert_eq!(
+            definition.resources["things"].operations["write_shared"]
+                .request
+                .as_deref(),
+            Some("Shared")
+        );
+        assert_eq!(
+            definition.resources["things"].operations["read_shared"]
+                .response
+                .as_deref(),
+            Some("Shared")
+        );
+    }
+
+    #[test]
     fn ownership_representation_is_deterministic_and_not_operation_derived() {
         let explicit = BTreeMap::from([("SharedSchema".into(), "Shared".into())]);
         let naming = ModelNaming::new(true, &explicit);
