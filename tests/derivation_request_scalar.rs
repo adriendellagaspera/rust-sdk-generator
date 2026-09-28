@@ -525,3 +525,75 @@ fn proves_renamed_request_field_by_exact_wire_name() {
         "capability.request_model_not_structurally_provable"
     );
 }
+
+
+#[test]
+fn projects_optional_inline_string_enum_setter_through_public_scalar_enum() {
+    let (mut openapi, mut bindings, surface) = fixture();
+    *openapi
+        .0
+        .pointer_mut("/components/schemas/UpdateJobRequest/properties/priority")
+        .expect("priority schema") = serde_json::json!({
+        "type": "string",
+        "enum": ["asc", "desc"]
+    });
+    *request_field_mut(&mut bindings, "priority") = "Option<UpdateDirection>".into();
+    bindings.enums.insert(
+        "UpdateDirection".into(),
+        vec![
+            rust_sdk_generator::VariantBinding {
+                name: "Asc".into(),
+                payload: None,
+                wire_name: Some("asc".into()),
+            },
+            rust_sdk_generator::VariantBinding {
+                name: "Desc".into(),
+                payload: None,
+                wire_name: Some("desc".into()),
+            },
+        ],
+    );
+    bindings.symbol_paths.insert(
+        "UpdateDirection".into(),
+        "crate::generated::types::UpdateDirection".into(),
+    );
+
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive inline request enum");
+
+    assert_eq!(
+        derivation.report.operations["revise_job"].status,
+        DerivationStatus::Derived
+    );
+    let request = &derivation.definition.models["UpdateWorkJobsRequest"];
+    assert_eq!(
+        request.adapters.as_ref().expect("request adapters")["priority"],
+        "UpdateWorkJobsRequestPriority"
+    );
+    let priority = &derivation.definition.models["UpdateWorkJobsRequestPriority"];
+    assert_eq!(priority.raw.as_deref(), Some("UpdateDirection"));
+    assert!(priority.scalar_enum.is_some());
+
+    let generated = generate(GenerateInput {
+        openapi,
+        bindings,
+        definition: derivation.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("inline request enum generates with a closed facade");
+    let types = &generated.files["facade_types.rs"];
+    assert!(types.contains("pub enum UpdateWorkJobsRequestPriority"));
+    assert!(types.contains(
+        "pub fn priority(mut self, priority: impl Into<UpdateWorkJobsRequestPriority>) -> Self"
+    ));
+    assert!(
+        !types.contains(
+            "pub fn priority(mut self, priority: UpdateDirection) -> Self"
+        )
+    );
+}
