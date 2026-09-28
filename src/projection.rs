@@ -1436,6 +1436,8 @@ struct ResponseModelContext<'a> {
 fn response_object_models(
     context: &ResponseModelContext<'_>,
     schema: &Value,
+    source_root: Option<&str>,
+    source_path: &[String],
     raw: &str,
     name: String,
     borrowed: bool,
@@ -1444,7 +1446,16 @@ fn response_object_models(
     if !active.insert(raw.to_owned()) {
         return Err(RESPONSE_VIEW_UNPROVEN);
     }
-    let result = response_object_models_inner(context, schema, raw, name, borrowed, active);
+    let result = response_object_models_inner(
+        context,
+        schema,
+        source_root,
+        source_path,
+        raw,
+        name,
+        borrowed,
+        active,
+    );
     active.remove(raw);
     result
 }
@@ -1452,6 +1463,8 @@ fn response_object_models(
 fn response_object_models_inner(
     context: &ResponseModelContext<'_>,
     schema: &Value,
+    source_root: Option<&str>,
+    source_path: &[String],
     raw: &str,
     name: String,
     borrowed: bool,
@@ -1590,9 +1603,23 @@ fn response_object_models_inner(
             } else {
                 child_fallback.clone()
             };
+            let (child_root, child_path) = if let Some(reference) = source_reference {
+                (Some(reference), Vec::new())
+            } else if let Some(root) = source_root {
+                let mut path = source_path.to_vec();
+                path.push(field_name.clone());
+                if collection {
+                    path.push("items".into());
+                }
+                (Some(root), path)
+            } else {
+                (None, Vec::new())
+            };
             let Ok(child_models) = response_object_models(
                 context,
                 &child_schema,
+                child_root,
+                &child_path,
                 &value.spelling,
                 child_name.clone(),
                 true,
@@ -1673,11 +1700,23 @@ fn response_object_models_inner(
                 {
                     return Err(RESPONSE_VIEW_UNPROVEN);
                 }
+                let scalar_enum = if let Some(reference) = source_reference {
+                    ScalarEnumDefinition {
+                        root: reference.into(),
+                        path: Vec::new(),
+                    }
+                } else if let Some(root) = source_root {
+                    let mut path = source_path.to_vec();
+                    path.push(field_name.clone());
+                    ScalarEnumDefinition {
+                        root: root.into(),
+                        path,
+                    }
+                } else {
+                    continue;
+                };
                 ModelDefinition {
-                    scalar_enum: Some(ScalarEnumDefinition {
-                        root: value.spelling.clone(),
-                        path: vec![],
-                    }),
+                    scalar_enum: Some(scalar_enum),
                     ..empty_response_model(&value.spelling, false)
                 }
             } else {
@@ -1784,6 +1823,8 @@ fn response_view_for_schema_named(
     if let Ok(mut models) = response_object_models(
         &context,
         &schema,
+        Some(schema_name),
+        &[],
         raw,
         name.clone(),
         false,
@@ -1872,6 +1913,8 @@ fn inline_response_view_named(
         let models = response_object_models(
             &context,
             schema,
+            None,
+            &[],
             raw,
             name.clone(),
             false,
