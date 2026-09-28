@@ -111,11 +111,11 @@ fn derives_named_and_inline_nested_request_unions_structurally() {
     assert!(types.contains("EmailTarget(CreateDeliveryTargetsRequestDestinationEmailTarget)"));
     assert!(types.contains("WebhookTarget(CreateDeliveryTargetsRequestDestinationWebhookTarget)"));
     assert!(
-        types.contains("impl From<CreateDeliveryTargetsRequestDestination> for OpaqueDestination3")
+        types.contains("impl __RustSdkIntoRaw<OpaqueDestination3> for CreateDeliveryTargetsRequestDestination")
     );
     assert!(
         !types
-            .contains("impl From<OpaqueDestination3> for CreateDeliveryTargetsRequestDestination")
+            .contains("impl __RustSdkFromRaw<OpaqueDestination3> for CreateDeliveryTargetsRequestDestination")
     );
     assert!(types.contains(
         "pub fn fallback(mut self, fallback: impl Into<CreateDeliveryTargetsRequestFallback>)"
