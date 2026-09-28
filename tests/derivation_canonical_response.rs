@@ -48,7 +48,7 @@ fn derives_and_generates_canonical_json_and_empty_representations() {
         marker_response
             .accessors
             .as_ref()
-            .is_some_and(indexmap::IndexMap::is_empty)
+            .is_some_and(|fields| fields.contains_key("active"))
     );
 
     let purge = &derivation.report.operations["purge_reports"];
@@ -63,7 +63,7 @@ fn derives_and_generates_canonical_json_and_empty_representations() {
         response
             .accessors
             .as_ref()
-            .is_some_and(indexmap::IndexMap::is_empty)
+            .is_some_and(|fields| fields.contains_key("details") && fields.contains_key("name"))
     );
 
     let read_operation = &derivation.definition.resources["reports"].operations["current"];
@@ -115,7 +115,7 @@ fn derives_and_generates_canonical_json_and_empty_representations() {
 }
 
 #[test]
-fn complex_response_view_can_remain_opaque_when_root_fields_are_exact() {
+fn complex_response_view_preserves_proven_fields_when_a_child_drifts() {
     let (mut openapi, bindings, surface) = fixture();
     openapi
         .0
@@ -139,7 +139,7 @@ fn complex_response_view_can_remain_opaque_when_root_fields_are_exact() {
         response
             .accessors
             .as_ref()
-            .is_some_and(indexmap::IndexMap::is_empty)
+            .is_some_and(|fields| fields.contains_key("name") && !fields.contains_key("details"))
     );
 
     generate(GenerateInput {
