@@ -866,6 +866,25 @@ fn request_object_models_value(
             }
         }
 
+        if canonical_unconstrained_map_branch(wire, &core.spelling, context.bindings) {
+            let mut child_path = source_path.to_vec();
+            child_path.push(field_name.clone());
+            let (projected, adapter) = request_value_adapter_models(
+                context,
+                wire,
+                source_root,
+                &child_path,
+                &core.spelling,
+                child_fallback.clone(),
+                seen,
+            )?;
+            models.extend(projected);
+            if let Some(adapter) = adapter {
+                adapters.insert(field_name.clone(), adapter);
+            }
+            continue;
+        }
+
         if wire.get("properties").is_some()
             && !flattened_json_response_object_matches(wire, &core.spelling, context.bindings)
         {
