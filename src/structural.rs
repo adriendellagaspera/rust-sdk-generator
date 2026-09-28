@@ -1197,6 +1197,9 @@ fn request_map_value_matches(
     bindings: &Bindings,
     seen: &mut BTreeSet<(String, String)>,
 ) -> bool {
+    if type_matches_schema(schema, raw_value, bindings, &mut BTreeSet::new()) {
+        return true;
+    }
     if let Some(reference) = ref_name(schema) {
         let Ok(referenced) = openapi.schema(reference) else {
             return false;
@@ -2792,6 +2795,108 @@ mod legacy_nullable_request_tests {
         assert!(legacy_nullable_request_property(&schema["properties"]["description"]).is_none());
         assert!(!object_value_matches(
             &index, &schema, "RawPatch", &bindings
+        ));
+    }
+}
+
+
+#[cfg(test)]
+mod request_map_value_identity_tests {
+    use super::*;
+    use crate::contracts::OpenApi;
+
+    fn fixture() -> (OpenApiIndex, Bindings) {
+        let source = OpenApi(serde_json::json!({
+            "openapi": "3.1.0",
+            "components": {
+                "schemas": {
+                    "CanonicalValue": {
+                        "type": "object",
+                        "properties": {
+                            "optional": {"type": "string"}
+                        }
+                    },
+                    "Value": {
+                        "type": "object",
+                        "properties": {
+                            "value": {"type": "string"}
+                        },
+                        "required": ["value"]
+                    }
+                }
+            }
+        }));
+        let index = OpenApiIndex::new(&source).expect("OpenAPI index");
+        let bindings = serde_json::from_value(serde_json::json!({
+            "schema_version": 5,
+            "structs": {
+                "CanonicalValue": [{
+                    "name": "optional",
+                    "wire_name": "optional",
+                    "type": "String",
+                    "serialized_presence": "always"
+                }],
+                "OpaqueValue": [{
+                    "name": "value",
+                    "wire_name": "value",
+                    "type": "String",
+                    "serialized_presence": "always"
+                }]
+            },
+            "enums": {},
+            "aliases": {},
+            "operations": {},
+            "symbol_paths": {
+                "CanonicalValue": "crate::generated::types::CanonicalValue",
+                "OpaqueValue": "crate::generated::types::OpaqueValue"
+            },
+            "binding": {
+                "client": {
+                    "type_path": "crate::generated::Client",
+                    "constructor": "new",
+                    "api_key_builder": "with_api_key",
+                    "base_url_builder": "with_base_url"
+                },
+                "type_preludes": []
+            }
+        }))
+        .expect("bindings");
+        (index, bindings)
+    }
+
+    #[test]
+    fn canonical_ref_identity_precedes_recursive_request_revalidation() {
+        let (openapi, bindings) = fixture();
+        let schema = serde_json::json!({"$ref": "#/components/schemas/CanonicalValue"});
+        let raw = parse_type("CanonicalValue").expect("raw type");
+
+        assert!(rust_type_matches_schema(&schema, "CanonicalValue", &bindings));
+        assert!(
+            !request_object_matches(&openapi, "CanonicalValue", "CanonicalValue", &bindings),
+            "fixture intentionally violates recursive request presence semantics"
+        );
+        assert!(request_map_value_matches(
+            &openapi,
+            &schema,
+            &raw,
+            &bindings,
+            &mut BTreeSet::new()
+        ));
+    }
+
+    #[test]
+    fn renamed_map_values_still_use_structural_fallback() {
+        let (openapi, bindings) = fixture();
+        let schema = serde_json::json!({"$ref": "#/components/schemas/Value"});
+        let raw = parse_type("OpaqueValue").expect("raw type");
+
+        assert!(!rust_type_matches_schema(&schema, "OpaqueValue", &bindings));
+        assert!(request_map_value_matches(
+            &openapi,
+            &schema,
+            &raw,
+            &bindings,
+            &mut BTreeSet::new()
         ));
     }
 }
