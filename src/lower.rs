@@ -1715,6 +1715,7 @@ fn operation_call(
         overrides,
     } = &operation.request_projection
     {
+        let raw_type = bindings.qualified_type(raw)?;
         if *nullable_root {
             if !overrides.is_empty() {
                 return Err(error(
@@ -1730,7 +1731,7 @@ fn operation_call(
                 {
                     declarations.push(format!("request: Option<Option<{model}>>"));
                     values.push(format!(
-                        "request.map(|request| request.map(|request| <{model} as __RustSdkIntoRaw<{raw}>>::into_raw(request)))"
+                        "request.map(|request| request.map(|request| <{model} as __RustSdkIntoRaw<{raw_type}>>::into_raw(request)))"
                     ));
                 } else {
                     let (declaration, value) = direct_parameter(parameter, bindings)?;
@@ -1744,7 +1745,7 @@ fn operation_call(
                 default_raw_arguments: None,
             });
         }
-        let mut body = format!("<{model} as __RustSdkIntoRaw<{raw}>>::into_raw(request)");
+        let mut body = format!("<{model} as __RustSdkIntoRaw<{raw_type}>>::into_raw(request)");
         if !overrides.is_empty() {
             let assignments = overrides
                 .iter()
@@ -1759,7 +1760,7 @@ fn operation_call(
                 .collect::<Vec<_>>()
                 .join(" ");
             body = format!(
-                "{{ let mut raw = <{model} as __RustSdkIntoRaw<{raw}>>::into_raw(request); {assignments} raw }}"
+                "{{ let mut raw = <{model} as __RustSdkIntoRaw<{raw_type}>>::into_raw(request); {assignments} raw }}"
             );
         }
         let mut declarations = Vec::new();
@@ -1899,7 +1900,8 @@ fn multipart_filenames_call(
         ));
     }
 
-    let mut body = format!("<{model} as __RustSdkIntoRaw<{raw}>>::into_raw(request)");
+    let raw_type = bindings.qualified_type(raw)?;
+    let mut body = format!("<{model} as __RustSdkIntoRaw<{raw_type}>>::into_raw(request)");
     if !overrides.is_empty() {
         let assignments = overrides
             .iter()
@@ -1914,7 +1916,7 @@ fn multipart_filenames_call(
             .collect::<Vec<_>>()
             .join(" ");
         body = format!(
-            "{{ let mut raw = <{model} as __RustSdkIntoRaw<{raw}>>::into_raw(request); {assignments} raw }}"
+            "{{ let mut raw = <{model} as __RustSdkIntoRaw<{raw_type}>>::into_raw(request); {assignments} raw }}"
         );
     }
 
