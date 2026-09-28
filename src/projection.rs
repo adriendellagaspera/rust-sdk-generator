@@ -22,8 +22,9 @@ use crate::structural::{
     raw_scalar_struct_shape, redundant_any_of_alternative, referenced_request_object,
     request_object_matches, request_object_matches_with_discriminators,
     request_optional_boolean_field, request_union_mapping, request_union_matches,
-    request_value_union_mapping, response_array_union_matches, rust_type_matches_schema,
-    scalar_named_object_matches, scalar_object_shape, sse_payload_schema_names,
+    request_value_union_mapping, response_array_union_matches, response_constant_fields_match,
+    response_object_value_matches, rust_type_matches_schema, scalar_named_object_matches,
+    scalar_object_shape, sse_payload_schema_names,
 };
 use crate::symbols::field_identifier;
 
@@ -1461,8 +1462,7 @@ fn response_object_models_inner(
     if !naming.public_name_available(&name, bindings) {
         return Err("capability.public_model_name_collision");
     }
-    let proven = object_value_matches(openapi, schema, raw, bindings)
-        || object_field_names_match(schema, raw, bindings)
+    let proven = response_object_value_matches(openapi, schema, raw, bindings)
         || constant_enum_response_object_matches(schema, raw, bindings);
     if !proven {
         return Err(RESPONSE_VIEW_UNPROVEN);
@@ -1533,6 +1533,33 @@ fn response_object_models_inner(
             || ((item_schema.get("oneOf").is_some() || item_schema.get("anyOf").is_some())
                 && request_union_matches(openapi, item_schema, &value.spelling, bindings));
         if !field_proven {
+            // Response projection may deliberately ignore request-constructor
+            // presence semantics, but it must not turn a known scalar wire
+            // type into a different known scalar Rust type. Unsupported opaque
+            // children can remain inaccessible; an explicit scalar mismatch
+            // means the parent response shape itself is not proven.
+            let raw_scalar = matches!(
+                value.spelling.as_str(),
+                "String"
+                    | "bool"
+                    | "i8"
+                    | "i16"
+                    | "i32"
+                    | "i64"
+                    | "u8"
+                    | "u16"
+                    | "u32"
+                    | "u64"
+                    | "f32"
+                    | "f64"
+            );
+            let wire_scalar = matches!(
+                item_schema.get("type").and_then(Value::as_str),
+                Some("string" | "boolean" | "integer" | "number")
+            );
+            if raw_scalar && wire_scalar {
+                return Err(RESPONSE_VIEW_UNPROVEN);
+            }
             continue;
         }
         let child_fallback = format!("{name}{}", semantic_pascal_identifier(field_name)?);
@@ -1742,16 +1769,7 @@ fn response_view_for_schema_named(
     let schema = openapi
         .object_schema(schema_name)
         .map_err(|_| RESPONSE_VIEW_UNPROVEN)?;
-    if schema
-        .get("properties")
-        .and_then(Value::as_object)
-        .is_some_and(|properties| {
-            properties
-                .values()
-                .any(|property| property.get("const").is_some())
-        })
-        && !constant_enum_response_object_matches(&schema, raw, bindings)
-    {
+    if !response_constant_fields_match(&schema, raw, bindings) {
         return Err(RESPONSE_VIEW_UNPROVEN);
     }
     let context = ResponseModelContext {
@@ -1783,7 +1801,7 @@ fn response_view_for_schema_named(
             }
             _ => return Err(RESPONSE_VIEW_UNPROVEN),
         }
-    } else if object_field_names_match(&schema, raw, bindings)
+    } else if response_object_value_matches(openapi, &schema, raw, bindings)
         || flattened_json_response_object_matches(&schema, raw, bindings)
     {
         IndexMap::new()
@@ -2487,9 +2505,6 @@ fn union_response_model(
     let mut variants = IndexMap::new();
     let mut public_variants = BTreeSet::new();
     for reference in references {
-        if !request_object_matches(openapi, &reference, &reference, bindings) {
-            return Err(RESPONSE_UNION_REQUIRED);
-        }
         let public_variant = semantic_pascal_identifier(&reference)?;
         if !public_variants.insert(public_variant.clone()) {
             return Err("capability.public_model_name_collision");
@@ -3752,5 +3767,103 @@ mod model_identity_tests {
 
         assert_eq!(owned, "Shared");
         assert_eq!(borrowed, "SharedRef");
+    }
+}
+
+#[cfg(test)]
+mod response_closure_tests {
+    use super::*;
+    use crate::contracts::OpenApi;
+
+    #[test]
+    fn response_union_does_not_require_request_presence_semantics() {
+        let openapi: OpenApi = serde_json::from_value(serde_json::json!({
+            "openapi": "3.1.0",
+            "paths": {},
+            "components": {"schemas": {
+                "Found": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"},
+                        "score": {"type": "number"}
+                    },
+                    "required": ["id"]
+                },
+                "Missing": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"]
+                }
+            }}
+        }))
+        .expect("OpenAPI");
+        let index = OpenApiIndex::new(&openapi).expect("index");
+        let bindings: Bindings = serde_json::from_value(serde_json::json!({
+            "schema_version": 2,
+            "structs": {
+                "Found": [
+                    {"name": "id", "wire_name": "id", "type": "String"},
+                    {"name": "score", "wire_name": "score", "type": "f64"}
+                ],
+                "Missing": [
+                    {"name": "query", "wire_name": "query", "type": "String"}
+                ]
+            },
+            "enums": {
+                "ResultUnion": [
+                    {"name": "Found", "payload": "Found", "wire_name": null},
+                    {"name": "Missing", "payload": "Missing", "wire_name": null}
+                ]
+            },
+            "aliases": {},
+            "operations": {},
+            "symbol_paths": {
+                "Found": "crate::generated::types::Found",
+                "Missing": "crate::generated::types::Missing",
+                "ResultUnion": "crate::generated::types::ResultUnion"
+            },
+            "binding": {
+                "client": {
+                    "type_path": "crate::generated::Client",
+                    "constructor": "new",
+                    "api_key_builder": "with_api_key",
+                    "base_url_builder": "with_base_url"
+                },
+                "type_preludes": []
+            }
+        }))
+        .expect("bindings");
+
+        assert!(
+            !request_object_matches(&index, "Found", "Found", &bindings),
+            "optional response field intentionally violates request constructor semantics"
+        );
+
+        let explicit = BTreeMap::new();
+        let naming = ModelNaming::new(false, &explicit);
+        let schema = serde_json::json!({
+            "oneOf": [
+                {"$ref": "#/components/schemas/Found"},
+                {"$ref": "#/components/schemas/Missing"}
+            ]
+        });
+        let (name, models) = union_response_model(
+            &index,
+            &bindings,
+            &naming,
+            &schema,
+            "ResultUnion",
+            "LookupResponse".into(),
+        )
+        .expect("response-specific projection");
+
+        assert_eq!(name, "LookupResponse");
+        assert!(models.iter().any(|(name, _)| name == "LookupResponse"));
+        assert!(models.iter().any(|(name, _)| name == "LookupResponseFound"));
+        assert!(
+            models
+                .iter()
+                .any(|(name, _)| name == "LookupResponseMissing")
+        );
     }
 }
