@@ -1451,15 +1451,7 @@ fn response_object_models(
     if !active.insert(raw.to_owned()) {
         return Err(RESPONSE_VIEW_UNPROVEN);
     }
-    let result = response_object_models_inner(
-        context,
-        schema,
-        source,
-        raw,
-        name,
-        borrowed,
-        active,
-    );
+    let result = response_object_models_inner(context, schema, source, raw, name, borrowed, active);
     active.remove(raw);
     result
 }
