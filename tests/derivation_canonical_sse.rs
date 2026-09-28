@@ -257,11 +257,13 @@ fn derives_typed_oneof_sse_envelope_without_raw_union_type() {
             name: "error_code".into(),
             wire_name: Some("error_code".into()),
             type_name: "i64".into(),
+            serialized_presence: None,
         },
         rust_sdk_generator::FieldBinding {
             name: "fatal".into(),
             wire_name: Some("fatal".into()),
             type_name: "bool".into(),
+            serialized_presence: None,
         },
     ];
     bindings
@@ -542,6 +544,7 @@ fn explicit_json_and_sse_selection_preserves_canonical_discriminators() {
             name: "result".into(),
             wire_name: Some("result".into()),
             type_name: "bool".into(),
+            serialized_presence: None,
         }],
     );
     bindings.symbol_paths.insert(
