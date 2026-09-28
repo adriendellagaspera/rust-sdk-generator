@@ -17,11 +17,11 @@ use crate::structural::{
     canonical_unconstrained_map_branch, constant_enum_response_object_matches,
     flattened_json_response_object_matches, inline_object_union_mapping,
     multipart_filenames_binding, object_field_names_match, object_value_matches,
-    plain_string_json_alias_matches, raw_scalar_struct_shape,
+    plain_string_json_alias_matches, raw_scalar_struct_shape, request_object_matches,
     request_object_matches_with_discriminators, request_optional_boolean_field,
-    request_union_mapping, request_value_union_mapping, response_array_union_matches,
-    rust_type_matches_schema, scalar_named_object_matches, scalar_object_shape,
-    sse_payload_schema_name, sse_payload_schema_names,
+    request_union_mapping, request_union_matches, request_value_union_mapping,
+    response_array_union_matches, rust_type_matches_schema, scalar_named_object_matches,
+    scalar_object_shape, sse_payload_schema_name, sse_payload_schema_names,
 };
 use crate::symbols::{SymbolProvider, field_identifier};
 
@@ -984,6 +984,36 @@ fn schema_at(openapi: &OpenApiIndex, root: &str, path: &[String]) -> Result<Valu
     Ok(unwrap_nullable_schema(&schema).clone())
 }
 
+fn map_value_matches_schema(
+    openapi: &OpenApiIndex,
+    schema: &Value,
+    raw_value: &str,
+    bindings: &Bindings,
+) -> bool {
+    if let Some(reference) = ref_name(schema) {
+        let Ok(referenced) = openapi.schema(reference) else {
+            return false;
+        };
+        if referenced.get("oneOf").is_some() || referenced.get("anyOf").is_some() {
+            return request_union_matches(openapi, referenced, raw_value, bindings);
+        }
+        if referenced.get("properties").is_some()
+            || referenced.get("allOf").is_some()
+            || referenced.get("$ref").is_some()
+        {
+            return request_object_matches(openapi, reference, raw_value, bindings);
+        }
+        return rust_type_matches_schema(referenced, raw_value, bindings);
+    }
+    if schema.get("oneOf").is_some() || schema.get("anyOf").is_some() {
+        return request_union_matches(openapi, schema, raw_value, bindings);
+    }
+    if schema.get("properties").is_some() {
+        return object_value_matches(openapi, schema, raw_value, bindings);
+    }
+    rust_type_matches_schema(schema, raw_value, bindings)
+}
+
 fn resolve_map(
     raw: &str,
     model: &ModelDefinition,
@@ -1056,7 +1086,7 @@ fn resolve_map(
         .as_ref()
         .and_then(|adapters| adapters.get(&fields[0].name));
     let (public_value, value_adapt_depth) = if let Some(adapter) = value_adapter {
-        if !rust_type_matches_schema(additional, &effective.spelling, bindings) {
+        if !map_value_matches_schema(openapi, additional, &effective.spelling, bindings) {
             return Err(error(
                 "lower.map_value",
                 format!(
