@@ -93,6 +93,85 @@ fn structured_response_exposes_nested_public_views_and_values() {
 }
 
 #[test]
+fn structured_response_generated_views_compile_for_consumer() {
+    let (openapi, bindings, surface) = structured_response_fixture();
+    let definition = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive")
+    .definition;
+    let response_name = definition
+        .models
+        .iter()
+        .find(|(_, model)| model.raw.as_deref() == Some("SensorResponse"))
+        .expect("response")
+        .0
+        .clone();
+    let output = generate(GenerateInput {
+        openapi,
+        bindings,
+        definition,
+        runtime: Runtime::default(),
+    })
+    .expect("generate");
+    let dir = temp_dir();
+    fs::create_dir_all(&dir).expect("temp dir");
+    fs::write(dir.join("facade_types.rs"), &output.files["facade_types.rs"]).expect("facade");
+    fs::write(dir.join("futures_util.rs"), "pub trait Stream { type Item; }").expect("stream stub");
+    fs::write(
+        dir.join("lib.rs"),
+        format!(
+            r#"
+pub struct SdkError;
+pub mod generated {{
+    pub mod types {{
+        #[derive(Debug, Clone)] pub struct Usage {{ pub count: i64 }}
+        #[derive(Debug, Clone)] pub struct Choice {{ pub text: String }}
+        #[derive(Debug, Clone)] pub enum State {{ Ready, Waiting }}
+        #[derive(Debug, Clone)] pub struct TextMessage {{ pub text: String }}
+        #[derive(Debug, Clone)] pub struct CodeMessage {{ pub code: i64 }}
+        #[derive(Debug, Clone)] pub enum Message {{ Text(TextMessage), Code(CodeMessage) }}
+        #[derive(Debug, Clone)] pub struct SensorResponse {{
+            pub id: String, pub usage: Usage, pub choices: Vec<Choice>,
+            pub detail: Option<Choice>, pub nullable_choice: Option<Choice>,
+            pub state: State, pub message: Message,
+        }}
+    }}
+}}
+mod sdk {{ include!("facade_types.rs"); }}
+pub fn navigate(response: &sdk::{response_name}) {{
+    let _: &str = response.id();
+    let _: i64 = response.usage().count();
+    let _: Vec<&str> = response.choices().map(|choice| choice.text()).collect();
+    let _ = response.detail().map(|choice| choice.text().len());
+    let _ = response.nullable_choice().map(|choice| choice.text().len());
+    let _ = response.state();
+    let _ = response.message();
+}}
+"#
+        ),
+    )
+    .expect("consumer");
+    let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".into());
+    let stub = Command::new(&rustc)
+        .current_dir(&dir)
+        .args(["--crate-name", "futures_util", "--crate-type", "lib", "--edition", "2024", "futures_util.rs", "--out-dir", "."])
+        .output()
+        .expect("compile stream stub");
+    assert!(stub.status.success(), "{}", String::from_utf8_lossy(&stub.stderr));
+    let consumer = Command::new(&rustc)
+        .current_dir(&dir)
+        .args(["--crate-name", "response_consumer", "--crate-type", "lib", "--edition", "2024", "lib.rs", "--extern", "futures_util=libfutures_util.rlib", "--out-dir", "."])
+        .output()
+        .expect("compile consumer");
+    assert!(consumer.status.success(), "{}", String::from_utf8_lossy(&consumer.stderr));
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+#[test]
 fn structured_response_rejects_field_type_drift() {
     let (openapi, mut bindings, surface) = structured_response_fixture();
     bindings.structs.get_mut("Usage").expect("Usage")[0].type_name = "String".into();
@@ -177,6 +256,18 @@ fn composed_chat_response_has_navigable_choices_usage_and_message() {
             .as_ref()
             .expect("choice accessors")
             .contains_key("message")
+    );
+    let message = definition
+        .models
+        .values()
+        .find(|model| model.raw.as_deref() == Some("AssistantMessage"))
+        .expect("message view");
+    assert!(
+        message
+            .accessors
+            .as_ref()
+            .expect("message accessors")
+            .contains_key("content")
     );
     let output = generate(GenerateInput {
         openapi,
