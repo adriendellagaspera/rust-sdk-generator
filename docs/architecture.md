@@ -31,7 +31,7 @@ pinned upstream -> ordinary Rust + exact effective OpenAPI     |
 
 The raw backend owns emitted Rust, operation signatures, generation configuration and `bindings.json`. The temporary compatibility shim treats that metadata as authoritative and supplements only invocation facts not yet exposed by metadata v1; it never chooses public resource names or request behavior. The root generator owns OpenAPI indexing, source-operation reconciliation, structural proofs, deterministic public naming, overrides, definition validation, IR/lowering and emitted facade. Its `src/` must not import the shim or the raw backend.
 
-OpenAPI and canonical Bindings are authoritative for wire and structural behavior. `PublicSdkSurface` supplies public-path naming evidence, not a substitute for transport metadata; `SdkOverrides` supplies bounded explicit decisions and exclusions. An unproven operation is reported as rejected instead of being fabricated or made valid by weakening structural checks. A complete explicit definition can also be passed to `generate()`, subject to the same validation.
+OpenAPI and canonical Bindings are authoritative for wire and structural behavior. `PublicSdkSurface` supplies consumer-authored public-path and public-model naming policy, not a substitute for transport metadata; OpenAPI component schemas own source-model identity while Bindings remains backend representation evidence; `SdkOverrides` supplies bounded explicit decisions and exclusions. An unproven operation is reported as rejected instead of being fabricated or made valid by weakening structural checks. A complete explicit definition can also be passed to `generate()`, subject to the same validation.
 
 The consumer owns its chosen OpenAPI revision, public naming evidence, approved exclusions, minimal or production runtime, packaging and release gates. The generated facade is not by itself a complete HTTP stack or published crate. The [independent SDK example](../examples/independent-sdk/README.md) tests the boundary with a separate fixture, standalone Cargo crate and local mock server; it does not turn the example runtime into a library guarantee.
 
@@ -40,7 +40,7 @@ The consumer owns its chosen OpenAPI revision, public naming evidence, approved 
 | Area | Responsibility |
 | --- | --- |
 | `src/openapi.rs`, `src/reconcile.rs`, `src/structural.rs` | OpenAPI indexing, operation identity and structural evidence |
-| `src/naming.rs`, `src/derivation.rs`, `src/projection.rs` | Public-path decisions, exhaustive outcomes and definition construction |
+| `src/naming.rs`, `src/derivation.rs`, `src/projection.rs` | Public-path/model naming policy, source-model projection/reuse, exhaustive outcomes and definition construction |
 | `src/contracts.rs`, `src/validation.rs` | Typed contracts and fail-closed validation |
 | `src/lower.rs`, `src/ir.rs`, `src/emit.rs`, `src/compiler.rs` | Closed lowering, deterministic files and inventory |
 | `src/main.rs`, `src/output.rs` | CLI and safe publication of generated output |
