@@ -217,8 +217,7 @@ pub fn navigate(response: &sdk::{response_name}) {{
 
 #[test]
 fn stable_public_model_names_compile_when_backend_symbols_match() {
-    let (openapi, bindings, surface) =
-        structured_response_fixture_with_surface("surface-v2.json");
+    let (openapi, bindings, surface) = structured_response_fixture_with_surface("surface-v2.json");
     let definition = derive(DeriveInput {
         openapi: openapi.clone(),
         bindings: bindings.clone(),
