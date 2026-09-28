@@ -1295,7 +1295,7 @@ mod tests {
         assert!(facade_types.contains("pub struct Sensor"));
         assert!(facade_types.contains("pub struct UsageRef"));
         assert!(
-            facade_types.contains("crate::generated::types::Usage"),
+            facade_types.contains("crate::generated::types::Message"),
             "backend symbols that shadow public model names must be qualified"
         );
     }
