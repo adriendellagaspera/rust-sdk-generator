@@ -1,13 +1,11 @@
-use openapi_to_rust_bindings::{
-    inspect_generated, inspect_semantics, read_bindings, read_legacy_metadata,
-};
+use openapi_to_rust_bindings::read_bindings;
 use std::env;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 fn usage() -> &'static str {
-    "usage: openapi-to-rust-bindings <generated-directory> <effective-openapi.json> | --inspect <generated-directory> | --inspect-semantics <generated-directory> <effective-openapi.json> | --extract <generated-directory> <effective-openapi.json> | --legacy-metadata <generated-directory>"
+    "usage: openapi-to-rust-bindings <generated-directory> <effective-openapi.json> | --extract <generated-directory> <effective-openapi.json>"
 }
 
 fn run() -> Result<(), String> {
@@ -21,49 +19,26 @@ fn run() -> Result<(), String> {
         return Ok(());
     }
 
-    let stdout = io::stdout();
-    let mut output = stdout.lock();
-    match arguments.as_slice() {
+    let (directory, openapi) = match arguments.as_slice() {
+        [directory, openapi] if !directory.to_string_lossy().starts_with('-') => {
+            (directory, openapi)
+        }
+        [flag, directory, openapi] if flag == "--extract" => (directory, openapi),
         [directory] => {
             return Err(format!(
-                "adapter.input.effective_openapi_required: supply the exact effective OpenAPI JSON as a second argument for {}; historical metadata requires --legacy-metadata",
+                "adapter.input.effective_openapi_required: supply the exact effective OpenAPI JSON as a second argument for {}",
                 PathBuf::from(directory).display()
             ));
         }
-        [flag, directory] if flag == "--legacy-metadata" => {
-            let bindings = read_legacy_metadata(PathBuf::from(directory))
-                .map_err(|error| format!("adapter.legacy_metadata: {error}"))?;
-            serde_json::to_writer_pretty(&mut output, bindings.as_value())
-                .map_err(|error| error.to_string())?;
-        }
-        [flag, directory] if flag == "--inspect" => {
-            let evidence =
-                inspect_generated(PathBuf::from(directory)).map_err(|error| error.to_string())?;
-            serde_json::to_writer_pretty(&mut output, &evidence)
-                .map_err(|error| error.to_string())?;
-        }
-        [flag, directory, openapi] if flag == "--inspect-semantics" => {
-            let evidence = inspect_semantics(PathBuf::from(directory), PathBuf::from(openapi))
-                .map_err(|error| error.to_string())?;
-            serde_json::to_writer_pretty(&mut output, &evidence)
-                .map_err(|error| error.to_string())?;
-        }
-        [directory, openapi] if directory != "--inspect" && directory != "--legacy-metadata" => {
-            let bindings = read_bindings(PathBuf::from(directory), PathBuf::from(openapi))
-                .map_err(|error| format!("adapter.extract: {error}"))?;
-            serde_json::to_writer_pretty(&mut output, bindings.as_value())
-                .map_err(|error| error.to_string())?;
-        }
-        [flag, directory, openapi] if flag == "--extract" => {
-            let bindings = read_bindings(PathBuf::from(directory), PathBuf::from(openapi))
-                .map_err(|error| format!("adapter.extract: {error}"))?;
-            serde_json::to_writer_pretty(&mut output, bindings.as_value())
-                .map_err(|error| error.to_string())?;
-        }
         _ => return Err(usage().to_owned()),
-    }
-    writeln!(output).map_err(|error| error.to_string())?;
-    Ok(())
+    };
+
+    let bindings = read_bindings(PathBuf::from(directory), PathBuf::from(openapi))
+        .map_err(|error| format!("adapter.extract: {error}"))?;
+    let stdout = io::stdout();
+    let mut output = stdout.lock();
+    serde_json::to_writer_pretty(&mut output, &bindings).map_err(|error| error.to_string())?;
+    writeln!(output).map_err(|error| error.to_string())
 }
 
 fn main() -> ExitCode {

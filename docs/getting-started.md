@@ -11,7 +11,7 @@ cargo run --locked --example independent-sdk-quickstart
 
 This **native Rust** example checks out the exact raw-backend commit from
 [`DEFAULT_BACKEND.json`](../openapi-to-rust-bindings/DEFAULT_BACKEND.json),
-builds the raw backend, adapter and generator from locked Cargo dependencies,
+builds the raw backend, compatibility shim and generator from locked Cargo dependencies,
 then runs the entire generation pipeline twice and compares its output
 byte-for-byte. Finally it compiles a standalone consumer crate and runs its
 local HTTP mock tests. The same command runs in the `independent-sdk` CI job;
@@ -31,7 +31,7 @@ Inspect these artifacts inside the printed directory:
 | --- | --- |
 | `_backend/`, `_backend-target/`, `_tools-target/` | Verified pinned source and locally compiled tools |
 | `first/openapi-to-rust.toml`, `first/openapi.json`, `first/raw/` | Exact generation config, effective OpenAPI and raw Rust without a producer manifest |
-| `first/rust-bindings.json` | Adapter-produced canonical Bindings v3 |
+| `first/rust-bindings.json` | Shim-produced canonical Bindings v4 |
 | `first/derivation.json`, `first/definition.json` | Exhaustive operation report and derived SDK definition |
 | `first/sdk/`, `first/inventory.json` | Public facade sources and API inventory |
 | `second/` | Independent generation used to verify determinism |
@@ -42,16 +42,13 @@ JSON, use the [Rust-native init/sync workflow](own-api-sdk.md), which has
 an independently tested API fixture and an explicit bounded supported envelope.
 The pinned default is unmodified upstream
 `gpu-cli/openapi-to-rust@5a3487edbe27cfd4efb32dda893774e23d7fa195`.
-The historical fork is not used by this quickstart or by production compatibility. `COMPATIBILITY.json` tracks this same upstream boundary; the isolated `LEGACY_COMPATIBILITY.json` oracle is opt-in only. The own-API `rust-sdk` binary is a separate orchestration layer; it does
+`COMPATIBILITY.json` tracks this same upstream boundary. The own-API `rust-sdk` binary is a separate orchestration layer; it does
 not change the notebook fixture or backend-neutral root CLI.
 
 ## Follow the inputs and output
 
 The raw backend generates Rust models and the HTTP client **from OpenAPI JSON**.
-The `openapi-to-rust-bindings` adapter inspects generated `types.rs`,
-`client.rs` and the exact effective OpenAPI to prove emitted signatures,
-source operation identity and transport behavior. It produces canonical
-`Bindings` v3 or rejects unproven operations. The backend-neutral root
+The `openapi-to-rust-bindings` compatibility shim treats upstream `bindings.json` as authoritative and supplements only metadata facts that upstream does not expose yet. It produces canonical `Bindings` v4 or rejects unproven operations. The backend-neutral root
 generator does not parse backend-specific Rust or invoke its CLI.
 
 `PublicSdkSurface` optionally supplies reviewed client/resource/method naming
@@ -90,15 +87,13 @@ and records backend configuration and consumer ownership in a versioned recipe.
 The explicit lower-level integration path below remains available for
 consumers that need more control. The versioned
 `examples/independent-sdk/upstream.toml` records this fixture's exact
-options. Supply the same **effective** OpenAPI JSON to the adapter and root
+options. Supply the same **effective** OpenAPI JSON to the compatibility shim and root
 `derive`/`generate`; if a producer applies transformations or overlays,
 use its resulting effective document, not the original source.
 
 Normalize the generated raw directory with
 `openapi-to-rust-bindings <raw-output-dir> <effective-openapi.json> > rust-bindings.json`.
-Calling with just a directory fails with `adapter.input.effective_openapi_required`:
-there is no manifest or sidecar fallback. Only historical oracle comparisons
-may use `--legacy-metadata <raw-output-dir>`.
+Calling with just a directory fails with `adapter.input.effective_openapi_required`; there is no manifest, sidecar or source-only fallback.
 Then derive the SDK without supplying naming evidence or overrides until a
 reviewed decision is necessary:
 

@@ -5,7 +5,7 @@ generates Rust files and reports an outcome for every source operation, so unsup
 excluded operations are visible before publication.
 
 This workspace contains the backend-neutral `rust-sdk-generator` and a concrete
-`openapi-to-rust-bindings` adapter. The adapter extracts canonical Bindings v4 from an
+`openapi-to-rust-bindings` compatibility shim. The shim normalizes canonical Bindings v4 from an
 unmodified backend's generated Rust and its effective OpenAPI; the root generator consumes
 that contract. SDK repositories own their API source, runtime policy and releases.
 
@@ -42,7 +42,7 @@ and checks it against a local mock HTTP server. It does not exercise your API. S
 - [Architecture](docs/architecture.md): data flow and responsibility boundaries.
 - [Output safety](docs/output.md): file ownership and publication.
 - [Development](docs/development.md): local verification.
-- [Bindings adapter](openapi-to-rust-bindings/README.md): extraction and supported evidence.
+- [Bindings compatibility shim](openapi-to-rust-bindings/README.md): temporary metadata gaps and deletion criteria.
 
 The lower-level CLI accepts OpenAPI, Bindings and optional reviewed naming or override inputs.
 Its derivation report accounts for each source operation; inspect rejected and excluded

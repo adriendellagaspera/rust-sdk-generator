@@ -75,6 +75,10 @@ impl Bindings {
             require_nonempty(&format!("bindings.structs.{name}"), name)?;
             let mut seen = BTreeSet::new();
             for (index, field) in fields.iter().enumerate() {
+                require_nonempty(
+                    &format!("bindings.structs.{name}[{index}].name"),
+                    &field.name,
+                )?;
                 if !seen.insert(field.name.as_str()) {
                     return Err(invalid(
                         format!("bindings.structs.{name}[{index}].name"),
@@ -92,6 +96,10 @@ impl Bindings {
         for (name, variants) in &self.enums {
             let mut seen = BTreeSet::new();
             for (index, variant) in variants.iter().enumerate() {
+                require_nonempty(
+                    &format!("bindings.enums.{name}[{index}].name"),
+                    &variant.name,
+                )?;
                 if !seen.insert(variant.name.as_str()) {
                     return Err(invalid(
                         format!("bindings.enums.{name}[{index}].name"),
@@ -117,6 +125,10 @@ impl Bindings {
         for (key, operation) in &self.operations {
             require_nonempty(&format!("bindings.operations.{key}.name"), &operation.name)?;
             for (index, parameter) in operation.parameters.iter().enumerate() {
+                require_nonempty(
+                    &format!("bindings.operations.{key}.parameters[{index}].name"),
+                    &parameter.name,
+                )?;
                 parse_type(&parameter.type_name).map_err(|error| {
                     invalid(
                         format!("bindings.operations.{key}.parameters[{index}].type"),
@@ -203,6 +215,70 @@ impl Bindings {
                         &format!("bindings.operations.{key}.metadata.success_statuses"),
                         &metadata.success_statuses,
                     )?;
+
+                    match &metadata.representation {
+                        crate::ResponseRepresentationBinding::Json {
+                            schema_name,
+                            media_type,
+                        } => {
+                            require_nonempty(
+                                &format!(
+                                    "bindings.operations.{key}.metadata.representation.schema_name"
+                                ),
+                                schema_name,
+                            )?;
+                            require_nonempty(
+                                &format!(
+                                    "bindings.operations.{key}.metadata.representation.media_type"
+                                ),
+                                media_type,
+                            )?;
+                        }
+                        crate::ResponseRepresentationBinding::Text { media_type }
+                        | crate::ResponseRepresentationBinding::EventStream { media_type }
+                        | crate::ResponseRepresentationBinding::BinaryBuffered {
+                            media_type, ..
+                        }
+                        | crate::ResponseRepresentationBinding::BinaryStream {
+                            media_type, ..
+                        } => {
+                            require_nonempty(
+                                &format!(
+                                    "bindings.operations.{key}.metadata.representation.media_type"
+                                ),
+                                media_type,
+                            )?;
+                        }
+                        crate::ResponseRepresentationBinding::Empty => {}
+                    }
+
+                    let mut parameter_names = BTreeSet::new();
+                    let mut parameter_wires = BTreeSet::new();
+                    for (index, wire) in metadata.parameter_wires.iter().enumerate() {
+                        let context =
+                            format!("bindings.operations.{key}.metadata.parameter_wires[{index}]");
+                        require_nonempty(&format!("{context}.rust_name"), &wire.rust_name)?;
+                        require_nonempty(&format!("{context}.wire_name"), &wire.wire_name)?;
+                        if !matches!(wire.location.as_str(), "query" | "header") {
+                            return Err(invalid(
+                                format!("{context}.location"),
+                                "expected query or header",
+                            ));
+                        }
+                        let canonical_wire = if wire.location == "header" {
+                            wire.wire_name.to_ascii_lowercase()
+                        } else {
+                            wire.wire_name.clone()
+                        };
+                        if !parameter_names.insert(wire.rust_name.as_str())
+                            || !parameter_wires.insert((wire.location.as_str(), canonical_wire))
+                        {
+                            return Err(invalid(
+                                context,
+                                "duplicate Rust parameter or HTTP wire key",
+                            ));
+                        }
+                    }
 
                     for (index, discriminator) in metadata.request_discriminators.iter().enumerate()
                     {
@@ -366,6 +442,23 @@ impl Bindings {
                 }
                 _ => unreachable!("schema version validated above"),
             }
+        }
+        for (field, value) in [
+            ("type_path", self.binding.client.type_path.as_str()),
+            ("constructor", self.binding.client.constructor.as_str()),
+            (
+                "api_key_builder",
+                self.binding.client.api_key_builder.as_str(),
+            ),
+            (
+                "base_url_builder",
+                self.binding.client.base_url_builder.as_str(),
+            ),
+        ] {
+            require_nonempty(&format!("bindings.binding.client.{field}"), value)?;
+        }
+        for (index, prelude) in self.binding.type_preludes.iter().enumerate() {
+            require_nonempty(&format!("bindings.binding.type_preludes[{index}]"), prelude)?;
         }
         require_unique(
             "bindings.binding.type_preludes",

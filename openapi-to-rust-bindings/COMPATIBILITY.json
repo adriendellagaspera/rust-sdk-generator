@@ -21,6 +21,5 @@
     "overrides": "examples/independent-sdk/overrides.json",
     "consumer_fixture": "examples/independent-sdk/consumer",
     "supported_envelope": "openapi-to-rust-bindings/capabilities/v1/matrix.json"
-  },
-  "historical_oracle": "openapi-to-rust-bindings/LEGACY_COMPATIBILITY.json"
+  }
 }
