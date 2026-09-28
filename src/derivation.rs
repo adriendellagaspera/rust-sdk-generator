@@ -10,7 +10,9 @@ use crate::contracts::{
 use crate::error::{Diagnostic, GenerationError};
 use crate::naming::derive_public_paths;
 use crate::openapi::OpenApiIndex;
-use crate::projection::{insert_projection, project_operation};
+use crate::projection::{
+    ProjectionFailure, ProjectionRegistry, insert_projection, project_operation,
+};
 use crate::reconcile::{OperationMatch, reconcile};
 use crate::structural::request_optional_boolean_field;
 
@@ -20,20 +22,36 @@ use crate::structural::request_optional_boolean_field;
 /// remain authoritative for structural and transport decisions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct PublicModelSurface {
+    /// Stable Rust façade name for one OpenAPI component schema.
+    pub name: String,
+}
+
+/// Consumer-provided public resource, method and model naming evidence.
+///
+/// Schema v1 contains only client/operation naming and keeps operation-derived
+/// model names. Schema v2 additionally treats OpenAPI component-schema names as
+/// authoritative source-model identities. `models` may rename those identities;
+/// unnamed component schemas use their component name as the stable public base.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PublicSdkSurface {
     pub schema_version: u32,
     #[serde(default)]
     pub client: Option<String>,
     #[serde(default)]
     pub operations: BTreeMap<String, Vec<String>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub models: BTreeMap<String, PublicModelSurface>,
 }
 
 impl Default for PublicSdkSurface {
     fn default() -> Self {
         Self {
-            schema_version: 1,
+            schema_version: 2,
             client: None,
             operations: BTreeMap::new(),
+            models: BTreeMap::new(),
         }
     }
 }
@@ -208,12 +226,22 @@ fn operation_ids(openapi: &OpenApi) -> Result<BTreeSet<String>, DerivationError>
     Ok(result)
 }
 
+fn valid_public_model_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+        && !matches!(name, "Self" | "self" | "super" | "crate")
+}
+
 fn validate_evidence(
+    openapi: &OpenApi,
     operation_ids: &BTreeSet<String>,
     surface: &PublicSdkSurface,
     overrides: &SdkOverrides,
 ) -> Result<(), DerivationError> {
-    if surface.schema_version != 1 {
+    if !matches!(surface.schema_version, 1 | 2) {
         return Err(DerivationError::at(
             "surface.schema_version",
             "surface.schema_version",
@@ -222,6 +250,33 @@ fn validate_evidence(
                 surface.schema_version
             ),
         ));
+    }
+    if surface.schema_version == 1 && !surface.models.is_empty() {
+        return Err(DerivationError::at(
+            "surface.models_schema_version",
+            "surface.models",
+            "public model identities require PublicSdkSurface schema version 2",
+        ));
+    }
+    let schemas = openapi
+        .0
+        .pointer("/components/schemas")
+        .and_then(serde_json::Value::as_object);
+    for (source, model) in &surface.models {
+        if schemas.is_none_or(|schemas| !schemas.contains_key(source)) {
+            return Err(DerivationError::at(
+                "surface.unknown_model",
+                format!("surface.models.{source}"),
+                format!("PublicSdkSurface references unknown component schema {source}"),
+            ));
+        }
+        if !valid_public_model_name(&model.name) {
+            return Err(DerivationError::at(
+                "surface.invalid_model_name",
+                format!("surface.models.{source}.name"),
+                format!("public model name {:?} is not a Rust identifier", model.name),
+            ));
+        }
     }
     if overrides.schema_version != 1 {
         return Err(DerivationError::at(
@@ -535,7 +590,7 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
         .validate()
         .map_err(DerivationError::from_generation)?;
     let operation_ids = operation_ids(&openapi)?;
-    validate_evidence(&operation_ids, &surface, &overrides)?;
+    validate_evidence(&openapi, &operation_ids, &surface, &overrides)?;
     let naming =
         derive_public_paths(&openapi, &surface).map_err(DerivationError::from_generation)?;
     let reconciliation =
@@ -565,6 +620,13 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
         models: Default::default(),
         resources: Default::default(),
     };
+    let public_models: BTreeMap<String, String> = surface
+        .models
+        .iter()
+        .map(|(source, model)| (source.clone(), model.name.clone()))
+        .collect();
+    let stable_model_identity = surface.schema_version >= 2;
+    let mut projection_registry = ProjectionRegistry::default();
     let mut operations = BTreeMap::new();
     for operation_id in operation_ids {
         let named = naming.get(&operation_id).ok_or_else(|| {
@@ -668,17 +730,32 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                         })
                         .collect();
                 let mut candidate = definition.clone();
-                let projection = selections.and_then(|selections| {
-                    for (path, binding) in &selections {
-                        let projected =
-                            project_operation(&index, &bindings, &operation_id, binding, path)?;
-                        insert_projection(&mut candidate, projected)?;
-                    }
-                    Ok(selections)
-                });
+                let mut candidate_registry = projection_registry.clone();
+                let projection: std::result::Result<_, ProjectionFailure> = selections
+                    .map_err(ProjectionFailure::from)
+                    .and_then(|selections| {
+                        for (path, binding) in &selections {
+                            let projected = project_operation(
+                                &index,
+                                &bindings,
+                                &operation_id,
+                                binding,
+                                path,
+                                stable_model_identity,
+                                &public_models,
+                            )?;
+                            insert_projection(
+                                &mut candidate,
+                                &mut candidate_registry,
+                                projected,
+                            )?;
+                        }
+                        Ok(selections)
+                    });
                 match projection {
                     Ok(selections) => {
                         definition = candidate;
+                        projection_registry = candidate_registry;
                         let unique: BTreeSet<_> = selections.values().cloned().collect();
                         let binding = (unique.len() == 1)
                             .then(|| unique.into_iter().next().expect("single binding"));
@@ -700,8 +777,8 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                     Err(reason) => OperationDerivation {
                         status: DerivationStatus::Rejected,
                         reason: DerivationReason {
-                            code: reason.into(),
-                            detail: None,
+                            code: reason.code,
+                            detail: reason.detail,
                         },
                         public_paths,
                         public_path,
