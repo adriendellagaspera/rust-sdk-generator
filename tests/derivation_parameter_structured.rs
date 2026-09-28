@@ -136,20 +136,12 @@ fn projects_optional_structured_query_parameter_without_backend_leak() {
         .join("\n");
 
     assert!(rendered.contains("pub struct ListWidgetsRequestQueryFilters"));
-    assert!(rendered.contains(
-        "pub fn active(mut self, active: bool) -> Self"
-    ));
+    assert!(rendered.contains("pub fn active(mut self, active: bool) -> Self"));
     assert!(rendered.contains("pub fn active_null(mut self) -> Self"));
-    assert!(rendered.contains(
-        "query_filters: Option<ListWidgetsRequestQueryFilters>"
-    ));
+    assert!(rendered.contains("query_filters: Option<ListWidgetsRequestQueryFilters>"));
     assert!(rendered.contains(
         "impl __RustSdkIntoRaw<OpaqueFilters> for ListWidgetsRequestQueryFilters"
     ));
-    assert!(rendered.contains(
-        "request.query_filters.map(__RustSdkIntoRaw::into_raw)"
-    ));
-    assert!(!rendered.contains(
-        "Option<crate::generated::types::OpaqueFilters>"
-    ));
+    assert!(rendered.contains("request.query_filters.map(__RustSdkIntoRaw::into_raw)"));
+    assert!(!rendered.contains("Option<crate::generated::types::OpaqueFilters>"));
 }
