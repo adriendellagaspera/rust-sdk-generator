@@ -163,7 +163,8 @@ fn rejects_constant_value_and_optional_depth_drift() {
 #[test]
 fn preserves_named_response_provenance_for_inline_string_enum_fields() {
     let (mut openapi, mut bindings, surface) = fixture();
-    openapi.0["components"]["schemas"]["ArchivedReport"]["properties"]["finish_reason"] = serde_json::json!({
+    openapi.0["components"]["schemas"]["ArchivedReport"]["properties"]["finish_reason"] =
+        serde_json::json!({
         "type": "string",
         "enum": ["stop", "length"]
     });
