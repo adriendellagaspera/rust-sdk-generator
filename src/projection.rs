@@ -1008,13 +1008,17 @@ fn unwrap_nullable_schema(schema: &Value) -> &Value {
     }
 }
 
+struct ResponseModelContext<'a> {
+    openapi: &'a OpenApiIndex,
+    bindings: &'a Bindings,
+    naming: &'a ModelNaming<'a>,
+}
+
 // A child is projected only after the complete parent wire shape has been
 // proven. The active raw-type set prevents recursive schemas from expanding
 // indefinitely; no partially projected model escapes on failure.
 fn response_object_models(
-    openapi: &OpenApiIndex,
-    bindings: &Bindings,
-    naming: &ModelNaming<'_>,
+    context: &ResponseModelContext<'_>,
     schema: &Value,
     raw: &str,
     name: String,
@@ -1024,23 +1028,22 @@ fn response_object_models(
     if !active.insert(raw.to_owned()) {
         return Err(RESPONSE_VIEW_UNPROVEN);
     }
-    let result = response_object_models_inner(
-        openapi, bindings, naming, schema, raw, name, borrowed, active,
-    );
+    let result = response_object_models_inner(context, schema, raw, name, borrowed, active);
     active.remove(raw);
     result
 }
 
 fn response_object_models_inner(
-    openapi: &OpenApiIndex,
-    bindings: &Bindings,
-    naming: &ModelNaming<'_>,
+    context: &ResponseModelContext<'_>,
     schema: &Value,
     raw: &str,
     name: String,
     borrowed: bool,
     active: &mut BTreeSet<String>,
 ) -> Result<ProjectedModels, &'static str> {
+    let openapi = context.openapi;
+    let bindings = context.bindings;
+    let naming = context.naming;
     if !public_model_name_available(&name, bindings) {
         return Err("capability.public_model_name_collision");
     }
@@ -1143,9 +1146,7 @@ fn response_object_models_inner(
                 child_fallback.clone()
             };
             let Ok(child_models) = response_object_models(
-                openapi,
-                bindings,
-                naming,
+                context,
                 &child_schema,
                 &value.spelling,
                 child_name.clone(),
@@ -1339,10 +1340,13 @@ fn response_view_for_schema_named(
     {
         return Err(RESPONSE_VIEW_UNPROVEN);
     }
-    if let Ok(mut models) = response_object_models(
+    let context = ResponseModelContext {
         openapi,
         bindings,
         naming,
+    };
+    if let Ok(mut models) = response_object_models(
+        &context,
         &schema,
         raw,
         name.clone(),
@@ -1421,10 +1425,13 @@ fn inline_response_view_named(
     name: String,
 ) -> Result<(String, ProjectedModels), &'static str> {
     if object_value_matches(openapi, schema, raw, bindings) {
-        let models = response_object_models(
+        let context = ResponseModelContext {
             openapi,
             bindings,
             naming,
+        };
+        let models = response_object_models(
+            &context,
             schema,
             raw,
             name.clone(),
@@ -2979,7 +2986,6 @@ pub(crate) fn insert_projection(
     Ok(())
 }
 
-
 #[cfg(test)]
 mod model_identity_tests {
     use super::*;
@@ -3102,13 +3108,21 @@ mod model_identity_tests {
         let naming = ModelNaming::new(true, &explicit);
         assert_eq!(
             naming
-                .named("FirstSchema", ModelRepresentation::Owned, "FallbackOne".into())
+                .named(
+                    "FirstSchema",
+                    ModelRepresentation::Owned,
+                    "FallbackOne".into(),
+                )
                 .expect("first identity"),
             "FirstSchema"
         );
         assert_eq!(
             naming
-                .named("SecondSchema", ModelRepresentation::Owned, "FallbackTwo".into())
+                .named(
+                    "SecondSchema",
+                    ModelRepresentation::Owned,
+                    "FallbackTwo".into(),
+                )
                 .expect("second identity"),
             "SecondSchema"
         );
