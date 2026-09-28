@@ -1791,6 +1791,7 @@ fn parameter_schema<'a>(
 }
 
 fn parameter_scalar_enum_model(
+    openapi: &OpenApiIndex,
     resource: &ResourceSpec,
     operation_name: &str,
     raw_operation: &OperationBinding,
@@ -1806,8 +1807,31 @@ fn parameter_scalar_enum_model(
     if core.kind != TypeKind::Opaque || !bindings.enums.contains_key(&core.spelling) {
         return Ok(None);
     }
-    let Some(schema) = parameter_schema(wire_operation, raw_operation, parameter) else {
+    let Some(source_schema) = parameter_schema(wire_operation, raw_operation, parameter) else {
         return Ok(None);
+    };
+    let schema = if let Some(reference) = ref_name(source_schema) {
+        let annotation_only_ref = source_schema.as_object().is_some_and(|object| {
+            object.keys().all(|key| {
+                matches!(
+                    key.as_str(),
+                    "$ref"
+                        | "title"
+                        | "description"
+                        | "default"
+                        | "example"
+                        | "examples"
+                        | "deprecated"
+                        | "$comment"
+                )
+            })
+        });
+        if !annotation_only_ref {
+            return Ok(None);
+        }
+        openapi.schema(reference)?
+    } else {
+        source_schema
     };
     if schema.get("type").and_then(Value::as_str) != Some("string") {
         return Ok(None);
@@ -1868,6 +1892,7 @@ fn parameter_scalar_enum_model(
 }
 
 fn parameter_scalar_enum_models(
+    openapi: &OpenApiIndex,
     resource: &ResourceSpec,
     operation_name: &str,
     raw_operation: &OperationBinding,
@@ -1879,6 +1904,7 @@ fn parameter_scalar_enum_models(
     let mut adapters = BTreeMap::new();
     for parameter in parameters {
         let Some(model) = parameter_scalar_enum_model(
+            openapi,
             resource,
             operation_name,
             raw_operation,
@@ -3331,6 +3357,7 @@ pub(crate) fn lower(
                 })
                 .collect::<Vec<_>>();
             let parameter_adapters = parameter_scalar_enum_models(
+                &index,
                 &resource,
                 public_name,
                 raw_operation,
