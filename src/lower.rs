@@ -1083,7 +1083,9 @@ fn resolve_map(
         ));
     }
     let raw_value = mapping.arguments[1].clone();
-    if !map_value_matches_schema(openapi, additional, &raw_value.spelling, bindings) {
+    if !rust_type_matches_schema(&schema, raw, bindings)
+        && !map_value_matches_schema(openapi, additional, &raw_value.spelling, bindings)
+    {
         return Err(error(
             "lower.map_value",
             format!(
