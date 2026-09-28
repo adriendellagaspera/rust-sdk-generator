@@ -1168,6 +1168,14 @@ fn response_view_for_schema_named(
     let schema = openapi
         .object_schema(schema_name)
         .map_err(|_| RESPONSE_VIEW_UNPROVEN)?;
+    if schema
+        .get("properties")
+        .and_then(Value::as_object)
+        .is_some_and(|properties| properties.values().any(|property| property.get("const").is_some()))
+        && !constant_enum_response_object_matches(&schema, raw, bindings)
+    {
+        return Err(RESPONSE_VIEW_UNPROVEN);
+    }
     if let Ok(mut models) = response_object_models(
         openapi,
         bindings,
