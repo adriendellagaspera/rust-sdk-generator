@@ -367,6 +367,14 @@ pub enum ResponseRepresentationDefinition {
     BinaryStream,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ParameterAdapterDefinition {
+    pub model: String,
+    pub location: String,
+    pub wire_name: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OperationDefinition {
@@ -389,6 +397,8 @@ pub struct OperationDefinition {
     pub stream: Option<StreamDefinition>,
     #[serde(default)]
     pub request_overrides: Option<IndexMap<String, Option<bool>>>,
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub parameter_adapters: IndexMap<String, ParameterAdapterDefinition>,
     #[serde(default)]
     pub multipart_filenames: Option<bool>,
 }
