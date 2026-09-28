@@ -1504,7 +1504,6 @@ fn inline_array_response_model(
         return Err(RESPONSE_VIEW_UNPROVEN);
     }
 
-    let name = response_model_name(resource_path, public_name);
     if !public_model_name_available(&name, bindings) {
         return Err("capability.public_model_name_collision");
     }
@@ -1691,8 +1690,7 @@ fn alias_response_model(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
     raw: &str,
-    resource_path: &[String],
-    public_name: &str,
+    name: String,
 ) -> Result<(String, ModelDefinition), &'static str> {
     let alias = bindings.aliases.get(raw).ok_or(RESPONSE_VIEW_UNPROVEN)?;
     let syntax = parse_type(alias).map_err(|_| RESPONSE_VIEW_UNPROVEN)?;
@@ -1731,8 +1729,7 @@ fn map_response_model(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
     raw: &str,
-    resource_path: &[String],
-    public_name: &str,
+    name: String,
 ) -> Result<(String, ModelDefinition), &'static str> {
     let schema = openapi.schema(raw).map_err(|_| RESPONSE_VIEW_UNPROVEN)?;
     if schema.get("type").and_then(Value::as_str) != Some("object")
@@ -1769,7 +1766,6 @@ fn map_response_model(
         return Err(RESPONSE_VIEW_UNPROVEN);
     }
 
-    let name = response_model_name(resource_path, public_name);
     if !public_model_name_available(&name, bindings) {
         return Err("capability.public_model_name_collision");
     }
@@ -1801,8 +1797,7 @@ fn scalar_enum_response_model(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
     raw: &str,
-    resource_path: &[String],
-    public_name: &str,
+    name: String,
 ) -> Result<(String, ModelDefinition), &'static str> {
     let schema = openapi.schema(raw).map_err(|_| RESPONSE_VIEW_UNPROVEN)?;
     let values = schema
@@ -1832,7 +1827,6 @@ fn scalar_enum_response_model(
         return Err(RESPONSE_VIEW_UNPROVEN);
     }
 
-    let name = response_model_name(resource_path, public_name);
     if !public_model_name_available(&name, bindings) {
         return Err("capability.public_model_name_collision");
     }
@@ -1863,13 +1857,18 @@ fn scalar_enum_response_model(
 fn response_model(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
+    naming: &ModelNaming<'_>,
     raw: &str,
     resource_path: &[String],
     public_name: &str,
 ) -> Result<(String, ProjectedModels), &'static str> {
+    let name = naming.named(
+        raw,
+        ModelRepresentation::Owned,
+        response_model_name(resource_path, public_name),
+    )?;
     if bindings.aliases.contains_key(raw) {
-        let (name, model) =
-            alias_response_model(openapi, bindings, raw, resource_path, public_name)?;
+        let (name, model) = alias_response_model(openapi, bindings, raw, name)?;
         return Ok((name.clone(), vec![(name, model)]));
     }
     if bindings.structs.contains_key(raw) {
@@ -1883,15 +1882,13 @@ fn response_model(
                 .and_then(Value::as_object)
                 .is_none_or(|properties| properties.is_empty())
         {
-            let (name, model) =
-                map_response_model(openapi, bindings, raw, resource_path, public_name)?;
+            let (name, model) = map_response_model(openapi, bindings, raw, name)?;
             return Ok((name.clone(), vec![(name, model)]));
         }
-        return response_view(openapi, bindings, raw, resource_path, public_name);
+        return response_view_named(openapi, bindings, naming, raw, name);
     }
     if bindings.enums.contains_key(raw) {
-        let (name, model) =
-            scalar_enum_response_model(openapi, bindings, raw, resource_path, public_name)?;
+        let (name, model) = scalar_enum_response_model(openapi, bindings, raw, name)?;
         return Ok((name.clone(), vec![(name, model)]));
     }
     Err(RESPONSE_VIEW_UNPROVEN)
@@ -1900,10 +1897,10 @@ fn response_model(
 fn inline_union_response_model(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
+    naming: &ModelNaming<'_>,
     schema: &Value,
     raw_union: &str,
-    resource_path: &[String],
-    public_name: &str,
+    union_name: String,
 ) -> Result<(String, ProjectedModels), &'static str> {
     let branches = schema
         .get("oneOf")
@@ -1916,7 +1913,6 @@ fn inline_union_response_model(
         return Err(RESPONSE_UNION_REQUIRED);
     }
 
-    let union_name = response_model_name(resource_path, public_name);
     if !public_model_name_available(&union_name, bindings) {
         return Err("capability.public_model_name_collision");
     }
@@ -1932,7 +1928,7 @@ fn inline_union_response_model(
         let public_variant = format!("Variant{}", index + 1);
         let branch_name = format!("{union_name}{public_variant}");
         let (adapter, branch_model) =
-            inline_response_view_named(openapi, bindings, branch, &raw_payload, branch_name)
+            inline_response_view_named(openapi, bindings, naming, branch, &raw_payload, branch_name)
                 .map_err(|_| RESPONSE_UNION_REQUIRED)?;
         models.extend(branch_model);
         variants.insert(
@@ -1972,10 +1968,10 @@ fn inline_union_response_model(
 fn union_response_model(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
+    naming: &ModelNaming<'_>,
     schema: &Value,
     raw_union: &str,
-    resource_path: &[String],
-    public_name: &str,
+    union_name: String,
 ) -> Result<(String, ProjectedModels), &'static str> {
     let branches = schema
         .get("oneOf")
@@ -1993,10 +1989,10 @@ fn union_response_model(
         match inline_union_response_model(
             openapi,
             bindings,
+            naming,
             schema,
             raw_union,
-            resource_path,
-            public_name,
+            union_name.clone(),
         ) {
             Ok(projected) => return Ok(projected),
             Err(RESPONSE_UNION_REQUIRED)
@@ -2004,7 +2000,7 @@ fn union_response_model(
                     && (rust_type_matches_schema(schema, raw_union, bindings)
                         || response_array_union_matches(openapi, schema, raw_union, bindings)) =>
             {
-                let name = response_model_name(resource_path, public_name);
+                let name = union_name.clone();
                 if !public_model_name_available(&name, bindings) {
                     return Err("capability.public_model_name_collision");
                 }
@@ -2058,7 +2054,6 @@ fn union_response_model(
         return Err(RESPONSE_UNION_REQUIRED);
     }
 
-    let union_name = response_model_name(resource_path, public_name);
     if !public_model_name_available(&union_name, bindings) {
         return Err("capability.public_model_name_collision");
     }
@@ -2073,9 +2068,13 @@ fn union_response_model(
         if !public_variants.insert(public_variant.clone()) {
             return Err("capability.public_model_name_collision");
         }
-        let branch_name = format!("{union_name}{public_variant}");
+        let branch_name = naming.named(
+            &reference,
+            ModelRepresentation::Owned,
+            format!("{union_name}{public_variant}"),
+        )?;
         let (adapter, branch_model) =
-            response_view_named(openapi, bindings, &reference, branch_name)
+            response_view_named(openapi, bindings, naming, &reference, branch_name)
                 .map_err(|_| RESPONSE_UNION_REQUIRED)?;
         models.extend(branch_model);
         let raw_variant = payload_to_variant
