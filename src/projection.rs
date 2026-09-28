@@ -581,12 +581,23 @@ fn request_object_models_value(
     for (field_name, property) in properties {
         let normalized_nullable =
             nullable_request_union(property).or_else(|| legacy_nullable_request_property(property));
-        let wire = normalized_nullable
-            .as_ref()
-            .unwrap_or_else(|| request_non_null_schema(property).0);
+        let (non_null, directly_nullable) = request_non_null_schema(property);
+        let referenced_nullable = ref_name(property)
+            .and_then(|reference| context.openapi.schema(reference).ok())
+            .is_some_and(|referenced| {
+                nullable_request_union(referenced).is_some()
+                    || legacy_nullable_request_property(referenced).is_some()
+                    || request_non_null_schema(referenced).1
+            });
+        let nullable =
+            normalized_nullable.is_some() || directly_nullable || referenced_nullable;
+        let wire = normalized_nullable.as_ref().unwrap_or(non_null);
         let field = by_name
             .get(field_name.as_str())
             .ok_or(REQUEST_MODEL_UNPROVEN)?;
+        if required.contains(field_name) && nullable && field.serialized_presence.is_none() {
+            return Err(REQUEST_MODEL_UNPROVEN);
+        }
         let (core, _) = request_raw_core(&field.type_name)?;
         let segment = semantic_pascal_identifier(field_name).map_err(|_| REQUEST_MODEL_UNPROVEN)?;
         let child_name = format!("{public_name}{segment}");
