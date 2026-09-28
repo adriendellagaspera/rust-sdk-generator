@@ -1284,7 +1284,11 @@ mod tests {
             runtime: Runtime::default(),
         };
         let report = crate::inspect_public_facade(&generate_input).expect("inspect public façade");
-        assert_eq!(report.consumer_leaks().count(), 0);
+        let consumer_leaks: Vec<_> = report.consumer_leaks().collect();
+        assert!(
+            consumer_leaks.is_empty(),
+            "consumer-signature leaks: {consumer_leaks:#?}"
+        );
 
         let generated = crate::generate(generate_input).expect("generate stable public models");
         let facade_types = &generated.files["facade_types.rs"];
@@ -1336,6 +1340,20 @@ mod tests {
             .clone();
         let mut duplicate = operation;
         duplicate["operationId"] = serde_json::json!("read_sensor_again");
+        duplicate["parameters"] = serde_json::json!([
+            {
+                "name": "sensor_id",
+                "in": "path",
+                "required": true,
+                "schema": {"type": "string"}
+            },
+            {
+                "name": "alternate",
+                "in": "query",
+                "required": false,
+                "schema": {"type": "boolean"}
+            }
+        ]);
         input
             .openapi
             .0
@@ -1346,6 +1364,18 @@ mod tests {
                 "/alternate-sensors/{sensor_id}".into(),
                 serde_json::json!({"get": duplicate}),
             );
+        let mut alternate_binding = input.bindings.operations["opaque_read"].clone();
+        alternate_binding.name = "opaque_read_again".into();
+        alternate_binding
+            .parameters
+            .iter_mut()
+            .find(|parameter| parameter.name == "detail")
+            .expect("detail parameter")
+            .name = "alternate".into();
+        input
+            .bindings
+            .operations
+            .insert("opaque_read_again".into(), alternate_binding);
         input.surface.operations.insert(
             "read_sensor_again".into(),
             vec!["fleet.sensors.get_again".into()],
