@@ -270,6 +270,18 @@ fn resolve_wrapper(
     let fields = field_map(bindings, raw)?;
     let constructor_fields = model.constructor.clone().unwrap_or_default();
     let adapters = model.adapters.clone().unwrap_or_default();
+    let flattened_additional_properties = model
+        .schema
+        .as_deref()
+        .and_then(|root| {
+            schema_at(
+                openapi,
+                root,
+                model.schema_path.as_deref().unwrap_or_default(),
+            )
+            .ok()
+        })
+        .is_some_and(|schema| flattened_json_response_object_matches(&schema, raw, bindings));
     let mut constructor = None;
     if model.constructor.is_some() || model.union_factory.is_none() {
         let mut arguments = Vec::new();
@@ -289,6 +301,12 @@ fn resolve_wrapper(
             )?;
             arguments.push(argument);
             values.insert(field_name.clone(), value);
+        }
+        if flattened_additional_properties {
+            values.insert(
+                "additional_properties".into(),
+                ValueSpec::Literal("Default::default()".into()),
+            );
         }
         constructor = Some(ConstructorSpec {
             arguments,
@@ -405,6 +423,17 @@ fn resolve_wrapper(
             continue;
         }
         let Some((inner, depth)) = option(&field.type_name)? else {
+            if flattened_additional_properties && name == "additional_properties" {
+                let (argument, value) = argument(name, &field.type_name)?;
+                setters.push(SetterSpec {
+                    name: field_identifier(name)?,
+                    raw_field: field.name.clone(),
+                    argument,
+                    value,
+                    null_name: None,
+                });
+                continue;
+            }
             return Err(error(
                 "lower.required_field_review",
                 format!(
