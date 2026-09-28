@@ -1000,3 +1000,96 @@ fn derives_lossless_unchecked_json_attributes_map_without_claiming_typed_values(
         DerivationStatus::Rejected
     );
 }
+
+
+#[test]
+fn projects_map_values_through_public_adapters() {
+    let (mut openapi, mut bindings, surface) = fixture();
+    openapi.0["components"]["schemas"]["HeaderValue"] = serde_json::json!({
+        "type": "object",
+        "properties": {"value": {"type": "string"}},
+        "required": ["value"]
+    });
+    openapi.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["headers"] = serde_json::json!({
+        "type": "object",
+        "additionalProperties": {"$ref": "#/components/schemas/HeaderValue"}
+    });
+
+    bindings
+        .structs
+        .get_mut("OpaqueRequest9")
+        .expect("root binding")
+        .push(rust_sdk_generator::FieldBinding {
+            name: "headers".into(),
+            wire_name: None,
+            type_name: "Option<OpaqueHeaders>".into(),
+            serialized_presence: Some(rust_sdk_generator::SerializedPresenceBinding::OmitIfNone),
+        });
+    bindings.structs.insert(
+        "OpaqueHeaders".into(),
+        vec![rust_sdk_generator::FieldBinding {
+            name: "additional_properties".into(),
+            wire_name: None,
+            type_name: "std::collections::BTreeMap<String, OpaqueHeaderValue>".into(),
+            serialized_presence: Some(rust_sdk_generator::SerializedPresenceBinding::Always),
+        }],
+    );
+    bindings.structs.insert(
+        "OpaqueHeaderValue".into(),
+        vec![rust_sdk_generator::FieldBinding {
+            name: "value".into(),
+            wire_name: None,
+            type_name: "String".into(),
+            serialized_presence: Some(rust_sdk_generator::SerializedPresenceBinding::Always),
+        }],
+    );
+    bindings.symbol_paths.insert(
+        "OpaqueHeaders".into(),
+        "crate::generated::types::OpaqueHeaders".into(),
+    );
+    bindings.symbol_paths.insert(
+        "OpaqueHeaderValue".into(),
+        "crate::generated::types::OpaqueHeaderValue".into(),
+    );
+
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive map value projection");
+
+    let map_name = "CreatePlatformWidgetsRequestHeaders";
+    let value_name = "CreatePlatformWidgetsRequestHeadersValue";
+    let root = &derivation.definition.models["CreatePlatformWidgetsRequest"];
+    assert_eq!(
+        root.adapters.as_ref().expect("root adapters")["headers"],
+        map_name
+    );
+    let map = derivation.definition.models[map_name]
+        .map
+        .as_ref()
+        .expect("map policy");
+    assert_eq!(map.value_adapter.as_deref(), Some(value_name));
+    assert!(derivation.definition.models.contains_key(value_name));
+
+    let generated = generate(GenerateInput {
+        openapi,
+        bindings,
+        definition: derivation.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("adapted map generates");
+
+    let types = &generated.files["facade_types.rs"];
+    assert!(types.contains(&format!(
+        "values: std::collections::BTreeMap<String, {value_name}>"
+    )));
+    assert!(types.contains(
+        "value.additional_properties.into_iter().map(|(key, value)| (key, __RustSdkFromRaw::from_raw(value))).collect()"
+    ));
+    assert!(types.contains(
+        "self.values.into_iter().map(|(key, value)| (key, __RustSdkIntoRaw::into_raw(value))).collect()"
+    ));
+}
