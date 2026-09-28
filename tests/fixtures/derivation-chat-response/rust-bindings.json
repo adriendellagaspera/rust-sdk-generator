@@ -1,0 +1,84 @@
+{
+  "schema_version": 2,
+  "structs": {
+    "ChatCompletionResponse": [
+      {
+        "name": "choices",
+        "type": "Vec<ChatCompletionChoice>"
+      },
+      {
+        "name": "id",
+        "type": "String"
+      },
+      {
+        "name": "model",
+        "type": "String"
+      },
+      {
+        "name": "created",
+        "type": "i64"
+      },
+      {
+        "name": "usage",
+        "type": "UsageInfo"
+      }
+    ],
+    "ChatCompletionChoice": [
+      {
+        "name": "index",
+        "type": "i64"
+      },
+      {
+        "name": "message",
+        "type": "Option<AssistantMessage>"
+      }
+    ],
+    "AssistantMessage": [
+      {
+        "name": "role",
+        "type": "String"
+      },
+      {
+        "name": "content",
+        "type": "Option<String>"
+      }
+    ],
+    "UsageInfo": [
+      {
+        "name": "total_tokens",
+        "type": "i64"
+      },
+      {
+        "name": "service_tier",
+        "type": "Option<Option<String>>"
+      }
+    ]
+  },
+  "enums": {},
+  "aliases": {},
+  "operations": {
+    "complete_chat": {
+      "name": "complete_chat",
+      "parameters": [],
+      "return_type": "Result<ChatCompletionResponse, Error>",
+      "success_type": "ChatCompletionResponse"
+    }
+  },
+  "symbol_paths": {
+    "ChatCompletionResponse": "crate::generated::types::ChatCompletionResponse",
+    "ChatCompletionChoice": "crate::generated::types::ChatCompletionChoice",
+    "AssistantMessage": "crate::generated::types::AssistantMessage",
+    "UsageInfo": "crate::generated::types::UsageInfo"
+  },
+  "binding": {
+    "client": {
+      "type_path": "crate::generated::client::HttpClient",
+      "constructor": "new",
+      "api_key_builder": "with_api_key",
+      "base_url_builder": "with_base_url"
+    },
+    "type_preludes": [
+      "crate::generated::types::*"
+    ]
+  }
+}

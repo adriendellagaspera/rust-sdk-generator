@@ -308,6 +308,12 @@ pub enum AccessorKindDefinition {
     OptionalRef,
     Iter,
     FirstStringVariant,
+    View,
+    OptionalView,
+    OptionalIter,
+    Converted,
+    OptionalConverted,
+    ConvertedIter,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
