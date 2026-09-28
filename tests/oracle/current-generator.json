@@ -1,7 +1,7 @@
 {
   "library": {
     "catalog.rs": "ac699f5afb68949826b84dca750762f1accc578bd8bcdcbf0921d9509743ebc1",
-    "catalog_books.rs": "78f64dc797535dcd3e4489b97419139df4dd2731aab261dac74ef4c00ea670d4",
+    "catalog_books.rs": "7e0616e37e1ee5bfa93dfd2cedd4fcf3112f304ba2491ec01f5deb4eaa972c23",
     "facade_types.rs": "5c58e184b2028fe9ae8bb5ab0f15a3f31beac6ce9adaf9661453ead75747393a",
     "mod.rs": "1ef83abc246b08a4fb197431a0a5da2a2373cb43fd0ce6450335b6b45df227c6"
   },
