@@ -93,8 +93,8 @@ fn mismatched_or_unproven_presence_semantics_reject_projection() {
 
     for (index, presence) in cases {
         let mut candidate = bindings.clone();
-        candidate.structs.get_mut("OpaqueRequest").expect("request")[index]
-            .serialized_presence = Some(presence);
+        candidate.structs.get_mut("OpaqueRequest").expect("request")[index].serialized_presence =
+            Some(presence);
         let result = derive_fixture(openapi.clone(), candidate, surface.clone());
         let outcome = &result.report.operations["create_message"];
         assert_eq!(outcome.status, DerivationStatus::Rejected);
