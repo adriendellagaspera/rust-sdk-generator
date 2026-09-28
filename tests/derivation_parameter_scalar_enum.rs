@@ -106,6 +106,14 @@ fn projects_required_scalar_enum_direct_parameter_without_backend_leak() {
     let openapi = OpenApi(serde_json::json!({
         "openapi": "3.1.0",
         "info": {"title": "Required parameter enum fixture", "version": "1"},
+        "components": {
+            "schemas": {
+                "VoiceKind": {
+                    "type": "string",
+                    "enum": ["preset", "generated"]
+                }
+            }
+        },
         "paths": {
             "/voices/current": {
                 "get": {
@@ -116,8 +124,7 @@ fn projects_required_scalar_enum_direct_parameter_without_backend_leak() {
                             "in": "query",
                             "required": true,
                             "schema": {
-                                "type": "string",
-                                "enum": ["preset", "generated"]
+                                "$ref": "#/components/schemas/VoiceKind"
                             }
                         }
                     ],
