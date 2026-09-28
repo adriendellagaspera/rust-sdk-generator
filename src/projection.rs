@@ -1504,6 +1504,7 @@ fn inline_array_response_model(
         return Err(RESPONSE_VIEW_UNPROVEN);
     }
 
+    let name = response_model_name(resource_path, public_name);
     if !public_model_name_available(&name, bindings) {
         return Err("capability.public_model_name_collision");
     }
@@ -1696,7 +1697,6 @@ fn alias_response_model(
         return Err(RESPONSE_VIEW_UNPROVEN);
     }
 
-    let name = response_model_name(resource_path, public_name);
     if !public_model_name_available(&name, bindings) {
         return Err("capability.public_model_name_collision");
     }
@@ -2696,7 +2696,7 @@ pub(crate) fn project_operation(
     let mut path: Vec<_> = public_path.split('.').map(str::to_owned).collect();
     let public_name = path.pop().ok_or("surface.invalid_public_path")?;
     if path.is_empty() || public_name.is_empty() {
-        return Err("surface.invalid_public_path");
+        return Err("surface.invalid_public_path".into());
     }
 
     let naming = ModelNaming::new(stable_model_identity, public_models);
@@ -2740,7 +2740,7 @@ pub(crate) fn project_operation(
     )?;
     let multipart_filenames = match multipart_filenames_binding(bindings, binding)? {
         Some(_) if request_media == Some(RequestMediaDefinition::MultipartFormData) => Some(true),
-        Some(_) => return Err("capability.multipart_filenames_requires_multipart"),
+        Some(_) => return Err("capability.multipart_filenames_requires_multipart".into()),
         None => None,
     };
     let canonical_response = bindings.operations[binding]
