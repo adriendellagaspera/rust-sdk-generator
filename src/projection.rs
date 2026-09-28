@@ -97,6 +97,11 @@ impl<'a> ModelNaming<'a> {
     fn identities(&self) -> BTreeMap<String, BTreeSet<ModelIdentity>> {
         self.identities.borrow().clone()
     }
+
+    fn public_name_available(&self, name: &str, bindings: &Bindings) -> bool {
+        public_model_name_available(name, bindings)
+            || self.identities.borrow().contains_key(name)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -227,8 +232,11 @@ fn stream_type_name(resource_path: &[String], public_name: &str) -> String {
     )
 }
 
-fn public_model_name_available(name: &str, _bindings: &Bindings) -> bool {
+fn public_model_name_available(name: &str, bindings: &Bindings) -> bool {
     !name.is_empty()
+        && !bindings.structs.contains_key(name)
+        && !bindings.enums.contains_key(name)
+        && !bindings.aliases.contains_key(name)
 }
 
 fn request_non_null_schema(schema: &Value) -> (&Value, bool) {
@@ -290,7 +298,7 @@ fn request_union_models(
             seen,
         );
     };
-    if !public_model_name_available(&public_name, context.bindings) {
+    if !context.naming.public_name_available(&public_name, context.bindings) {
         return Err("capability.public_model_name_collision");
     }
 
@@ -515,7 +523,7 @@ fn request_value_adapter_models(
     }
 
     if canonical_unconstrained_map_branch(schema, &syntax.spelling, context.bindings) {
-        if !public_model_name_available(&public_name, context.bindings) {
+        if !context.naming.public_name_available(&public_name, context.bindings) {
             return Err("capability.public_model_name_collision");
         }
         return Ok((
@@ -574,7 +582,7 @@ fn request_value_union_models(
 ) -> Result<ProjectedModels, &'static str> {
     let mapping = request_value_union_mapping(context.openapi, schema, raw_union, context.bindings)
         .ok_or(REQUEST_MODEL_UNPROVEN)?;
-    if !public_model_name_available(&public_name, context.bindings) {
+    if !context.naming.public_name_available(&public_name, context.bindings) {
         return Err("capability.public_model_name_collision");
     }
 
@@ -752,7 +760,7 @@ fn request_object_models_value(
                 && context.bindings.enums.contains_key(&core.spelling)
                 && rust_type_matches_schema(referenced, &core.spelling, context.bindings)
             {
-                if !public_model_name_available(&child_name, context.bindings) {
+                if !context.naming.public_name_available(&child_name, context.bindings) {
                     return Err("capability.public_model_name_collision");
                 }
                 models.push((
@@ -865,7 +873,7 @@ fn request_object_models_value(
         }
     }
 
-    if !public_model_name_available(&public_name, context.bindings) {
+    if !context.naming.public_name_available(&public_name, context.bindings) {
         return Err("capability.public_model_name_collision");
     }
     models.push((
@@ -1025,7 +1033,7 @@ fn optional_nullable_json_ref_request_model(
         ModelRepresentation::Owned,
         request_model_name(resource_path, public_name),
     )?;
-    if !public_model_name_available(&name, bindings) {
+    if !naming.public_name_available(&name, bindings) {
         return Err("capability.public_model_name_collision");
     }
     // The exact inner raw object is structurally proven. Keep an owned opaque
@@ -1185,7 +1193,7 @@ fn request_model(
         // The wire shape is fully proven, but a generated constructor would
         // necessarily omit arbitrary additional members. Preserve the exact
         // raw request as an owned opaque view instead.
-        if !public_model_name_available(&name, bindings) {
+        if !naming.public_name_available(&name, bindings) {
             return Err("capability.public_model_name_collision");
         }
         let model = ModelDefinition {
@@ -1228,7 +1236,7 @@ fn request_model(
             // Do not synthesize a lossy constructor for an otherwise exact raw
             // request shape. An owned public view still supports From<Raw>
             // and into_raw(), without claiming that its fields are constructible.
-            if !public_model_name_available(&name, bindings) {
+            if !naming.public_name_available(&name, bindings) {
                 return Err("capability.public_model_name_collision");
             }
             vec![(
@@ -1343,7 +1351,7 @@ fn response_object_models_inner(
     let openapi = context.openapi;
     let bindings = context.bindings;
     let naming = context.naming;
-    if !public_model_name_available(&name, bindings) {
+    if !naming.public_name_available(&name, bindings) {
         return Err("capability.public_model_name_collision");
     }
     let proven = object_value_matches(openapi, schema, raw, bindings)
@@ -1655,7 +1663,7 @@ fn response_view_for_schema_named(
         models.last_mut().ok_or(RESPONSE_VIEW_UNPROVEN)?.1.schema = Some(schema_name.into());
         return Ok((name, models));
     }
-    if !public_model_name_available(&name, bindings) {
+    if !naming.public_name_available(&name, bindings) {
         return Err("capability.public_model_name_collision");
     }
     let accessors = if let Some(wire) = scalar_object_shape(&schema) {
@@ -1707,11 +1715,14 @@ fn response_view(
     resource_path: &[String],
     public_name: &str,
 ) -> Result<(String, ProjectedModels), &'static str> {
-    let name = naming.named(
+    let mut name = naming.named(
         raw,
         ModelRepresentation::Owned,
         response_model_name(resource_path, public_name),
     )?;
+    if !naming.stable && name == raw {
+        name.push_str("View");
+    }
     response_view_named(openapi, bindings, naming, raw, name)
 }
 
@@ -1751,7 +1762,7 @@ fn inline_response_view_named(
         return Err(RESPONSE_VIEW_UNPROVEN);
     };
 
-    if !public_model_name_available(&name, bindings) {
+    if !naming.public_name_available(&name, bindings) {
         return Err("capability.public_model_name_collision");
     }
     Ok((
@@ -2003,9 +2014,6 @@ fn alias_response_model(
         return Err(RESPONSE_VIEW_UNPROVEN);
     }
 
-    if !public_model_name_available(&name, bindings) {
-        return Err("capability.public_model_name_collision");
-    }
     Ok((
         name,
         ModelDefinition {
@@ -2068,9 +2076,6 @@ fn map_response_model(
         return Err(RESPONSE_VIEW_UNPROVEN);
     }
 
-    if !public_model_name_available(&name, bindings) {
-        return Err("capability.public_model_name_collision");
-    }
     Ok((
         name,
         ModelDefinition {
@@ -2129,9 +2134,6 @@ fn scalar_enum_response_model(
         return Err(RESPONSE_VIEW_UNPROVEN);
     }
 
-    if !public_model_name_available(&name, bindings) {
-        return Err("capability.public_model_name_collision");
-    }
     Ok((
         name,
         ModelDefinition {
@@ -2169,6 +2171,9 @@ fn response_model(
         ModelRepresentation::Owned,
         response_model_name(resource_path, public_name),
     )?;
+    if !naming.public_name_available(&name, bindings) {
+        return Err("capability.public_model_name_collision");
+    }
     if bindings.aliases.contains_key(raw) {
         let (name, model) = alias_response_model(openapi, bindings, raw, name)?;
         return Ok((name.clone(), vec![(name, model)]));
@@ -2309,7 +2314,7 @@ fn union_response_model(
                         || response_array_union_matches(openapi, schema, raw_union, bindings)) =>
             {
                 let name = union_name.clone();
-                if !public_model_name_available(&name, bindings) {
+                if !naming.public_name_available(&name, bindings) {
                     return Err("capability.public_model_name_collision");
                 }
                 let model = ModelDefinition {
@@ -2362,7 +2367,7 @@ fn union_response_model(
         return Err(RESPONSE_UNION_REQUIRED);
     }
 
-    if !public_model_name_available(&union_name, bindings) {
+    if !naming.public_name_available(&union_name, bindings) {
         return Err("capability.public_model_name_collision");
     }
     let mut models = Vec::new();
@@ -3399,6 +3404,34 @@ mod model_identity_tests {
                 .as_deref(),
             Some("Shared")
         );
+    }
+
+    #[test]
+    fn semantic_identity_can_shadow_backend_symbol_but_fallback_cannot() {
+        let bindings = Bindings {
+            structs: BTreeMap::from([("Message".into(), Vec::new())]),
+            symbol_paths: BTreeMap::from([(
+                "Message".into(),
+                "crate::generated::types::Message".into(),
+            )]),
+            ..serde_json::from_str(include_str!("../tests/fixtures/derivation-structured-response/rust-bindings.json"))
+                .expect("fixture bindings")
+        };
+
+        let explicit = BTreeMap::from([("SourceMessage".into(), "Message".into())]);
+        let stable = ModelNaming::new(true, &explicit);
+        let name = stable
+            .named(
+                "SourceMessage",
+                ModelRepresentation::Owned,
+                "Fallback".into(),
+            )
+            .expect("semantic name");
+        assert_eq!(name, "Message");
+        assert!(stable.public_name_available(&name, &bindings));
+
+        let legacy = ModelNaming::new(false, &BTreeMap::new());
+        assert!(!legacy.public_name_available("Message", &bindings));
     }
 
     #[test]
