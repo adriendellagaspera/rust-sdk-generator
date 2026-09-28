@@ -434,8 +434,7 @@ fn request_map_wrapper_matches(schema: &Value, raw: &str, bindings: &Bindings) -
         return false;
     };
     if fields.len() != 1
-        || fields[0].name.strip_prefix("r#").unwrap_or(&fields[0].name)
-            != "additional_properties"
+        || fields[0].name.strip_prefix("r#").unwrap_or(&fields[0].name) != "additional_properties"
     {
         return false;
     }
