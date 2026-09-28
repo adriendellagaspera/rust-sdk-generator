@@ -541,31 +541,60 @@ fn request_value_adapter_models(
         {
             return Err("capability.public_model_name_collision");
         }
-        return Ok((
-            vec![(
-                public_name.clone(),
-                ModelDefinition {
-                    schema: Some(source_root.into()),
-                    schema_path: (!source_path.is_empty()).then(|| source_path.to_vec()),
-                    raw: Some(syntax.spelling.clone()),
-                    constructor: None,
-                    exclude: None,
-                    adapters: None,
-                    union: None,
-                    simple_union: None,
-                    type_alias: None,
-                    map: Some(MapDefinition {
-                        root: source_root.into(),
-                        path: source_path.to_vec(),
-                    }),
-                    scalar_enum: None,
-                    union_factory: None,
-                    borrowed: None,
-                    accessors: None,
-                },
-            )],
-            Some(public_name),
+        let fields = context
+            .bindings
+            .structs
+            .get(&syntax.spelling)
+            .ok_or(REQUEST_MODEL_UNPROVEN)?;
+        let mapping = parse_type(&fields[0].type_name).map_err(|_| REQUEST_MODEL_UNPROVEN)?;
+        let raw_value = mapping.arguments.get(1).ok_or(REQUEST_MODEL_UNPROVEN)?;
+        let additional = schema
+            .get("additionalProperties")
+            .filter(|value| **value != Value::Bool(false))
+            .ok_or(REQUEST_MODEL_UNPROVEN)?;
+
+        let mut models = Vec::new();
+        let mut adapters = IndexMap::new();
+        if !request_type_is_public(raw_value.clone(), context.bindings, &mut BTreeSet::new()) {
+            let mut value_path = source_path.to_vec();
+            value_path.push("additionalProperties".into());
+            let (nested, adapter) = request_value_adapter_models(
+                context,
+                additional,
+                source_root,
+                &value_path,
+                &raw_value.spelling,
+                format!("{public_name}Value"),
+                seen,
+            )?;
+            let adapter = adapter.ok_or(REQUEST_MODEL_UNPROVEN)?;
+            models.extend(nested);
+            adapters.insert("additional_properties".into(), adapter);
+        }
+
+        models.push((
+            public_name.clone(),
+            ModelDefinition {
+                schema: Some(source_root.into()),
+                schema_path: (!source_path.is_empty()).then(|| source_path.to_vec()),
+                raw: Some(syntax.spelling.clone()),
+                constructor: None,
+                exclude: None,
+                adapters: (!adapters.is_empty()).then_some(adapters),
+                union: None,
+                simple_union: None,
+                type_alias: None,
+                map: Some(MapDefinition {
+                    root: source_root.into(),
+                    path: source_path.to_vec(),
+                }),
+                scalar_enum: None,
+                union_factory: None,
+                borrowed: None,
+                accessors: None,
+            },
         ));
+        return Ok((models, Some(public_name)));
     }
 
     if schema.get("properties").is_some() {
