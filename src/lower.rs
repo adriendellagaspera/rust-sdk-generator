@@ -1972,7 +1972,7 @@ fn parameter_request(
 
 fn operation_call(
     operation: &OperationSpec,
-    resource: &ResourceSpec,
+    _resource: &ResourceSpec,
     bindings: &Bindings,
 ) -> Result<OperationCall> {
     let parameters = &operation.raw_signature.parameters;
