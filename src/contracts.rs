@@ -291,6 +291,8 @@ pub enum SimpleUnionVariant {
 pub struct MapDefinition {
     pub root: String,
     pub path: Vec<String>,
+    #[serde(default)]
+    pub value_adapter: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
