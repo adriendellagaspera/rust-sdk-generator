@@ -884,3 +884,34 @@ mod status_selector_tests {
         assert!(!status_selector_matches_exact("2XX", "400"));
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::serialized_presence;
+
+    #[test]
+    fn normalizes_field_serialization_presence_from_upstream_attributes() {
+        let cases = [
+            (vec![], "always"),
+            (
+                vec![r#"#[serde(skip_serializing_if = "Option::is_none")]"#],
+                "omit_if_none",
+            ),
+            (vec![r#"#[serde(skip_serializing)]"#], "never"),
+            (
+                vec![r#"#[serde(skip_serializing_if = "Vec::is_empty")]"#],
+                "conditional",
+            ),
+            (vec![r#"#[serde(rename = "wire_name")]"#], "always"),
+        ];
+
+        for (attributes, expected) in cases {
+            let attributes = attributes.into_iter().map(str::to_owned).collect::<Vec<_>>();
+            assert_eq!(
+                serialized_presence(&attributes).expect("presence evidence"),
+                expected
+            );
+        }
+    }
+}
