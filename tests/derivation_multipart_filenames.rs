@@ -59,7 +59,10 @@ fn derives_canonical_multipart_filename_helper_without_raw_name_heuristics() {
     assert!(source.contains("multipart_filenames: &[(&str, &str)]"));
     assert!(source.contains("self.raw.zeta_aux_4("));
     assert!(source.contains(
-        "self.raw.zeta_aux_4(asset_id.as_ref(), multipart_filenames, request.into_raw(), overwrite)"
+        "self.raw.zeta_aux_4(asset_id.as_ref(), multipart_filenames, <"
+    ));
+    assert!(source.contains(
+        "as __RustSdkIntoRaw<OpaqueUpload9>>::into_raw(request), overwrite)"
     ));
 }
 
