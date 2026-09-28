@@ -1,0 +1,78 @@
+{
+  "schema_version": 5,
+  "structs": {
+    "OpaqueRequest": [
+      {
+        "name": "required_value",
+        "wire_name": "required_value",
+        "type": "String",
+        "serialized_presence": "always"
+      },
+      {
+        "name": "required_nullable",
+        "wire_name": "required_nullable",
+        "type": "Option<String>",
+        "serialized_presence": "always"
+      },
+      {
+        "name": "optional_value",
+        "wire_name": "optional_value",
+        "type": "Option<String>",
+        "serialized_presence": "omit_if_none"
+      },
+      {
+        "name": "optional_nullable",
+        "wire_name": "optional_nullable",
+        "type": "Option<Option<String>>",
+        "serialized_presence": "omit_if_none"
+      }
+    ]
+  },
+  "enums": {},
+  "aliases": {},
+  "operations": {
+    "create_message": {
+      "name": "create_message",
+      "parameters": [
+        {
+          "name": "request",
+          "type": "OpaqueRequest"
+        }
+      ],
+      "return_type": "Result<(), Error>",
+      "success_type": "()",
+      "stream": null,
+      "metadata": {
+        "kind": "call_shape",
+        "source_operation": {
+          "operation_id": "create_message",
+          "method": "POST",
+          "path": "/messages"
+        },
+        "emitted_operation_id": "create_message",
+        "representation": {
+          "kind": "empty"
+        },
+        "success_statuses": [
+          "204"
+        ],
+        "request_discriminators": [],
+        "stream_transport": null
+      }
+    }
+  },
+  "symbol_paths": {
+    "OpaqueRequest": "crate::generated::types::OpaqueRequest"
+  },
+  "binding": {
+    "client": {
+      "type_path": "crate::generated::client::HttpClient",
+      "constructor": "new",
+      "api_key_builder": "with_api_key",
+      "base_url_builder": "with_base_url"
+    },
+    "type_preludes": [
+      "crate::generated::types::*"
+    ]
+  }
+}
