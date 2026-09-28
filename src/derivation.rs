@@ -1297,6 +1297,35 @@ mod tests {
     }
 
     #[test]
+    fn incompatible_explicit_public_model_collision_names_both_sources() {
+        let mut input = structured_response_v2_input();
+        input
+            .surface
+            .models
+            .get_mut("Usage")
+            .expect("Usage policy")
+            .name = "Value".into();
+        input
+            .surface
+            .models
+            .get_mut("Choice")
+            .expect("Choice policy")
+            .name = "Value".into();
+
+        let derivation = derive(input).expect("collision remains reportable");
+        let outcome = &derivation.report.operations["read_sensor"];
+        assert_eq!(outcome.status, DerivationStatus::Rejected);
+        assert_eq!(
+            outcome.reason.code,
+            "capability.public_model_identity_collision"
+        );
+        let detail = outcome.reason.detail.as_deref().expect("collision detail");
+        assert!(detail.contains("Usage"));
+        assert!(detail.contains("Choice"));
+        assert!(detail.contains("ValueRef"));
+    }
+
+    #[test]
     fn repeated_named_schema_reuse_is_stable_across_openapi_operation_order() {
         let mut input = structured_response_v2_input();
         let operation = input
