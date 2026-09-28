@@ -114,7 +114,11 @@ fn derives_request_union_collection_by_structure_not_raw_names_or_order() {
     assert!(types.contains(
         "impl From<SendDeliveryCommandsRequestCommandsSmsCommand> for SendDeliveryCommandsRequestCommands"
     ));
-    assert!(types.contains("impl __RustSdkIntoRaw<OpaqueCommand7> for SendDeliveryCommandsRequestCommands"));
+    assert!(
+        types.contains(
+            "impl __RustSdkIntoRaw<OpaqueCommand7> for SendDeliveryCommandsRequestCommands"
+        )
+    );
     assert!(types.contains(
         "SendDeliveryCommandsRequestCommands::EmailCommand(value) => OpaqueCommand7::VariantA(__RustSdkIntoRaw::into_raw(value))"
     ));
