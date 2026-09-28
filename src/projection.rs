@@ -1516,11 +1516,7 @@ fn inline_array_response_model(
         let item_name = if inline_item.is_some() {
             item_fallback
         } else {
-            naming.named(
-                raw_item,
-                ModelRepresentation::Borrowed,
-                item_fallback,
-            )?
+            naming.named(raw_item, ModelRepresentation::Borrowed, item_fallback)?
         };
         let (_, mut item_models) = if inline_item.is_some() {
             inline_response_view_named(
@@ -1927,9 +1923,15 @@ fn inline_union_response_model(
         }
         let public_variant = format!("Variant{}", index + 1);
         let branch_name = format!("{union_name}{public_variant}");
-        let (adapter, branch_model) =
-            inline_response_view_named(openapi, bindings, naming, branch, &raw_payload, branch_name)
-                .map_err(|_| RESPONSE_UNION_REQUIRED)?;
+        let (adapter, branch_model) = inline_response_view_named(
+            openapi,
+            bindings,
+            naming,
+            branch,
+            &raw_payload,
+            branch_name,
+        )
+        .map_err(|_| RESPONSE_UNION_REQUIRED)?;
         models.extend(branch_model);
         variants.insert(
             raw_variant,
@@ -2205,14 +2207,8 @@ fn project_json_response_schema(
                 ModelRepresentation::Owned,
                 response_model_name(resource_path, public_name),
             )?;
-            let (name, models) = union_response_model(
-                openapi,
-                bindings,
-                naming,
-                resolved,
-                raw_success,
-                union_name,
-            )?;
+            let (name, models) =
+                union_response_model(openapi, bindings, naming, resolved, raw_success, union_name)?;
             return Ok(ProjectedResponse::Json { name, models });
         }
         let (name, models) =
@@ -2397,11 +2393,7 @@ fn event_stream_projection(
     let wrapper_fallback = stream_item_model_name(resource_path, public_name);
     if payloads.len() == 1 {
         let raw_item = sse_raw_payload(openapi, bindings, &payloads[0])?;
-        let wrapper = naming.named(
-            &payloads[0],
-            ModelRepresentation::Owned,
-            wrapper_fallback,
-        )?;
+        let wrapper = naming.named(&payloads[0], ModelRepresentation::Owned, wrapper_fallback)?;
         let (_, wrapper_model) = response_view_for_schema_named(
             openapi,
             bindings,
@@ -2812,8 +2804,10 @@ fn identities_can_share_name(
         return false;
     }
     let combined: BTreeSet<_> = left.iter().chain(right).cloned().collect();
-    let representations: BTreeSet<_> =
-        combined.iter().map(|identity| identity.representation).collect();
+    let representations: BTreeSet<_> = combined
+        .iter()
+        .map(|identity| identity.representation)
+        .collect();
     if representations.len() != 1 {
         return false;
     }
@@ -2835,7 +2829,11 @@ fn identity_description(identities: &BTreeSet<ModelIdentity>) -> String {
                 ModelRepresentation::Owned => "owned",
                 ModelRepresentation::Borrowed => "borrowed",
             };
-            let policy = if identity.explicit { "explicit" } else { "implicit" };
+            let policy = if identity.explicit {
+                "explicit"
+            } else {
+                "implicit"
+            };
             format!("{} ({representation}, {policy})", identity.source_schema)
         })
         .collect::<Vec<_>>()
@@ -2875,8 +2873,9 @@ pub(crate) fn insert_projection(
             .get(&name)
             .cloned()
             .unwrap_or_default();
-        if let Some((_, existing_model, existing_identities)) =
-            pending.iter_mut().find(|(candidate, _, _)| candidate == &name)
+        if let Some((_, existing_model, existing_identities)) = pending
+            .iter_mut()
+            .find(|(candidate, _, _)| candidate == &name)
         {
             let compatible_identity = identities_can_share_name(existing_identities, &identities);
             let compatible_definition = existing_model == &model;
@@ -2896,8 +2895,7 @@ pub(crate) fn insert_projection(
 
     for (name, model, identities) in &pending {
         if let Some(existing) = registry.models.get(name) {
-            let compatible_identity =
-                identities_can_share_name(&existing.identities, identities);
+            let compatible_identity = identities_can_share_name(&existing.identities, identities);
             let compatible_definition = &existing.model == model;
             if !compatible_identity || !compatible_definition {
                 return Err(model_collision(
@@ -2945,13 +2943,9 @@ pub(crate) fn insert_projection(
             continue;
         }
         definition.models.insert(name.clone(), model.clone());
-        registry.models.insert(
-            name,
-            RegisteredProjection {
-                model,
-                identities,
-            },
-        );
+        registry
+            .models
+            .insert(name, RegisteredProjection { model, identities });
     }
     for depth in 1..=projected.resource_path.len() {
         let path = projected.resource_path[..depth].to_vec();
