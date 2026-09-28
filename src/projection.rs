@@ -1745,6 +1745,9 @@ fn inline_union_response_model(
     for (index, ((raw_variant, raw_payload), branch)) in
         mapping.into_iter().zip(branches).enumerate()
     {
+        if !object_value_matches(openapi, branch, &raw_payload, bindings) {
+            return Err(RESPONSE_UNION_REQUIRED);
+        }
         let public_variant = format!("Variant{}", index + 1);
         let branch_name = format!("{union_name}{public_variant}");
         let (adapter, branch_model) =
@@ -1882,6 +1885,9 @@ fn union_response_model(
     let mut variants = IndexMap::new();
     let mut public_variants = BTreeSet::new();
     for reference in references {
+        if !request_object_matches(openapi, &reference, &reference, bindings) {
+            return Err(RESPONSE_UNION_REQUIRED);
+        }
         let public_variant = semantic_pascal_identifier(&reference)?;
         if !public_variants.insert(public_variant.clone()) {
             return Err("capability.public_model_name_collision");
