@@ -1790,24 +1790,28 @@ fn parameter_schema<'a>(
         .flatten()
 }
 
+struct ParameterScalarEnumContext<'a> {
+    openapi: &'a OpenApiIndex,
+    resource: &'a ResourceSpec,
+    operation_name: &'a str,
+    raw_operation: &'a OperationBinding,
+    wire_operation: &'a Value,
+    bindings: &'a Bindings,
+}
+
 fn parameter_scalar_enum_model(
-    openapi: &OpenApiIndex,
-    resource: &ResourceSpec,
-    operation_name: &str,
-    raw_operation: &OperationBinding,
-    wire_operation: &Value,
+    context: &ParameterScalarEnumContext<'_>,
     parameter: &RawParameter,
-    bindings: &Bindings,
 ) -> Result<Option<ModelSpec>> {
     let syntax = parse_type(&parameter.type_name)?;
     let core = syntax
         .unary("Option")
         .cloned()
         .unwrap_or_else(|| syntax.clone());
-    if core.kind != TypeKind::Opaque || !bindings.enums.contains_key(&core.spelling) {
+    if core.kind != TypeKind::Opaque || !context.bindings.enums.contains_key(&core.spelling) {
         return Ok(None);
     }
-    let Some(source_schema) = parameter_schema(wire_operation, raw_operation, parameter) else {
+    let Some(source_schema) = parameter_schema(context.wire_operation, context.raw_operation, parameter) else {
         return Ok(None);
     };
     let schema = if let Some(reference) = ref_name(source_schema) {
@@ -1829,7 +1833,7 @@ fn parameter_scalar_enum_model(
         if !annotation_only_ref {
             return Ok(None);
         }
-        openapi.schema(reference)?
+        context.openapi.schema(reference)?
     } else {
         source_schema
     };
@@ -1846,7 +1850,7 @@ fn parameter_scalar_enum_model(
     if values.is_empty() || values.iter().any(|value| !value.is_string()) {
         return Ok(None);
     }
-    let variants = bindings.variants(&core.spelling)?;
+    let variants = context.bindings.variants(&core.spelling)?;
     if variants.is_empty()
         || variants
             .iter()
@@ -1880,7 +1884,7 @@ fn parameter_scalar_enum_model(
         })
         .collect();
     Ok(Some(ModelSpec {
-        name: format!("{}{}", request_name(resource, operation_name), suffix),
+        name: format!("{}{}", request_name(context.resource, context.operation_name), suffix),
         raw: core.spelling,
         render: ModelRenderSpec::ScalarEnum(ScalarEnumModelSpec {
             variants: values
@@ -1892,27 +1896,13 @@ fn parameter_scalar_enum_model(
 }
 
 fn parameter_scalar_enum_models(
-    openapi: &OpenApiIndex,
-    resource: &ResourceSpec,
-    operation_name: &str,
-    raw_operation: &OperationBinding,
-    wire_operation: &Value,
+    context: &ParameterScalarEnumContext<'_>,
     parameters: &[RawParameter],
-    bindings: &Bindings,
     models: &mut Vec<ModelSpec>,
 ) -> Result<BTreeMap<String, String>> {
     let mut adapters = BTreeMap::new();
     for parameter in parameters {
-        let Some(model) = parameter_scalar_enum_model(
-            openapi,
-            resource,
-            operation_name,
-            raw_operation,
-            wire_operation,
-            parameter,
-            bindings,
-        )?
-        else {
+        let Some(model) = parameter_scalar_enum_model(context, parameter)? else {
             continue;
         };
         if models.iter().any(|candidate| candidate.name == model.name)
@@ -3356,16 +3346,16 @@ pub(crate) fn lower(
                     type_name: parameter.type_name.clone(),
                 })
                 .collect::<Vec<_>>();
-            let parameter_adapters = parameter_scalar_enum_models(
-                &index,
-                &resource,
-                public_name,
+            let parameter_context = ParameterScalarEnumContext {
+                openapi: &index,
+                resource: &resource,
+                operation_name: public_name,
                 raw_operation,
                 wire_operation,
-                &raw_parameters,
                 bindings,
-                &mut models,
-            )?;
+            };
+            let parameter_adapters =
+                parameter_scalar_enum_models(&parameter_context, &raw_parameters, &mut models)?;
 
             let mut operation = OperationSpec {
                 name: public_name.clone(),
