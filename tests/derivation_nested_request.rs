@@ -1103,7 +1103,6 @@ fn projects_typed_request_map_values_through_public_adapters() {
     assert!(types.contains("__RustSdkIntoRaw::into_raw(value)"));
 }
 
-
 #[test]
 fn projects_transparent_single_oneof_request_alias() {
     let (mut openapi, mut bindings, surface) = fixture();
@@ -1114,12 +1113,11 @@ fn projects_transparent_single_oneof_request_alias() {
         },
         "required": ["endpoint"]
     });
-    openapi.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["deployment"] =
-        serde_json::json!({
-            "oneOf": [
-                {"$ref": "#/components/schemas/BackendDeployment"}
-            ]
-        });
+    openapi.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["deployment"] = serde_json::json!({
+        "oneOf": [
+            {"$ref": "#/components/schemas/BackendDeployment"}
+        ]
+    });
     openapi.0["components"]["schemas"]["CreateWidgetRequest"]["required"]
         .as_array_mut()
         .expect("required fields")
