@@ -1905,15 +1905,6 @@ fn validate_symbols(ir: &FacadeIr, bindings: &Bindings) -> Result<()> {
             &format!("model {}", model.raw),
             "facade_types",
         )?;
-        if bindings.structs.contains_key(&model.name) || bindings.enums.contains_key(&model.name) {
-            return Err(error(
-                "symbol.shadow_raw",
-                format!(
-                    "facade model {} shadows imported raw type; choose an explicit semantic name",
-                    model.name
-                ),
-            ));
-        }
     }
     symbols.claim("facade_types", "modules", "compiler", "")?;
     symbols.claim("mod_file", "modules", "compiler", "")?;
