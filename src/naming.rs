@@ -440,6 +440,7 @@ mod tests {
                     )
                 })
                 .collect(),
+            models: BTreeMap::new(),
         }
     }
 
