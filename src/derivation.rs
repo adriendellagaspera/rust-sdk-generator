@@ -226,7 +226,6 @@ fn operation_ids(openapi: &OpenApi) -> Result<BTreeSet<String>, DerivationError>
     Ok(result)
 }
 
-
 fn validate_evidence(
     openapi: &OpenApi,
     operation_ids: &BTreeSet<String>,
