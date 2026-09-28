@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use crate::{AccessorKindDefinition, RequestMediaDefinition};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -202,6 +204,7 @@ pub(crate) struct OperationSpec {
     pub call: OperationCall,
     pub multipart_filenames: Option<MultipartFilenamesSpec>,
     pub parameter_request: Option<ParameterRequestSpec>,
+    pub parameter_adapters: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
