@@ -347,39 +347,6 @@ fn request_value_adapter_models(
             )
             .map(|models| (models, true));
         }
-        if referenced.get("type").and_then(Value::as_str) == Some("string")
-            && referenced.get("enum").and_then(Value::as_array).is_some()
-            && context.bindings.enums.contains_key(&syntax.spelling)
-        {
-            if !public_model_name_available(&public_name, context.bindings) {
-                return Err("capability.public_model_name_collision");
-            }
-            return Ok((
-                vec![(
-                    public_name,
-                    ModelDefinition {
-                        schema: Some(reference.into()),
-                        schema_path: None,
-                        raw: Some(syntax.spelling.clone()),
-                        constructor: None,
-                        exclude: None,
-                        adapters: None,
-                        union: None,
-                        simple_union: None,
-                        type_alias: None,
-                        map: None,
-                        scalar_enum: Some(ScalarEnumDefinition {
-                            root: reference.into(),
-                            path: Vec::new(),
-                        }),
-                        union_factory: None,
-                        borrowed: None,
-                        accessors: None,
-                    },
-                )],
-                true,
-            ));
-        }
         if referenced_request_object(context.openapi, reference, referenced).is_some()
             && !flattened_json_response_object_matches(
                 &context
@@ -623,19 +590,125 @@ fn request_object_models_value(
         let segment = semantic_pascal_identifier(field_name).map_err(|_| REQUEST_MODEL_UNPROVEN)?;
         let child_name = format!("{public_name}{segment}");
 
-        let mut child_path = source_path.to_vec();
-        child_path.push(field_name.clone());
-        let (nested, adapted) = request_value_adapter_models(
-            context,
-            wire,
-            source_root,
-            &child_path,
-            &core.spelling,
-            child_name.clone(),
-            seen,
-        )?;
-        models.extend(nested);
-        if adapted {
+        if let Some(reference) = ref_name(wire) {
+            let referenced = context
+                .openapi
+                .schema(reference)
+                .map_err(|_| REQUEST_MODEL_UNPROVEN)?;
+            if request_union_schema(referenced) {
+                if !request_union_matches(
+                    context.openapi,
+                    referenced,
+                    &core.spelling,
+                    context.bindings,
+                ) {
+                    return Err(REQUEST_MODEL_UNPROVEN);
+                }
+                models.extend(request_union_models(
+                    context,
+                    referenced,
+                    reference,
+                    &[],
+                    &core.spelling,
+                    child_name.clone(),
+                    seen,
+                )?);
+                adapters.insert(field_name.clone(), child_name);
+            } else if referenced_request_object(context.openapi, reference, referenced).is_some_and(
+                |composed| {
+                    !flattened_json_response_object_matches(
+                        &composed,
+                        &core.spelling,
+                        context.bindings,
+                    )
+                },
+            ) {
+                models.extend(request_object_models(
+                    context.openapi,
+                    context.bindings,
+                    reference,
+                    &core.spelling,
+                    child_name.clone(),
+                    seen,
+                )?);
+                adapters.insert(field_name.clone(), child_name);
+            }
+            continue;
+        }
+
+        if request_union_schema(wire) {
+            if !request_union_matches(context.openapi, wire, &core.spelling, context.bindings) {
+                return Err(REQUEST_MODEL_UNPROVEN);
+            }
+            let mut child_path = source_path.to_vec();
+            child_path.push(field_name.clone());
+            models.extend(request_union_models(
+                context,
+                wire,
+                source_root,
+                &child_path,
+                &core.spelling,
+                child_name.clone(),
+                seen,
+            )?);
+            adapters.insert(field_name.clone(), child_name);
+            continue;
+        }
+
+        if wire.get("type").and_then(Value::as_str) == Some("array")
+            && let Some(items) = wire.get("items")
+            && let Some(raw_union) = core.unary("Vec")
+        {
+            if let Some(reference) = ref_name(items) {
+                let referenced = context
+                    .openapi
+                    .schema(reference)
+                    .map_err(|_| REQUEST_MODEL_UNPROVEN)?;
+                if request_union_schema(referenced) {
+                    models.extend(request_union_models(
+                        context,
+                        referenced,
+                        reference,
+                        &[],
+                        &raw_union.spelling,
+                        child_name.clone(),
+                        seen,
+                    )?);
+                    adapters.insert(field_name.clone(), child_name);
+                    continue;
+                }
+            } else if request_union_schema(items) {
+                let mut child_path = source_path.to_vec();
+                child_path.push(field_name.clone());
+                child_path.push("items".into());
+                models.extend(request_union_models(
+                    context,
+                    items,
+                    source_root,
+                    &child_path,
+                    &raw_union.spelling,
+                    child_name.clone(),
+                    seen,
+                )?);
+                adapters.insert(field_name.clone(), child_name);
+                continue;
+            }
+        }
+
+        if wire.get("properties").is_some()
+            && !flattened_json_response_object_matches(wire, &core.spelling, context.bindings)
+        {
+            let mut child_path = source_path.to_vec();
+            child_path.push(field_name.clone());
+            models.extend(request_object_models_value(
+                context,
+                wire,
+                source_root,
+                &child_path,
+                &core.spelling,
+                child_name.clone(),
+                seen,
+            )?);
             adapters.insert(field_name.clone(), child_name);
         }
     }
