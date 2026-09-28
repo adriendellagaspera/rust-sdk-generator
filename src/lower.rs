@@ -1958,7 +1958,12 @@ fn validate_symbols(ir: &FacadeIr) -> Result<()> {
         symbols.claim(reserved, &ir.client_name, "client runtime", "")?;
     }
     for reserved in ["__RustSdkFromRaw", "__RustSdkIntoRaw"] {
-        symbols.claim(reserved, "sdk", "internal transport adapter", "facade_types")?;
+        symbols.claim(
+            reserved,
+            "sdk",
+            "internal transport adapter",
+            "facade_types",
+        )?;
     }
     for model in &ir.models {
         symbols.claim(
