@@ -274,7 +274,10 @@ fn validate_evidence(
             return Err(DerivationError::at(
                 "surface.invalid_model_name",
                 format!("surface.models.{source}.name"),
-                format!("public model name {:?} is not a Rust identifier", model.name),
+                format!(
+                    "public model name {:?} is not a Rust identifier",
+                    model.name
+                ),
             ));
         }
     }
@@ -744,11 +747,7 @@ pub fn derive(input: DeriveInput) -> Result<Derivation, DerivationError> {
                                 stable_model_identity,
                                 &public_models,
                             )?;
-                            insert_projection(
-                                &mut candidate,
-                                &mut candidate_registry,
-                                projected,
-                            )?;
+                            insert_projection(&mut candidate, &mut candidate_registry, projected)?;
                         }
                         Ok(selections)
                     });
