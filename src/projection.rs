@@ -642,7 +642,7 @@ fn request_object_models_value(
             }
             let mut child_path = source_path.to_vec();
             child_path.push(field_name.clone());
-            models.extend(request_union_models(
+            let projected = request_union_models(
                 context,
                 wire,
                 source_root,
@@ -650,7 +650,8 @@ fn request_object_models_value(
                 &core.spelling,
                 child_name.clone(),
                 seen,
-            )?);
+            )?;
+            models.extend(projected);
             adapters.insert(field_name.clone(), child_name);
             continue;
         }
