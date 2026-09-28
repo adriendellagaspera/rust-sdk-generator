@@ -526,9 +526,9 @@ fn request_value_adapter_models(
 
     if canonical_unconstrained_map_branch(schema, &syntax.spelling, context.bindings) {
         if !context
-        .naming
-        .public_name_available(&public_name, context.bindings)
-    {
+            .naming
+            .public_name_available(&public_name, context.bindings)
+        {
             return Err("capability.public_model_name_collision");
         }
         return Ok((
