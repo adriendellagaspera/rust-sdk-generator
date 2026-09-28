@@ -54,11 +54,18 @@ fn derives_nested_named_request_models_without_raw_name_identity() {
         config.constructor.as_deref(),
         Some(&["mode".to_owned()][..])
     );
-    assert!(
+    assert_eq!(
         config
             .adapters
             .as_ref()
-            .is_none_or(indexmap::IndexMap::is_empty)
+            .and_then(|adapters| adapters.get("mode")),
+        Some(&"CreatePlatformWidgetsRequestConfigMode".to_owned())
+    );
+    assert!(
+        derivation
+            .definition
+            .models
+            .contains_key("CreatePlatformWidgetsRequestConfigMode")
     );
     assert!(
         !derivation
@@ -99,6 +106,7 @@ fn derives_nested_named_request_models_without_raw_name_identity() {
         "CreatePlatformWidgetsRequest",
         "CreatePlatformWidgetsRequestConfig",
         "CreatePlatformWidgetsRequestMetadata",
+        "CreatePlatformWidgetsRequestConfigMode",
     ] {
         assert!(generated.inventory.models.contains(&expected.to_owned()));
     }
@@ -110,6 +118,7 @@ fn derives_nested_named_request_models_without_raw_name_identity() {
         "pub fn metadata(mut self, metadata: impl Into<CreatePlatformWidgetsRequestMetadata>)"
     ));
     assert!(types.contains("pub struct CreatePlatformWidgetsRequestConfig { raw: OpaqueConfig4 }"));
+    assert!(types.contains("mode: impl Into<CreatePlatformWidgetsRequestConfigMode>"));
     assert!(types.contains("pub struct CreatePlatformWidgetsRequestMetadata { raw: OpaqueMeta7 }"));
 }
 
@@ -616,7 +625,7 @@ fn derives_nullable_union_of_named_object_and_canonical_raw_json_map() {
         derived
             .definition
             .models
-            .contains_key("CreatePlatformWidgetsRequestInputOther")
+            .contains_key("CreatePlatformWidgetsRequestInputObject")
     );
     let generated = generate(GenerateInput {
         openapi: openapi.clone(),
