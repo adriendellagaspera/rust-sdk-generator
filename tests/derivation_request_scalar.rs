@@ -410,7 +410,7 @@ fn preserves_nullable_depth_from_referenced_request_schema() {
         runtime: Runtime::default(),
     })
     .expect_err("referenced nullable request drift must fail lowering");
-    assert_eq!(error.diagnostic.code, "lower.request_drift");
+    assert_eq!(error.diagnostic.code, "lower.request_union_drift");
 }
 
 #[test]
