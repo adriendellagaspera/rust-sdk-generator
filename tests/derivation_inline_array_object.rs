@@ -90,7 +90,7 @@ fn derives_inline_array_of_objects_as_collection_and_item_views() {
     ));
     assert!(types.contains("self.raw.iter().map(RowsReportsResponseItem::new)"));
     assert!(types.contains("pub struct RowsReportsResponseItem<'a> { raw: &'a OpaqueRow9 }"));
-    assert!(types.contains("impl From<OpaqueRows4> for RowsReportsResponse"));
+    assert!(types.contains("impl __RustSdkFromRaw<OpaqueRows4> for RowsReportsResponse"));
 }
 
 #[test]
