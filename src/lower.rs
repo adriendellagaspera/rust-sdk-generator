@@ -1811,7 +1811,9 @@ fn parameter_scalar_enum_model(
     if core.kind != TypeKind::Opaque || !context.bindings.enums.contains_key(&core.spelling) {
         return Ok(None);
     }
-    let Some(source_schema) = parameter_schema(context.wire_operation, context.raw_operation, parameter) else {
+    let Some(source_schema) =
+        parameter_schema(context.wire_operation, context.raw_operation, parameter)
+    else {
         return Ok(None);
     };
     let schema = if let Some(reference) = ref_name(source_schema) {
@@ -1884,7 +1886,11 @@ fn parameter_scalar_enum_model(
         })
         .collect();
     Ok(Some(ModelSpec {
-        name: format!("{}{}", request_name(context.resource, context.operation_name), suffix),
+        name: format!(
+            "{}{}",
+            request_name(context.resource, context.operation_name),
+            suffix
+        ),
         raw: core.spelling,
         render: ModelRenderSpec::ScalarEnum(ScalarEnumModelSpec {
             variants: values
