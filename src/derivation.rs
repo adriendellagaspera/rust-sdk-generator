@@ -1268,7 +1268,12 @@ mod tests {
         let input = structured_response_v2_input();
         let derivation = derive(input.clone()).expect("derive stable model identities");
 
-        let models: BTreeSet<_> = derivation.definition.models.keys().map(String::as_str).collect();
+        let models: BTreeSet<_> = derivation
+            .definition
+            .models
+            .keys()
+            .map(String::as_str)
+            .collect();
         assert!(models.contains("Sensor"));
         assert!(models.contains("UsageRef"));
         assert!(models.contains("ChoiceRef"));
@@ -1353,5 +1358,4 @@ mod tests {
         assert_eq!(first.definition.models, second.definition.models);
         assert_eq!(first.definition.resources, second.definition.resources);
     }
-
 }
