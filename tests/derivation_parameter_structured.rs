@@ -144,6 +144,9 @@ fn projects_optional_structured_query_parameter_without_backend_leak() {
         "query_filters: Option<ListWidgetsRequestQueryFilters>"
     ));
     assert!(rendered.contains(
+        "impl __RustSdkIntoRaw<OpaqueFilters> for ListWidgetsRequestQueryFilters"
+    ));
+    assert!(rendered.contains(
         "request.query_filters.map(__RustSdkIntoRaw::into_raw)"
     ));
     assert!(!rendered.contains(
