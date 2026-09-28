@@ -2171,10 +2171,10 @@ fn response_model(
         ModelRepresentation::Owned,
         response_model_name(resource_path, public_name),
     )?;
-    if !naming.public_name_available(&name, bindings) {
-        return Err("capability.public_model_name_collision");
-    }
     if bindings.aliases.contains_key(raw) {
+        if !naming.public_name_available(&name, bindings) {
+            return Err("capability.public_model_name_collision");
+        }
         let (name, model) = alias_response_model(openapi, bindings, raw, name)?;
         return Ok((name.clone(), vec![(name, model)]));
     }
@@ -2189,12 +2189,18 @@ fn response_model(
                 .and_then(Value::as_object)
                 .is_none_or(|properties| properties.is_empty())
         {
+            if !naming.public_name_available(&name, bindings) {
+                return Err("capability.public_model_name_collision");
+            }
             let (name, model) = map_response_model(openapi, bindings, raw, name)?;
             return Ok((name.clone(), vec![(name, model)]));
         }
         return response_view(openapi, bindings, naming, raw, resource_path, public_name);
     }
     if bindings.enums.contains_key(raw) {
+        if !naming.public_name_available(&name, bindings) {
+            return Err("capability.public_model_name_collision");
+        }
         let (name, model) = scalar_enum_response_model(openapi, bindings, raw, name)?;
         return Ok((name.clone(), vec![(name, model)]));
     }
@@ -3430,7 +3436,8 @@ mod model_identity_tests {
         assert_eq!(name, "Message");
         assert!(stable.public_name_available(&name, &bindings));
 
-        let legacy = ModelNaming::new(false, &BTreeMap::new());
+        let legacy_explicit = BTreeMap::new();
+        let legacy = ModelNaming::new(false, &legacy_explicit);
         assert!(!legacy.public_name_available("Message", &bindings));
     }
 
