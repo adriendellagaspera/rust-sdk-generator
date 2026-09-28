@@ -1102,3 +1102,89 @@ fn projects_typed_request_map_values_through_public_adapters() {
     assert!(types.contains("__RustSdkFromRaw::from_raw(value)"));
     assert!(types.contains("__RustSdkIntoRaw::into_raw(value)"));
 }
+
+
+#[test]
+fn projects_transparent_single_oneof_request_alias() {
+    let (mut openapi, mut bindings, surface) = fixture();
+    openapi.0["components"]["schemas"]["BackendDeployment"] = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "endpoint": {"type": "string"}
+        },
+        "required": ["endpoint"]
+    });
+    openapi.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["deployment"] =
+        serde_json::json!({
+            "oneOf": [
+                {"$ref": "#/components/schemas/BackendDeployment"}
+            ]
+        });
+    openapi.0["components"]["schemas"]["CreateWidgetRequest"]["required"]
+        .as_array_mut()
+        .expect("required fields")
+        .push(serde_json::json!("deployment"));
+
+    bindings
+        .structs
+        .get_mut("OpaqueRequest9")
+        .expect("request fields")
+        .push(rust_sdk_generator::FieldBinding {
+            name: "deployment".into(),
+            wire_name: Some("deployment".into()),
+            type_name: "DeploymentAlias".into(),
+            serialized_presence: Some(rust_sdk_generator::SerializedPresenceBinding::Always),
+        });
+    bindings.structs.insert(
+        "BackendDeployment".into(),
+        vec![rust_sdk_generator::FieldBinding {
+            name: "endpoint".into(),
+            wire_name: Some("endpoint".into()),
+            type_name: "String".into(),
+            serialized_presence: Some(rust_sdk_generator::SerializedPresenceBinding::Always),
+        }],
+    );
+    bindings
+        .aliases
+        .insert("DeploymentAlias".into(), "BackendDeployment".into());
+    for raw in ["DeploymentAlias", "BackendDeployment"] {
+        bindings
+            .symbol_paths
+            .insert(raw.into(), format!("crate::generated::types::{raw}"));
+    }
+
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive transparent oneOf alias");
+    assert_eq!(
+        derivation.report.operations["create_widget"].status,
+        DerivationStatus::Derived
+    );
+
+    let root = &derivation.definition.models["CreatePlatformWidgetsRequest"];
+    let adapter = root
+        .adapters
+        .as_ref()
+        .and_then(|adapters| adapters.get("deployment"))
+        .expect("deployment adapter");
+    assert_eq!(
+        derivation.definition.models[adapter].raw.as_deref(),
+        Some("BackendDeployment")
+    );
+
+    let generated = generate(GenerateInput {
+        openapi,
+        bindings,
+        definition: derivation.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("transparent oneOf alias generates through public model");
+    let types = &generated.files["facade_types.rs"];
+    assert!(types.contains(&format!("deployment: impl Into<{adapter}>")));
+    assert!(!types.contains("deployment: DeploymentAlias"));
+    assert!(!types.contains("deployment: BackendDeployment"));
+}
