@@ -61,7 +61,11 @@ fn distinguishes_presence_from_nullability_for_request_fields() {
     ));
     assert!(types.contains("required_nullable,"));
     assert!(types.contains("pub fn optional_value(mut self, optional_value: impl Into<String>)"));
-    assert!(types.contains("pub fn optional_nullable(mut self, optional_nullable: String)"));
+    assert!(
+        types.contains(
+            "pub fn optional_nullable(mut self, optional_nullable: impl Into<String>)"
+        )
+    );
     assert!(types.contains("pub fn optional_nullable_null(mut self)"));
 }
 
