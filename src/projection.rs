@@ -14,7 +14,8 @@ use crate::openapi::{OpenApiIndex, ref_name};
 use crate::reconcile::unconstrained_json_alias_matches;
 use crate::rust_type::{Type, parse_type};
 use crate::structural::{
-    ScalarFieldShape, ScalarKind as StructuralScalarKind, constant_enum_response_object_matches,
+    ScalarFieldShape, ScalarKind as StructuralScalarKind, canonical_unconstrained_map_branch,
+    constant_enum_response_object_matches,
     flattened_json_response_object_matches, inline_array_object_item, inline_object_union_mapping,
     legacy_nullable_request_property, multipart_filenames_binding, nullable_request_union,
     object_field_names_match, object_value_matches, plain_string_json_alias_matches,
@@ -411,7 +412,7 @@ fn request_value_adapter_models(
         .map(|models| (models, true));
     }
 
-    if flattened_json_response_object_matches(schema, &syntax.spelling, context.bindings) {
+    if canonical_unconstrained_map_branch(schema, &syntax.spelling, context.bindings) {
         if !public_model_name_available(&public_name, context.bindings) {
             return Err("capability.public_model_name_collision");
         }
