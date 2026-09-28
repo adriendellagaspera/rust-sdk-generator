@@ -28,7 +28,7 @@ crate = pathlib.Path(sys.argv[1])
 bindings = json.loads((crate / ".sdkgen/work/rust-bindings.json").read_text())
 definition = json.loads((crate / ".sdkgen/work/definition.json").read_text())
 inventory = json.loads((crate / ".sdkgen/inventory.json").read_text())
-assert bindings["schema_version"] == 4, bindings
+assert bindings["schema_version"] == 5, bindings
 source = {entry["metadata"]["source_operation"]["operation_id"]
           for entry in bindings["operations"].values()}
 assert source == {"read_station"}, source
