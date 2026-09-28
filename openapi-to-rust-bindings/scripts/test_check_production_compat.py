@@ -108,7 +108,7 @@ class ProductionCompatibilityTests(unittest.TestCase):
         base = {
             "raw": {"client.rs": b"a"},
             "sdk": {"mod.rs": b"sdk"},
-            "bindings": {"schema_version": 4, "operations": {}},
+            "bindings": {"schema_version": 5, "operations": {}},
             "derivation": {"report": {"operations": {}}},
             "inventory": {"resources": []},
             "source_operations": [],
