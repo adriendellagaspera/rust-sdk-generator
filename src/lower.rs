@@ -964,7 +964,11 @@ fn resolve_map(
 ) -> Result<MapModelSpec> {
     let config = model.map.as_ref().expect("map policy");
     let mut schema = schema_at(openapi, &config.root, &config.path)?;
-    if schema.get("additionalProperties").is_none()
+    let direct_map = schema.get("type").and_then(Value::as_str) == Some("object")
+        && schema
+            .get("additionalProperties")
+            .is_some_and(|additional| additional != &Value::Bool(false));
+    if !direct_map
         && let Some(branches) = schema
             .get("oneOf")
             .or_else(|| schema.get("anyOf"))
