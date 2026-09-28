@@ -1168,9 +1168,10 @@ fn projects_transparent_single_oneof_request_alias() {
         .adapters
         .as_ref()
         .and_then(|adapters| adapters.get("deployment"))
-        .expect("deployment adapter");
+        .expect("deployment adapter")
+        .clone();
     assert_eq!(
-        derivation.definition.models[adapter].raw.as_deref(),
+        derivation.definition.models[&adapter].raw.as_deref(),
         Some("BackendDeployment")
     );
 
