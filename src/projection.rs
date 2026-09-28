@@ -421,9 +421,6 @@ fn request_map_wrapper_matches(
     raw: &str,
     bindings: &Bindings,
 ) -> bool {
-    if rust_type_matches_schema(schema, raw, bindings) {
-        return true;
-    }
     let Some(fields) = bindings.structs.get(raw) else {
         return false;
     };
@@ -432,6 +429,9 @@ fn request_map_wrapper_matches(
         || fields[0].wire_name.is_some()
     {
         return false;
+    }
+    if rust_type_matches_schema(schema, raw, bindings) {
+        return true;
     }
     let Ok(mapping) = parse_type(&fields[0].type_name) else {
         return false;
