@@ -1694,6 +1694,79 @@ pub(crate) fn plain_string_json_alias_matches(
         .is_some_and(|alias| alias == "String")
 }
 
+/// Validate response string-constant fields without requiring every sibling
+/// field to be scalar. This is a narrow guard used before falling back to a
+/// structurally closed response view: constants must retain their exact wire
+/// value and optional/null wrapper depth, while unrelated nested fields are
+/// validated/projected independently.
+pub(crate) fn response_constant_fields_match(
+    schema: &Value,
+    raw: &str,
+    bindings: &Bindings,
+) -> bool {
+    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
+        return true;
+    };
+    let constant_fields = properties
+        .iter()
+        .filter_map(|(name, property)| {
+            let (wire, nullable) = nullable_schema(property)
+                .map(|value| (value, true))
+                .unwrap_or((property, false));
+            wire.get("const")
+                .map(|constant| (name, wire, nullable, constant))
+        })
+        .collect::<Vec<_>>();
+    if constant_fields.is_empty() {
+        return true;
+    }
+
+    let required_values = schema
+        .get("required")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let required: BTreeSet<_> = required_values.iter().filter_map(Value::as_str).collect();
+    if required.len() != required_values.len() {
+        return false;
+    }
+    let Some(fields) = bindings.structs.get(raw) else {
+        return false;
+    };
+
+    constant_fields
+        .into_iter()
+        .all(|(wire_name, wire, nullable, constant)| {
+            let Some(value) = constant.as_str() else {
+                return false;
+            };
+            if wire.get("type").and_then(Value::as_str) != Some("string") {
+                return false;
+            }
+            let Some(field) = fields.iter().find(|field| {
+                field
+                    .wire_name
+                    .as_deref()
+                    .unwrap_or_else(|| field.name.strip_prefix("r#").unwrap_or(&field.name))
+                    == wire_name
+            }) else {
+                return false;
+            };
+            let Some((core, depth)) = rust_option_core(&field.type_name) else {
+                return false;
+            };
+            if depth != usize::from(!required.contains(wire_name.as_str())) + usize::from(nullable)
+            {
+                return false;
+            }
+            bindings.enums.get(&core.spelling).is_some_and(|variants| {
+                variants.len() == 1
+                    && variants[0].payload.is_none()
+                    && variants[0].wire_name.as_deref() == Some(value)
+            })
+        })
+}
+
 /// Prove a response object with one or more string-constant fields represented
 /// by exact one-variant raw enums, while checking every other scalar field and
 /// preserving the required/nullable wrapper depth.

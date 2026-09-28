@@ -30,9 +30,15 @@ fn fixture() -> (OpenApi, Bindings, PublicSdkSurface) {
         "properties": {
             "id": {"type": "string"},
             "archived": {"type": "boolean", "default": true},
-            "tag": {"type": "string", "const": "archive", "default": "archive"}
+            "tag": {"type": "string", "const": "archive", "default": "archive"},
+            "details": {"$ref": "#/components/schemas/ArchiveDetails"}
         },
-        "required": ["id"]
+        "required": ["id", "details"]
+    });
+    openapi.0["components"]["schemas"]["ArchiveDetails"] = serde_json::json!({
+        "type": "object",
+        "properties": {"label": {"type": "string"}},
+        "required": ["label"]
     });
     let mut raw = bindings.operations["raw_read_report"].clone();
     raw.name = "raw_archive_report".into();
@@ -54,7 +60,8 @@ fn fixture() -> (OpenApi, Bindings, PublicSdkSurface) {
         serde_json::from_value(serde_json::json!([
             {"name": "archived", "wire_name": "archived", "type": "Option<bool>"},
             {"name": "id", "wire_name": "id", "type": "String"},
-            {"name": "tag", "wire_name": "tag", "type": "Option<ArchiveTag>"}
+            {"name": "tag", "wire_name": "tag", "type": "Option<ArchiveTag>"},
+            {"name": "details", "wire_name": "details", "type": "ArchiveDetails"}
         ]))
         .expect("raw response fields"),
     );
@@ -65,6 +72,13 @@ fn fixture() -> (OpenApi, Bindings, PublicSdkSurface) {
         ]))
         .expect("raw constant enum"),
     );
+    bindings.structs.insert(
+        "ArchiveDetails".into(),
+        serde_json::from_value(serde_json::json!([
+            {"name": "label", "wire_name": "label", "type": "String"}
+        ]))
+        .expect("nested response fields"),
+    );
     bindings.symbol_paths.insert(
         "ArchivedReport".into(),
         "crate::generated::types::ArchivedReport".into(),
@@ -72,6 +86,10 @@ fn fixture() -> (OpenApi, Bindings, PublicSdkSurface) {
     bindings.symbol_paths.insert(
         "ArchiveTag".into(),
         "crate::generated::types::ArchiveTag".into(),
+    );
+    bindings.symbol_paths.insert(
+        "ArchiveDetails".into(),
+        "crate::generated::types::ArchiveDetails".into(),
     );
     surface
         .operations
