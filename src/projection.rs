@@ -415,6 +415,39 @@ fn request_type_is_public(syntax: Type, bindings: &Bindings, seen: &mut BTreeSet
         .all(|argument| request_type_is_public(argument, bindings, seen))
 }
 
+fn request_map_wrapper_matches(schema: &Value, raw: &str, bindings: &Bindings) -> bool {
+    if canonical_unconstrained_map_branch(schema, raw, bindings) {
+        return true;
+    }
+    if schema.get("type").and_then(Value::as_str) != Some("object")
+        || schema.get("properties").is_some()
+    {
+        return false;
+    }
+    let Some(additional) = schema
+        .get("additionalProperties")
+        .filter(|value| **value != Value::Bool(false))
+    else {
+        return false;
+    };
+    let Some(fields) = bindings.structs.get(raw) else {
+        return false;
+    };
+    if fields.len() != 1
+        || fields[0].name.strip_prefix("r#").unwrap_or(&fields[0].name)
+            != "additional_properties"
+    {
+        return false;
+    }
+    let Ok(mapping) = parse_type(&fields[0].type_name) else {
+        return false;
+    };
+    mapping.constructor.as_deref() == Some("std::collections::BTreeMap")
+        && mapping.arguments.len() == 2
+        && mapping.arguments[0].spelling == "String"
+        && rust_type_matches_schema(additional, &mapping.arguments[1].spelling, bindings)
+}
+
 fn request_value_adapter_models(
     context: &RequestModelContext<'_>,
     schema: &Value,
@@ -524,7 +557,7 @@ fn request_value_adapter_models(
         .map(|models| (models, Some(public_name)));
     }
 
-    if canonical_unconstrained_map_branch(schema, &syntax.spelling, context.bindings) {
+    if request_map_wrapper_matches(schema, &syntax.spelling, context.bindings) {
         if !context
             .naming
             .public_name_available(&public_name, context.bindings)
@@ -763,11 +796,7 @@ fn request_object_models_value(
                     seen,
                 )?);
                 adapters.insert(field_name.clone(), child_name);
-            } else if canonical_unconstrained_map_branch(
-                referenced,
-                &core.spelling,
-                context.bindings,
-            ) {
+            } else if request_map_wrapper_matches(referenced, &core.spelling, context.bindings) {
                 let (projected, adapter) = request_value_adapter_models(
                     context,
                     referenced,
@@ -884,7 +913,7 @@ fn request_object_models_value(
             }
         }
 
-        if canonical_unconstrained_map_branch(wire, &core.spelling, context.bindings) {
+        if request_map_wrapper_matches(wire, &core.spelling, context.bindings) {
             let mut child_path = source_path.to_vec();
             child_path.push(field_name.clone());
             let (projected, adapter) = request_value_adapter_models(
