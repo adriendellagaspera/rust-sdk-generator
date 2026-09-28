@@ -119,8 +119,16 @@ fn structured_response_generated_views_compile_for_consumer() {
     .expect("generate");
     let dir = temp_dir();
     fs::create_dir_all(&dir).expect("temp dir");
-    fs::write(dir.join("facade_types.rs"), &output.files["facade_types.rs"]).expect("facade");
-    fs::write(dir.join("futures_util.rs"), "pub trait Stream { type Item; }").expect("stream stub");
+    fs::write(
+        dir.join("facade_types.rs"),
+        &output.files["facade_types.rs"],
+    )
+    .expect("facade");
+    fs::write(
+        dir.join("futures_util.rs"),
+        "pub trait Stream { type Item; }",
+    )
+    .expect("stream stub");
     fs::write(
         dir.join("lib.rs"),
         format!(
@@ -158,16 +166,46 @@ pub fn navigate(response: &sdk::{response_name}) {{
     let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".into());
     let stub = Command::new(&rustc)
         .current_dir(&dir)
-        .args(["--crate-name", "futures_util", "--crate-type", "lib", "--edition", "2024", "futures_util.rs", "--out-dir", "."])
+        .args([
+            "--crate-name",
+            "futures_util",
+            "--crate-type",
+            "lib",
+            "--edition",
+            "2024",
+            "futures_util.rs",
+            "--out-dir",
+            ".",
+        ])
         .output()
         .expect("compile stream stub");
-    assert!(stub.status.success(), "{}", String::from_utf8_lossy(&stub.stderr));
+    assert!(
+        stub.status.success(),
+        "{}",
+        String::from_utf8_lossy(&stub.stderr)
+    );
     let consumer = Command::new(&rustc)
         .current_dir(&dir)
-        .args(["--crate-name", "response_consumer", "--crate-type", "lib", "--edition", "2024", "lib.rs", "--extern", "futures_util=libfutures_util.rlib", "--out-dir", "."])
+        .args([
+            "--crate-name",
+            "response_consumer",
+            "--crate-type",
+            "lib",
+            "--edition",
+            "2024",
+            "lib.rs",
+            "--extern",
+            "futures_util=libfutures_util.rlib",
+            "--out-dir",
+            ".",
+        ])
         .output()
         .expect("compile consumer");
-    assert!(consumer.status.success(), "{}", String::from_utf8_lossy(&consumer.stderr));
+    assert!(
+        consumer.status.success(),
+        "{}",
+        String::from_utf8_lossy(&consumer.stderr)
+    );
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
