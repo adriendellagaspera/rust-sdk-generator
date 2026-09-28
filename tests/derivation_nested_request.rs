@@ -606,10 +606,15 @@ fn derives_nullable_union_of_named_object_and_canonical_raw_json_map() {
         DerivationStatus::Derived
     );
     let root = &derived.definition.models["CreatePlatformWidgetsRequest"];
+    assert_eq!(
+        root.adapters.as_ref().and_then(|adapters| adapters.get("input")),
+        Some(&"CreatePlatformWidgetsRequestInput".to_owned())
+    );
     assert!(
-        root.adapters
-            .as_ref()
-            .is_none_or(|adapters| !adapters.contains_key("input"))
+        derived
+            .definition
+            .models
+            .contains_key("CreatePlatformWidgetsRequestInputOther")
     );
     let generated = generate(GenerateInput {
         openapi: openapi.clone(),
