@@ -838,7 +838,8 @@ fn request_object_models_value(
         }
 
         if wire.get("type").and_then(Value::as_str) == Some("string")
-            && wire.get("const").is_some_and(Value::is_string)
+            && (wire.get("enum").and_then(Value::as_array).is_some()
+                || wire.get("const").is_some_and(Value::is_string))
             && context.bindings.enums.contains_key(&core.spelling)
             && rust_type_matches_schema(wire, &core.spelling, context.bindings)
         {
