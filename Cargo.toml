@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "openapi-to-rust-bindings"]
+members = [".", "openapi-to-rust-bindings", "rust-sdk-cli"]
 resolver = "3"
 
 [package]

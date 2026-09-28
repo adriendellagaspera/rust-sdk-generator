@@ -43,7 +43,7 @@ The consumer owns its chosen OpenAPI revision, public naming evidence, approved 
 | `src/naming.rs`, `src/derivation.rs`, `src/projection.rs` | Public-path/model naming policy, source-model projection/reuse, exhaustive outcomes and definition construction |
 | `src/contracts.rs`, `src/validation.rs` | Typed contracts and fail-closed validation |
 | `src/lower.rs`, `src/ir.rs`, `src/emit.rs`, `src/compiler.rs` | Closed lowering, deterministic files and inventory |
-| `src/main.rs`, `src/output.rs` | CLI and safe publication of generated output |
+| `src/main.rs`, `src/cli.rs`, `src/cli/output.rs` | Backend-neutral CLI and safe publication of generated output |
 | `openapi-to-rust-bindings/src/` | Temporary metadata compatibility shim and Bindings validation |
 | `tests/`, `examples/independent-sdk/` | Generic fixtures, unit/integration contracts and standalone SDK proof |
 

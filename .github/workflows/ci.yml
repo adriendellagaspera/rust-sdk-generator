@@ -82,6 +82,10 @@ jobs:
         run: cargo clippy -p rust-sdk-generator --all-targets --all-features -- -D warnings
       - name: Test Rust generator
         run: cargo test -p rust-sdk-generator --all-targets --all-features
+      - name: Lint installable orchestrator
+        run: cargo clippy -p rust-sdk-cli --all-targets --all-features -- -D warnings
+      - name: Test installable orchestrator
+        run: cargo test -p rust-sdk-cli --all-targets --all-features
       - name: Enforce backend-neutral dependency direction
         run: |
           test -z "$(grep -R -n -E 'openapi_to_rust_bindings|openapi-to-rust-bindings|import openapi_to_rust' src/*.rs || true)"
@@ -150,6 +154,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Check published package file lists
+        run: |
+          cargo package --list --locked -p rust-sdk-generator > "$RUNNER_TEMP/generator-package-files"
+          cargo package --list --locked -p openapi-to-rust-bindings > "$RUNNER_TEMP/bindings-package-files"
+          cargo package --list --locked -p rust-sdk-cli > "$RUNNER_TEMP/cli-package-files"
+          grep -Fx 'DEFAULT_BACKEND.json' "$RUNNER_TEMP/cli-package-files"
+          grep -Fx 'templates/standalone-v1/src/lib.rs' "$RUNNER_TEMP/cli-package-files"
+          grep -Fx 'templates/standalone-v1/src/sdk/error.rs' "$RUNNER_TEMP/cli-package-files"
+          grep -Fx 'src/cli.rs' "$RUNNER_TEMP/generator-package-files"
+      - name: Check bundled resources match the canonical sources
+        run: |
+          cmp rust-sdk-cli/DEFAULT_BACKEND.json openapi-to-rust-bindings/DEFAULT_BACKEND.json
+          cmp rust-sdk-cli/templates/standalone-v1/src/lib.rs templates/standalone-v1/src/lib.rs
+          cmp rust-sdk-cli/templates/standalone-v1/src/sdk/error.rs templates/standalone-v1/src/sdk/error.rs
       - name: Prove documented local-first own-API init/sync and HTTP
         run: bash scripts/prove_own_api_sdk.sh
 

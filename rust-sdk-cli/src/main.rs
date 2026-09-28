@@ -1,6 +1,5 @@
 //! Local-first, own-OpenAPI `rust-sdk` CLI. The library remains backend-neutral:
 //! driver -> canonical Bindings v5 -> root derive -> root generate/check-generated.
-#[path = "rust_sdk/driver.rs"]
 mod driver;
 
 use std::collections::BTreeMap;
@@ -35,6 +34,7 @@ fn err(stage: &'static str, message: impl std::fmt::Display) -> Failure {
 }
 
 fn run(stage: &'static str, command: &mut Command) -> Result<Output> {
+    eprintln!("rust-sdk: {stage}…");
     let result = command
         .output()
         .map_err(|e| err(stage, format!("{command:?}: {e}")))?;
@@ -78,34 +78,11 @@ fn read(path: &Path, stage: &'static str) -> Result<Vec<u8>> {
 fn parse<T: serde::de::DeserializeOwned>(bytes: &[u8], stage: &'static str) -> Result<T> {
     serde_json::from_slice(bytes).map_err(|e| err(stage, e))
 }
-fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-}
 fn generator_revision() -> Result<String> {
-    let head = run(
-        "generator.pin",
-        Command::new("git")
-            .arg("-C")
-            .arg(root())
-            .args(["rev-parse", "HEAD"]),
-    )?;
-    let revision = String::from_utf8_lossy(&head.stdout).trim().to_owned();
-    if revision.len() != 40 || !revision.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err(err(
-            "generator.pin",
-            "generator checkout lacks an immutable commit identity",
-        ));
-    }
-    Ok(revision)
+    Ok(format!("rust-sdk-cli/{}", env!("CARGO_PKG_VERSION")))
 }
 fn required_pin() -> Result<String> {
-    let pin: Value = parse(
-        &read(
-            &root().join("openapi-to-rust-bindings/DEFAULT_BACKEND.json"),
-            "backend.pin",
-        )?,
-        "backend.pin",
-    )?;
+    let pin: Value = parse(include_bytes!("../DEFAULT_BACKEND.json"), "backend.pin")?;
     let commit = pin["commit"]
         .as_str()
         .ok_or_else(|| err("backend.pin", "missing immutable default revision"))?;
@@ -208,7 +185,7 @@ fn validate_recipe(recipe: &Recipe) -> Result<()> {
     {
         return Err(err(
             "recipe.generator_contract",
-            "generator commit/version or v2 definition/v1 report contract changed; migrate the recipe explicitly rather than silently changing generated public API",
+            "installed CLI release or v2 definition/v1 report contract changed; migrate the recipe explicitly rather than silently changing generated public API",
         ));
     }
     driver::verify_lock(&recipe.backend, &required_pin()?)
@@ -297,52 +274,13 @@ fn cache_dir() -> Result<PathBuf> {
     )
     .join(".cache/rust-sdk/v1"))
 }
-fn tools(offline: bool) -> Result<(PathBuf, PathBuf)> {
-    let root = root();
-    let target = env::var_os("CARGO_TARGET_DIR")
-        .map(PathBuf::from)
-        .map(|path| {
-            if path.is_absolute() {
-                path
-            } else {
-                root.join(path)
-            }
-        })
-        .unwrap_or_else(|| root.join("target"));
-    for (package, stage) in [
-        ("rust-sdk-generator", "tools.generator_build"),
-        ("openapi-to-rust-bindings", "tools.adapter_build"),
-    ] {
-        let mut command = Command::new("cargo");
-        command
-            .args([
-                "build",
-                "--locked",
-                "-p",
-                package,
-                "--bin",
-                package,
-                "--manifest-path",
-            ])
-            .arg(root.join("Cargo.toml"));
-        if offline {
-            command.arg("--offline");
-        }
-        run(stage, &mut command)?;
-    }
-    Ok((
-        target
-            .join("debug")
-            .join(format!("rust-sdk-generator{}", env::consts::EXE_SUFFIX)),
-        target.join("debug").join(format!(
-            "openapi-to-rust-bindings{}",
-            env::consts::EXE_SUFFIX
-        )),
-    ))
+fn generator_binary() -> Result<PathBuf> {
+    env::current_exe().map_err(|error| err("tools.generator", error))
 }
 fn root_command(generator: &Path, command: &str, work: &Path, output: Option<&Path>) -> Command {
     let mut cmd = Command::new(generator);
-    cmd.arg(command)
+    cmd.arg("__generator")
+        .arg(command)
         .arg("--openapi")
         .arg(work.join("effective-openapi.json"))
         .arg("--bindings")
@@ -424,12 +362,12 @@ fn create_starter(dir: &Path, recipe: &Recipe, fragment: &str) -> Result<()> {
     )?;
     write_if_changed(
         &dir.join("src/lib.rs"),
-        include_bytes!("../../templates/standalone-v1/src/lib.rs"),
+        include_bytes!("../templates/standalone-v1/src/lib.rs"),
         "template.lib",
     )?;
     write_if_changed(
         &dir.join("src/sdk/error.rs"),
-        include_bytes!("../../templates/standalone-v1/src/sdk/error.rs"),
+        include_bytes!("../templates/standalone-v1/src/sdk/error.rs"),
         "template.runtime",
     )?;
     Ok(())
@@ -645,6 +583,24 @@ fn args() -> Result<Cli> {
     })
 }
 fn main_inner() -> Result<()> {
+    let mut cli_args = env::args();
+    let _program = cli_args.next();
+    match cli_args.next().as_deref() {
+        Some("__generator") => {
+            std::process::exit(rust_sdk_generator::cli::run_args(cli_args));
+        }
+        Some("--version" | "-V") => {
+            println!("rust-sdk {}", env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
+        Some("--help" | "-h") => {
+            println!(
+                "rust-sdk init --openapi FILE --output DIR --name CRATE [--surface FILE] [--overrides FILE] [--offline]\nrust-sdk sync --crate DIR [--check] [--accept-coverage] [--offline]"
+            );
+            return Ok(());
+        }
+        _ => {}
+    }
     let cli = args()?;
     let output = if cli.init {
         cli.output.clone()
@@ -743,7 +699,7 @@ fn main_inner() -> Result<()> {
         } else {
             SdkOverrides::default()
         };
-    let (generator, adapter) = tools(cli.offline)?;
+    let generator = generator_binary()?;
     let cache = cache_dir()?;
     let work = stage.0.join(".sdkgen/work");
     fs::create_dir_all(&work).map_err(|e| err("stage.create", e))?;
@@ -752,8 +708,7 @@ fn main_inner() -> Result<()> {
         &source,
         "source.effective",
     )?;
-    let generated =
-        UpstreamDriver.generate(&recipe.backend, &work, &cache, cli.offline, &adapter)?;
+    let generated = UpstreamDriver.generate(&recipe.backend, &work, &cache, cli.offline)?;
     let bindings: Bindings = parse(&generated.bindings, "bindings.v5")?;
     if bindings.schema_version != 5 {
         return Err(err(
@@ -831,6 +786,7 @@ fn main_inner() -> Result<()> {
     let output_dir = output.join(&recipe.sdk_output);
     let diff = if old.is_some() {
         let result = Command::new(&generator)
+            .arg("__generator")
             .arg("check-generated")
             .arg("--openapi")
             .arg(work.join("effective-openapi.json"))

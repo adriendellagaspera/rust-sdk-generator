@@ -6,7 +6,8 @@ boundaries and executable contracts, not a second implementation spec.
 
 ## Repository map
 
-- `src/*.rs`: canonical Rust generator library, CLI, contracts, lowering and emission.
+- `src/*.rs`, `src/cli/`: canonical Rust generator library, CLI, contracts, lowering and emission.
+- `rust-sdk-cli/`: installable init/sync orchestrator with pinned backend and bundled starter template.
 - `tests/fixtures/`, `tests/oracle/`, `tests/rust_surface.rs`: generic generator behavior and surface proofs.
 - `tests/test_bindings_integration.py`: adapter-to-Rust-CLI integration proof.
 - `examples/independent-sdk/`: pinned backend-to-standalone-consumer proof.
