@@ -99,8 +99,7 @@ impl<'a> ModelNaming<'a> {
     }
 
     fn public_name_available(&self, name: &str, bindings: &Bindings) -> bool {
-        public_model_name_available(name, bindings)
-            || self.identities.borrow().contains_key(name)
+        public_model_name_available(name, bindings) || self.identities.borrow().contains_key(name)
     }
 }
 
@@ -298,7 +297,10 @@ fn request_union_models(
             seen,
         );
     };
-    if !context.naming.public_name_available(&public_name, context.bindings) {
+    if !context
+        .naming
+        .public_name_available(&public_name, context.bindings)
+    {
         return Err("capability.public_model_name_collision");
     }
 
@@ -523,7 +525,10 @@ fn request_value_adapter_models(
     }
 
     if canonical_unconstrained_map_branch(schema, &syntax.spelling, context.bindings) {
-        if !context.naming.public_name_available(&public_name, context.bindings) {
+        if !context
+        .naming
+        .public_name_available(&public_name, context.bindings)
+    {
             return Err("capability.public_model_name_collision");
         }
         return Ok((
@@ -582,7 +587,10 @@ fn request_value_union_models(
 ) -> Result<ProjectedModels, &'static str> {
     let mapping = request_value_union_mapping(context.openapi, schema, raw_union, context.bindings)
         .ok_or(REQUEST_MODEL_UNPROVEN)?;
-    if !context.naming.public_name_available(&public_name, context.bindings) {
+    if !context
+        .naming
+        .public_name_available(&public_name, context.bindings)
+    {
         return Err("capability.public_model_name_collision");
     }
 
@@ -760,7 +768,10 @@ fn request_object_models_value(
                 && context.bindings.enums.contains_key(&core.spelling)
                 && rust_type_matches_schema(referenced, &core.spelling, context.bindings)
             {
-                if !context.naming.public_name_available(&child_name, context.bindings) {
+                if !context
+                    .naming
+                    .public_name_available(&child_name, context.bindings)
+                {
                     return Err("capability.public_model_name_collision");
                 }
                 models.push((
@@ -873,7 +884,10 @@ fn request_object_models_value(
         }
     }
 
-    if !context.naming.public_name_available(&public_name, context.bindings) {
+    if !context
+        .naming
+        .public_name_available(&public_name, context.bindings)
+    {
         return Err("capability.public_model_name_collision");
     }
     models.push((
@@ -3420,8 +3434,10 @@ mod model_identity_tests {
                 "Message".into(),
                 "crate::generated::types::Message".into(),
             )]),
-            ..serde_json::from_str(include_str!("../tests/fixtures/derivation-structured-response/rust-bindings.json"))
-                .expect("fixture bindings")
+            ..serde_json::from_str(include_str!(
+                "../tests/fixtures/derivation-structured-response/rust-bindings.json"
+            ))
+            .expect("fixture bindings")
         };
 
         let explicit = BTreeMap::from([("SourceMessage".into(), "Message".into())]);
