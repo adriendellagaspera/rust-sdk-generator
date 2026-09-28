@@ -2799,7 +2799,6 @@ mod legacy_nullable_request_tests {
     }
 }
 
-
 #[cfg(test)]
 mod request_map_value_identity_tests {
     use super::*;
@@ -2870,7 +2869,11 @@ mod request_map_value_identity_tests {
         let schema = serde_json::json!({"$ref": "#/components/schemas/CanonicalValue"});
         let raw = parse_type("CanonicalValue").expect("raw type");
 
-        assert!(rust_type_matches_schema(&schema, "CanonicalValue", &bindings));
+        assert!(rust_type_matches_schema(
+            &schema,
+            "CanonicalValue",
+            &bindings
+        ));
         assert!(
             !request_object_matches(&openapi, "CanonicalValue", "CanonicalValue", &bindings),
             "fixture intentionally violates recursive request presence semantics"
