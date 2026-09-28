@@ -872,8 +872,15 @@ fn unwrap_nullable_schema(schema: &Value) -> &Value {
     if branches.len() != 2 {
         return schema;
     }
-    let non_null: Vec<_> = branches.iter().filter(|branch| branch.get("type").and_then(Value::as_str) != Some("null")).collect();
-    if non_null.len() == 1 { non_null[0] } else { schema }
+    let non_null: Vec<_> = branches
+        .iter()
+        .filter(|branch| branch.get("type").and_then(Value::as_str) != Some("null"))
+        .collect();
+    if non_null.len() == 1 {
+        non_null[0]
+    } else {
+        schema
+    }
 }
 
 // A child is projected only after the complete parent wire shape has been
