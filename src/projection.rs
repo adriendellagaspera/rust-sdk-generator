@@ -415,14 +415,69 @@ fn request_type_is_public(syntax: Type, bindings: &Bindings, seen: &mut BTreeSet
         .all(|argument| request_type_is_public(argument, bindings, seen))
 }
 
-fn request_map_wrapper_matches(schema: &Value, raw: &str, bindings: &Bindings) -> bool {
+fn request_map_wrapper_matches(
+    openapi: &OpenApiIndex,
+    schema: &Value,
+    raw: &str,
+    bindings: &Bindings,
+) -> bool {
+    if rust_type_matches_schema(schema, raw, bindings) {
+        return true;
+    }
     let Some(fields) = bindings.structs.get(raw) else {
         return false;
     };
-    fields.len() == 1
-        && fields[0].name.strip_prefix("r#").unwrap_or(&fields[0].name) == "additional_properties"
-        && fields[0].wire_name.is_none()
-        && rust_type_matches_schema(schema, raw, bindings)
+    if fields.len() != 1
+        || fields[0].name.strip_prefix("r#").unwrap_or(&fields[0].name)
+            != "additional_properties"
+        || fields[0].wire_name.is_some()
+    {
+        return false;
+    }
+    let Ok(mapping) = parse_type(&fields[0].type_name) else {
+        return false;
+    };
+    if mapping.constructor.as_deref() != Some("std::collections::BTreeMap")
+        || mapping.arguments.len() != 2
+        || mapping.arguments[0].spelling != "String"
+    {
+        return false;
+    }
+    let Ok(value) = expand_request_type(
+        mapping.arguments[1].clone(),
+        bindings,
+        &mut BTreeSet::new(),
+    ) else {
+        return false;
+    };
+    let Some(additional) = schema
+        .get("additionalProperties")
+        .filter(|value| **value != Value::Bool(false))
+    else {
+        return false;
+    };
+    if additional == &Value::Bool(true) {
+        return value.spelling == "serde_json::Value";
+    }
+    if let Some(reference) = ref_name(additional) {
+        let Ok(referenced) = openapi.schema(reference) else {
+            return false;
+        };
+        if request_union_schema(referenced) {
+            return request_union_matches(openapi, referenced, &value.spelling, bindings);
+        }
+        if referenced_request_object(openapi, reference, referenced).is_some() {
+            return request_object_matches(openapi, reference, &value.spelling, bindings);
+        }
+        return rust_type_matches_schema(referenced, &value.spelling, bindings);
+    }
+    if request_union_schema(additional) {
+        return request_union_matches(openapi, additional, &value.spelling, bindings);
+    }
+    if additional.get("properties").is_some() {
+        return object_value_matches(openapi, additional, &value.spelling, bindings);
+    }
+    rust_type_matches_schema(additional, &value.spelling, bindings)
 }
 
 fn request_value_adapter_models(
@@ -534,7 +589,7 @@ fn request_value_adapter_models(
         .map(|models| (models, Some(public_name)));
     }
 
-    if request_map_wrapper_matches(schema, &syntax.spelling, context.bindings) {
+    if request_map_wrapper_matches(context.openapi, schema, &syntax.spelling, context.bindings) {
         if !context
             .naming
             .public_name_available(&public_name, context.bindings)
@@ -794,7 +849,12 @@ fn request_object_models_value(
                     seen,
                 )?);
                 adapters.insert(field_name.clone(), child_name);
-            } else if request_map_wrapper_matches(referenced, &core.spelling, context.bindings) {
+            } else if request_map_wrapper_matches(
+                context.openapi,
+                referenced,
+                &core.spelling,
+                context.bindings,
+            ) {
                 let (projected, adapter) = request_value_adapter_models(
                     context,
                     referenced,
@@ -971,7 +1031,7 @@ fn request_object_models_value(
             }
         }
 
-        if request_map_wrapper_matches(wire, &core.spelling, context.bindings) {
+        if request_map_wrapper_matches(context.openapi, wire, &core.spelling, context.bindings) {
             let mut child_path = source_path.to_vec();
             child_path.push(field_name.clone());
             let (projected, adapter) = request_value_adapter_models(
