@@ -128,7 +128,11 @@ fn constructor_argument(
                 },
             ));
         }
-        let public_type = public_alias_type(parse_type(&inner)?, bindings, &mut Vec::new())?;
+        let public_type = public_alias_type(
+            parse_type(&inner)?,
+            bindings,
+            &mut vec![format!("@constructor:{name}:{}", field.type_name)],
+        )?;
         return Ok((
             ArgumentSpec {
                 name: public_name.clone(),
@@ -164,7 +168,11 @@ fn constructor_argument(
     let effective = option(&field.type_name)?
         .map(|(inner, _)| inner)
         .unwrap_or_else(|| field.type_name.clone());
-    let public_type = public_alias_type(parse_type(&effective)?, bindings, &mut Vec::new())?;
+    let public_type = public_alias_type(
+        parse_type(&effective)?,
+        bindings,
+        &mut vec![format!("@constructor:{name}:{}", field.type_name)],
+    )?;
     let (argument, value) = argument(name, &public_type)?;
     Ok((argument, wrap(&field.type_name, value)?))
 }
@@ -451,7 +459,11 @@ fn resolve_wrapper(
             };
             constructor_argument(name, &synthetic, Some(adapter), bindings)?
         } else {
-            let public_type = public_alias_type(parse_type(&inner)?, bindings, &mut Vec::new())?;
+            let public_type = public_alias_type(
+                parse_type(&inner)?,
+                bindings,
+                &mut vec![format!("@setter:{raw}.{name}:{}", field.type_name)],
+            )?;
             argument(name, &public_type)?
         };
         setters.push(SetterSpec {
@@ -729,7 +741,11 @@ fn resolve_simple_union(
             (type_name, Some(depth))
         } else {
             (
-                public_alias_type(raw_syntax, bindings, &mut Vec::new())?,
+                public_alias_type(
+                    raw_syntax,
+                    bindings,
+                    &mut vec![format!("@simple_union:{raw}::{raw_name}")],
+                )?,
                 None,
             )
         };
@@ -1071,7 +1087,11 @@ fn resolve_map(
         }
     }
     Ok(MapModelSpec {
-        public_type: public_alias_type(mapping, bindings, &mut Vec::new())?,
+        public_type: public_alias_type(
+            mapping,
+            bindings,
+            &mut vec![format!("@map:{raw}")],
+        )?,
         raw_field: fields[0].name.clone(),
     })
 }
