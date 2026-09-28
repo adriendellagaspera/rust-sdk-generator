@@ -759,7 +759,11 @@ pub(crate) fn legacy_nullable_request_property(schema: &Value) -> Option<Value> 
     Some(Value::Object(non_null))
 }
 
-fn canonical_unconstrained_map_branch(schema: &Value, raw: &str, bindings: &Bindings) -> bool {
+pub(crate) fn canonical_unconstrained_map_branch(
+    schema: &Value,
+    raw: &str,
+    bindings: &Bindings,
+) -> bool {
     let Some(shape) = schema.as_object() else {
         return false;
     };
