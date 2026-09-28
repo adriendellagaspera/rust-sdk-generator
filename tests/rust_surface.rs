@@ -147,7 +147,8 @@ fn composed_chat_response_has_navigable_choices_usage_and_message() {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/derivation-chat-response");
     let read = |name| fs::read_to_string(root.join(name)).expect("chat fixture");
     let openapi = OpenApi(serde_json::from_str(&read("openapi.json")).expect("OpenAPI"));
-    let bindings = serde_json::from_str(&read("rust-bindings.json")).expect("bindings");
+    let bindings: rust_sdk_generator::Bindings =
+        serde_json::from_str(&read("rust-bindings.json")).expect("bindings");
     let surface = serde_json::from_str(&read("surface.json")).expect("surface");
     let definition = derive(DeriveInput {
         openapi: openapi.clone(),
