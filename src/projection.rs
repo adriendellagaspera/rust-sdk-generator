@@ -553,7 +553,6 @@ fn request_object_models_value(
             nullable_request_union(property).or_else(|| legacy_nullable_request_property(property));
         let wire = normalized_nullable
             .as_ref()
-            .map(|schema| schema)
             .unwrap_or_else(|| request_non_null_schema(property).0);
         let field = by_name
             .get(field_name.as_str())
