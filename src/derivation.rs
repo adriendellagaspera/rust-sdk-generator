@@ -1244,4 +1244,114 @@ mod tests {
         assert_eq!(generated.inventory.resources[1].path, vec!["work", "jobs"]);
         assert_eq!(generated.inventory.resources[1].operations, vec!["update"]);
     }
+
+    fn structured_response_v2_input() -> DeriveInput {
+        DeriveInput {
+            openapi: serde_json::from_str(include_str!(
+                "../tests/fixtures/derivation-structured-response/openapi.json"
+            ))
+            .expect("structured response OpenAPI"),
+            bindings: serde_json::from_str(include_str!(
+                "../tests/fixtures/derivation-structured-response/rust-bindings.json"
+            ))
+            .expect("structured response bindings"),
+            surface: serde_json::from_str(include_str!(
+                "../tests/fixtures/derivation-structured-response/surface-v2.json"
+            ))
+            .expect("stable public model surface"),
+            overrides: SdkOverrides::default(),
+        }
+    }
+
+    #[test]
+    fn stable_model_identity_projects_named_components_and_stays_facade_closed() {
+        let input = structured_response_v2_input();
+        let derivation = derive(input.clone()).expect("derive stable model identities");
+
+        let models: BTreeSet<_> = derivation.definition.models.keys().map(String::as_str).collect();
+        assert!(models.contains("Sensor"));
+        assert!(models.contains("UsageRef"));
+        assert!(models.contains("ChoiceRef"));
+        assert!(models.contains("SensorState"));
+        assert!(models.contains("Message"));
+        assert!(models.contains("TextMessage"));
+        assert!(models.contains("CodeMessage"));
+        assert!(!models.contains("GetFleetSensorsResponseUsage"));
+
+        let operation = &derivation.definition.resources["fleet_sensors"].operations["get"];
+        assert_eq!(operation.response.as_deref(), Some("Sensor"));
+
+        let generate_input = GenerateInput {
+            openapi: input.openapi,
+            bindings: input.bindings,
+            definition: derivation.definition,
+            runtime: Runtime::default(),
+        };
+        let report = crate::inspect_public_facade(&generate_input).expect("inspect public façade");
+        assert_eq!(report.consumer_leaks().count(), 0);
+
+        let generated = crate::generate(generate_input).expect("generate stable public models");
+        let facade_types = &generated.files["facade_types.rs"];
+        assert!(facade_types.contains("pub struct Sensor"));
+        assert!(facade_types.contains("pub struct UsageRef"));
+        assert!(
+            facade_types.contains("crate::generated::types::Usage"),
+            "backend symbols that shadow public model names must be qualified"
+        );
+    }
+
+    #[test]
+    fn repeated_named_schema_reuse_is_stable_across_openapi_operation_order() {
+        let mut input = structured_response_v2_input();
+        let operation = input
+            .openapi
+            .0
+            .pointer("/paths/~1sensors~1{sensor_id}/get")
+            .expect("source operation")
+            .clone();
+        let mut duplicate = operation;
+        duplicate["operationId"] = serde_json::json!("read_sensor_again");
+        input
+            .openapi
+            .0
+            .pointer_mut("/paths")
+            .and_then(serde_json::Value::as_object_mut)
+            .expect("paths")
+            .insert(
+                "/alternate-sensors/{sensor_id}".into(),
+                serde_json::json!({"get": duplicate}),
+            );
+        input.surface.operations.insert(
+            "read_sensor_again".into(),
+            vec!["fleet.sensors.get_again".into()],
+        );
+
+        let first = derive(input.clone()).expect("derive repeated source schema");
+        assert_eq!(
+            first.definition.resources["fleet_sensors"].operations["get"]
+                .response
+                .as_deref(),
+            Some("Sensor")
+        );
+        assert_eq!(
+            first.definition.resources["fleet_sensors"].operations["get_again"]
+                .response
+                .as_deref(),
+            Some("Sensor")
+        );
+
+        let paths = input
+            .openapi
+            .0
+            .pointer_mut("/paths")
+            .and_then(serde_json::Value::as_object_mut)
+            .expect("paths");
+        let entries: Vec<_> = std::mem::take(paths).into_iter().rev().collect();
+        paths.extend(entries);
+
+        let second = derive(input).expect("derive reordered operations");
+        assert_eq!(first.definition.models, second.definition.models);
+        assert_eq!(first.definition.resources, second.definition.resources);
+    }
+
 }
