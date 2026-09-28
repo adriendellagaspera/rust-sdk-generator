@@ -4,9 +4,9 @@
 //! deterministic emission. Concrete OpenAPI-to-Rust backends remain adapters that only produce
 //! [`Bindings`].
 
+pub mod cli;
 mod closure;
 mod compiler;
-pub mod cli;
 mod contracts;
 mod derivation;
 mod emit;

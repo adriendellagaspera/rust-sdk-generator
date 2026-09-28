@@ -195,7 +195,10 @@ impl BackendDriver for UpstreamDriver {
         cache: &Path,
         offline: bool,
     ) -> Result<DriverOutput> {
-        eprintln!("rust-sdk: raw backend generation for pinned revision {}…", lock.revision);
+        eprintln!(
+            "rust-sdk: raw backend generation for pinned revision {}…",
+            lock.revision
+        );
         fs::create_dir_all(work.join("raw")).map_err(|e| err("raw.output", e))?;
         let config = format!(
             "[generator]\nspec_path = \"effective-openapi.json\"\noutput_dir = \"raw\"\nmodule_name = \"{}\"\nbindings_metadata = \"bindings.json\"\n\n[features]\nenable_async_client = true\n\n[http_client]\nbase_url = \"{}\"\n\n[http_client.retry]\nmax_retries = {}\n\n[client]\nprune_models = {}\n",
@@ -266,13 +269,11 @@ impl BackendDriver for UpstreamDriver {
             ));
         }
         eprintln!("rust-sdk: normalize Bindings v5…");
-        let bindings = openapi_to_rust_bindings::read_bindings(
-            &raw,
-            work.join("effective-openapi.json"),
-        )
-        .map_err(|error| err("adapter.extract", error))?;
-        let mut encoded = serde_json::to_vec_pretty(&bindings)
-            .map_err(|error| err("adapter.extract", error))?;
+        let bindings =
+            openapi_to_rust_bindings::read_bindings(&raw, work.join("effective-openapi.json"))
+                .map_err(|error| err("adapter.extract", error))?;
+        let mut encoded =
+            serde_json::to_vec_pretty(&bindings).map_err(|error| err("adapter.extract", error))?;
         encoded.push(b'\n');
         Ok(DriverOutput {
             dependencies,

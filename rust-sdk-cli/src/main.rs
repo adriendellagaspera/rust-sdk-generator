@@ -279,7 +279,8 @@ fn generator_binary() -> Result<PathBuf> {
 }
 fn root_command(generator: &Path, command: &str, work: &Path, output: Option<&Path>) -> Command {
     let mut cmd = Command::new(generator);
-    cmd.arg("__generator").arg(command)
+    cmd.arg("__generator")
+        .arg(command)
         .arg("--openapi")
         .arg(work.join("effective-openapi.json"))
         .arg("--bindings")
@@ -593,7 +594,9 @@ fn main_inner() -> Result<()> {
             return Ok(());
         }
         Some("--help" | "-h") => {
-            println!("rust-sdk init --openapi FILE --output DIR --name CRATE [--surface FILE] [--overrides FILE] [--offline]\nrust-sdk sync --crate DIR [--check] [--accept-coverage] [--offline]");
+            println!(
+                "rust-sdk init --openapi FILE --output DIR --name CRATE [--surface FILE] [--overrides FILE] [--offline]\nrust-sdk sync --crate DIR [--check] [--accept-coverage] [--offline]"
+            );
             return Ok(());
         }
         _ => {}
@@ -705,8 +708,7 @@ fn main_inner() -> Result<()> {
         &source,
         "source.effective",
     )?;
-    let generated =
-        UpstreamDriver.generate(&recipe.backend, &work, &cache, cli.offline)?;
+    let generated = UpstreamDriver.generate(&recipe.backend, &work, &cache, cli.offline)?;
     let bindings: Bindings = parse(&generated.bindings, "bindings.v5")?;
     if bindings.schema_version != 5 {
         return Err(err(
