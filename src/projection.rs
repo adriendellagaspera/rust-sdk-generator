@@ -589,8 +589,7 @@ fn request_object_models_value(
                     || legacy_nullable_request_property(referenced).is_some()
                     || request_non_null_schema(referenced).1
             });
-        let nullable =
-            normalized_nullable.is_some() || directly_nullable || referenced_nullable;
+        let nullable = normalized_nullable.is_some() || directly_nullable || referenced_nullable;
         let wire = normalized_nullable.as_ref().unwrap_or(non_null);
         let field = by_name
             .get(field_name.as_str())
