@@ -159,3 +159,70 @@ fn rejects_constant_value_and_optional_depth_drift() {
         DerivationStatus::Rejected
     );
 }
+
+
+#[test]
+fn preserves_named_response_provenance_for_inline_string_enum_fields() {
+    let (mut openapi, mut bindings, surface) = fixture();
+    openapi.0["components"]["schemas"]["ArchivedReport"]["properties"]["finish_reason"] =
+        serde_json::json!({
+            "type": "string",
+            "enum": ["stop", "length"]
+        });
+    bindings
+        .structs
+        .get_mut("ArchivedReport")
+        .expect("response struct")
+        .push(
+            serde_json::from_value(serde_json::json!({
+                "name": "finish_reason",
+                "wire_name": "finish_reason",
+                "type": "Option<ArchiveFinishReason>"
+            }))
+            .expect("finish reason field"),
+        );
+    bindings.enums.insert(
+        "ArchiveFinishReason".into(),
+        serde_json::from_value(serde_json::json!([
+            {"name": "Stop", "wire_name": "stop", "payload": null},
+            {"name": "Length", "wire_name": "length", "payload": null}
+        ]))
+        .expect("finish reason enum"),
+    );
+    bindings.symbol_paths.insert(
+        "ArchiveFinishReason".into(),
+        "crate::generated::types::ArchiveFinishReason".into(),
+    );
+
+    let derivation = derive(DeriveInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        surface,
+        overrides: SdkOverrides::default(),
+    })
+    .expect("derive inline response enum");
+    assert_eq!(
+        derivation.report.operations["archive_report"].status,
+        DerivationStatus::Derived
+    );
+
+    let enum_model = derivation
+        .definition
+        .models
+        .values()
+        .find(|model| {
+            model.raw.as_deref() == Some("ArchiveFinishReason") && model.scalar_enum.is_some()
+        })
+        .expect("projected finish reason");
+    let scalar = enum_model.scalar_enum.as_ref().expect("scalar enum policy");
+    assert_eq!(scalar.root, "ArchivedReport");
+    assert_eq!(scalar.path, ["finish_reason".to_owned()]);
+
+    generate(GenerateInput {
+        openapi,
+        bindings,
+        definition: derivation.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("inline response enum generates from named schema provenance");
+}
