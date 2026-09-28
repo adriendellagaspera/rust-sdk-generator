@@ -74,7 +74,7 @@ pub fn inspect_public_facade(input: &GenerateInput) -> Result<FacadeReport> {
     Ok(inspect(&ir, &input.bindings))
 }
 
-/// Strict opt-in gate, ready for generation to call once projection is complete.
+/// Strict public closure gate used by generation and available independently to callers.
 pub fn validate_public_facade(input: &GenerateInput) -> Result<()> {
     inspect_public_facade(input)?.require_closed()
 }
