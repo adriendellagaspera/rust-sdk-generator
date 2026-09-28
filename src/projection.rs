@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
 use indexmap::IndexMap;
@@ -33,6 +34,98 @@ const BINARY_RESPONSE_REQUIRED: &str = "capability.binary_response_derivation_re
 
 type ProjectedModels = Vec<(String, ModelDefinition)>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum ModelRepresentation {
+    Owned,
+    Borrowed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct ModelIdentity {
+    source_schema: String,
+    representation: ModelRepresentation,
+    explicit: bool,
+}
+
+#[derive(Debug)]
+struct ModelNaming<'a> {
+    stable: bool,
+    explicit: &'a BTreeMap<String, String>,
+    identities: RefCell<BTreeMap<String, BTreeSet<ModelIdentity>>>,
+}
+
+impl<'a> ModelNaming<'a> {
+    fn new(stable: bool, explicit: &'a BTreeMap<String, String>) -> Self {
+        Self {
+            stable,
+            explicit,
+            identities: RefCell::new(BTreeMap::new()),
+        }
+    }
+
+    fn named(
+        &self,
+        source_schema: &str,
+        representation: ModelRepresentation,
+        fallback: String,
+    ) -> Result<String, &'static str> {
+        if !self.stable {
+            return Ok(fallback);
+        }
+        let explicit = self.explicit.get(source_schema);
+        let base = explicit.cloned().unwrap_or(
+            semantic_pascal_identifier(source_schema)
+                .map_err(|_| "surface.invalid_public_model_identity")?,
+        );
+        let name = match representation {
+            ModelRepresentation::Owned => base,
+            ModelRepresentation::Borrowed => format!("{base}Ref"),
+        };
+        self.identities
+            .borrow_mut()
+            .entry(name.clone())
+            .or_default()
+            .insert(ModelIdentity {
+                source_schema: source_schema.to_owned(),
+                representation,
+                explicit: explicit.is_some(),
+            });
+        Ok(name)
+    }
+
+    fn identities(&self) -> BTreeMap<String, BTreeSet<ModelIdentity>> {
+        self.identities.borrow().clone()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ProjectionFailure {
+    pub code: String,
+    pub detail: Option<String>,
+}
+
+impl From<&'static str> for ProjectionFailure {
+    fn from(code: &'static str) -> Self {
+        Self {
+            code: code.into(),
+            detail: None,
+        }
+    }
+}
+
+type ProjectionResult<T> = std::result::Result<T, ProjectionFailure>;
+
+#[derive(Debug, Clone)]
+struct RegisteredProjection {
+    model: ModelDefinition,
+    identities: BTreeSet<ModelIdentity>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ProjectionRegistry {
+    models: BTreeMap<String, RegisteredProjection>,
+}
+
 #[derive(Debug, Clone)]
 enum ProjectedResponse {
     Empty,
@@ -54,6 +147,7 @@ pub(crate) struct ProjectedOperation {
     resource_path: Vec<String>,
     public_name: String,
     models: ProjectedModels,
+    model_identities: BTreeMap<String, BTreeSet<ModelIdentity>>,
     operation: OperationDefinition,
 }
 
@@ -132,11 +226,8 @@ fn stream_type_name(resource_path: &[String], public_name: &str) -> String {
     )
 }
 
-fn public_model_name_available(name: &str, bindings: &Bindings) -> bool {
+fn public_model_name_available(name: &str, _bindings: &Bindings) -> bool {
     !name.is_empty()
-        && !bindings.structs.contains_key(name)
-        && !bindings.enums.contains_key(name)
-        && !bindings.aliases.contains_key(name)
 }
 
 fn request_non_null_schema(schema: &Value) -> (&Value, bool) {
