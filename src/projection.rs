@@ -763,6 +763,24 @@ fn request_object_models_value(
                     seen,
                 )?);
                 adapters.insert(field_name.clone(), child_name);
+            } else if canonical_unconstrained_map_branch(
+                referenced,
+                &core.spelling,
+                context.bindings,
+            ) {
+                let (projected, adapter) = request_value_adapter_models(
+                    context,
+                    referenced,
+                    reference,
+                    &[],
+                    &core.spelling,
+                    child_name.clone(),
+                    seen,
+                )?;
+                models.extend(projected);
+                if let Some(adapter) = adapter {
+                    adapters.insert(field_name.clone(), adapter);
+                }
             } else if referenced.get("type").and_then(Value::as_str) == Some("string")
                 && referenced.get("enum").and_then(Value::as_array).is_some()
                 && context.bindings.enums.contains_key(&core.spelling)
