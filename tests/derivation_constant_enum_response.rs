@@ -160,7 +160,6 @@ fn rejects_constant_value_and_optional_depth_drift() {
     );
 }
 
-
 #[test]
 fn preserves_named_response_provenance_for_inline_string_enum_fields() {
     let (mut openapi, mut bindings, surface) = fixture();
