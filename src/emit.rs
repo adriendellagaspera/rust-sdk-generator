@@ -1,11 +1,87 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::contracts::{BindingLayout, Runtime};
+use crate::contracts::{BindingLayout, Bindings, Runtime};
 use crate::error::{GenerationError, Result};
 use crate::ir::*;
 
 fn error(code: &'static str, message: impl Into<String>) -> GenerationError {
     GenerationError::new(code, message)
+}
+
+fn qualify_struct_value(value: &mut StructValue, bindings: &Bindings) -> Result<()> {
+    value.type_name = bindings.qualified_type(&value.type_name)?;
+    for field in &mut value.fields {
+        qualify_value(&mut field.value, bindings)?;
+    }
+    Ok(())
+}
+
+fn qualify_value(value: &mut ValueSpec, bindings: &Bindings) -> Result<()> {
+    match value {
+        ValueSpec::Some { value, .. } => qualify_value(value, bindings)?,
+        ValueSpec::Enum {
+            type_name, value, ..
+        } => {
+            *type_name = bindings.qualified_type(type_name)?;
+            qualify_value(value, bindings)?;
+        }
+        ValueSpec::Struct(value) => qualify_struct_value(value, bindings)?,
+        ValueSpec::Variable(_)
+        | ValueSpec::IntoString(_)
+        | ValueSpec::IntoModel { .. }
+        | ValueSpec::CollectInto(_)
+        | ValueSpec::MapInto { .. }
+        | ValueSpec::Literal(_) => {}
+    }
+    Ok(())
+}
+
+fn qualify_transport_symbols(ir: &mut FacadeIr, bindings: &Bindings) -> Result<()> {
+    for model in &mut ir.models {
+        model.raw = bindings.qualified_type(&model.raw)?;
+        match &mut model.render {
+            ModelRenderSpec::Wrapper(spec) => {
+                if let Some(constructor) = &mut spec.constructor {
+                    qualify_struct_value(&mut constructor.value, bindings)?;
+                }
+                for factory in &mut spec.factories {
+                    qualify_struct_value(&mut factory.value, bindings)?;
+                }
+                for setter in &mut spec.setters {
+                    qualify_value(&mut setter.value, bindings)?;
+                }
+            }
+            ModelRenderSpec::Union(spec) => {
+                for branch in &mut spec.branches {
+                    qualify_value(&mut branch.raw_value, bindings)?;
+                }
+                for target in &mut spec.targets {
+                    target.raw = bindings.qualified_type(&target.raw)?;
+                }
+            }
+            ModelRenderSpec::View(spec) => {
+                for accessor in &mut spec.accessors {
+                    if let Some(enum_type) = &mut accessor.enum_type {
+                        *enum_type = bindings.qualified_type(enum_type)?;
+                    }
+                }
+            }
+            ModelRenderSpec::SimpleUnion(_)
+            | ModelRenderSpec::Alias(_)
+            | ModelRenderSpec::Map(_)
+            | ModelRenderSpec::ScalarEnum(_) => {}
+        }
+    }
+    for resource in &mut ir.resources {
+        for operation in &mut resource.operations {
+            if let ResponseProjection::Sse(stream) = &mut operation.response_projection {
+                for variant in &mut stream.variants {
+                    variant.raw = bindings.qualified_type(&variant.raw)?;
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn indent(value: &str, spaces: usize) -> String {
@@ -920,9 +996,13 @@ fn emit_facade_types(ir: &FacadeIr, binding: &BindingLayout, runtime: &Runtime) 
 
 pub(crate) fn emit(
     ir: &FacadeIr,
-    binding: &BindingLayout,
+    bindings: &Bindings,
     runtime: &Runtime,
 ) -> Result<BTreeMap<String, String>> {
+    let mut ir = ir.clone();
+    qualify_transport_symbols(&mut ir, bindings)?;
+    let ir = &ir;
+    let binding = &bindings.binding;
     let mut files = BTreeMap::new();
     files.insert(
         "facade_types.rs".into(),
