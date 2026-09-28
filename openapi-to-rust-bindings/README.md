@@ -21,10 +21,10 @@ There is no manifest, sidecar or source-only fallback. Missing or ambiguous evid
 
 The target architecture is direct consumption of upstream `bindings.json` by `rust-sdk-generator`. Until upstream metadata exposes the remaining facts, this shim supplements metadata v1 with generated-code evidence for:
 
-1. exact query/header Rust-parameter → wire-name mappings;
-2. fixed request effects used by generated method variants;
-3. client construction/configuration roles;
-4. live-stream ownership/transport details.
+1. exact query/header Rust-parameter → wire-name mappings, recovered from generated request-building code;
+2. fixed request effects used by generated method variants, recovered from generated request-building code;
+3. backend-specific client construction/configuration roles, mapped from producer metadata until upstream gives them semantic roles;
+4. live-stream ownership/transport details, proved from the exact producer-emitted type metadata until upstream exposes them structurally.
 
 Everything already represented by upstream metadata should stay upstream-owned and must not be re-derived here.
 

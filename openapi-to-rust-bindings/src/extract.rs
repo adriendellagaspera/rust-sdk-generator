@@ -1,9 +1,7 @@
 //! Canonical Bindings v4 normalization from upstream bindings metadata plus
 //! the residual invocation evidence that metadata v1 does not expose yet.
 
-use crate::details::{
-    StreamTransportEvidence, inspect_metadata_backed_details, prove_client_layout,
-};
+use crate::details::{StreamTransportEvidence, inspect_metadata_backed_details};
 use crate::rust_type::canonical_rust_type;
 use crate::semantic::RepresentationEvidence;
 use crate::structural::StructuralEvidence;
@@ -69,7 +67,6 @@ pub fn extract_bindings(
 ) -> Result<Bindings, Error> {
     let upstream = UpstreamMetadata::load(&generated)?;
     let structural = upstream.structural_evidence()?;
-    prove_client_layout(&generated, &structural)?;
     let semantic = upstream.semantic_evidence(&effective_openapi)?;
 
     if !semantic.unmatched_source_operations.is_empty() {
