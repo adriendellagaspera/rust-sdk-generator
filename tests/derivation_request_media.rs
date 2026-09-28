@@ -91,7 +91,8 @@ fn derives_multipart_and_form_request_models_through_the_common_path() {
     }));
     assert!(generated.files.values().any(|source| {
         source.contains("self.raw.raw_form_23(")
-            && source.contains("__RustSdkIntoRaw<") && source.contains("into_raw(request)")
+            && source.contains("__RustSdkIntoRaw<")
+            && source.contains("into_raw(request)")
             && source.contains("project_id")
             && source.contains("audit")
     }));
