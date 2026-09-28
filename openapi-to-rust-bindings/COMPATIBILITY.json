@@ -2,7 +2,7 @@
   "schema_version": 3,
   "package_name": "openapi-to-rust-bindings",
   "package_version": "0.3.0",
-  "bindings_schema_version": 4,
+  "bindings_schema_version": 5,
   "backend": {
     "name": "openapi-to-rust",
     "repository": "gpu-cli/openapi-to-rust",

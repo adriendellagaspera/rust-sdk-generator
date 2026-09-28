@@ -885,7 +885,6 @@ mod status_selector_tests {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::serialized_presence;
@@ -907,7 +906,10 @@ mod tests {
         ];
 
         for (attributes, expected) in cases {
-            let attributes = attributes.into_iter().map(str::to_owned).collect::<Vec<_>>();
+            let attributes = attributes
+                .into_iter()
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
             assert_eq!(
                 serialized_presence(&attributes).expect("presence evidence"),
                 expected
