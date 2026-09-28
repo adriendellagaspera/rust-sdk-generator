@@ -669,10 +669,11 @@ fn public_alias_type(syntax: Type, bindings: &Bindings, seen: &mut Vec<String>) 
         return Ok(rendered);
     }
     if bindings.symbol_paths.contains_key(&syntax.spelling) {
+        let root = seen.first().map(String::as_str).unwrap_or("<direct>");
         return Err(error(
             "lower.public_alias_generated",
             format!(
-                "public type alias references generated symbol: {}",
+                "public type alias {root} references generated symbol: {}",
                 syntax.spelling
             ),
         ));
