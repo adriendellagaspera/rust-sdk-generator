@@ -23,8 +23,8 @@ use crate::structural::{
     request_object_matches, request_object_matches_with_discriminators,
     request_optional_boolean_field, request_union_mapping, request_union_matches,
     request_value_union_mapping, response_array_union_matches, response_constant_fields_match,
-    response_object_value_matches, rust_type_matches_schema, scalar_named_object_matches,
-    scalar_object_shape, sse_payload_schema_names,
+    rust_type_matches_schema, scalar_named_object_matches, scalar_object_shape,
+    sse_payload_schema_names,
 };
 use crate::symbols::field_identifier;
 
@@ -1462,7 +1462,8 @@ fn response_object_models_inner(
     if !naming.public_name_available(&name, bindings) {
         return Err("capability.public_model_name_collision");
     }
-    let proven = response_object_value_matches(openapi, schema, raw, bindings)
+    let proven = object_value_matches(openapi, schema, raw, bindings)
+        || object_field_names_match(schema, raw, bindings)
         || constant_enum_response_object_matches(schema, raw, bindings);
     if !proven {
         return Err(RESPONSE_VIEW_UNPROVEN);
@@ -1774,7 +1775,7 @@ fn response_view_for_schema_named(
             }
             _ => return Err(RESPONSE_VIEW_UNPROVEN),
         }
-    } else if response_object_value_matches(openapi, &schema, raw, bindings)
+    } else if object_field_names_match(&schema, raw, bindings)
         || flattened_json_response_object_matches(&schema, raw, bindings)
     {
         IndexMap::new()
