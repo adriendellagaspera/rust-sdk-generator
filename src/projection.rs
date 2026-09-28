@@ -755,15 +755,7 @@ fn request_object_models_value(
                     seen,
                 )?);
                 adapters.insert(field_name.clone(), child_name);
-            } else if referenced_request_object(context.openapi, reference, referenced).is_some_and(
-                |composed| {
-                    !flattened_json_response_object_matches(
-                        &composed,
-                        &core.spelling,
-                        context.bindings,
-                    )
-                },
-            ) {
+            } else if referenced_request_object(context.openapi, reference, referenced).is_some() {
                 models.extend(request_object_models(
                     context.openapi,
                     context.bindings,
@@ -926,6 +918,27 @@ fn request_object_models_value(
                     seen,
                 )?);
                 adapters.insert(field_name.clone(), child_fallback.clone());
+                continue;
+            }
+        }
+
+        if wire.get("type").and_then(Value::as_str) == Some("array")
+            && core.unary("Vec").is_some()
+        {
+            let mut child_path = source_path.to_vec();
+            child_path.push(field_name.clone());
+            let (projected, adapter) = request_value_adapter_models(
+                context,
+                wire,
+                source_root,
+                &child_path,
+                &core.spelling,
+                child_fallback.clone(),
+                seen,
+            )?;
+            if let Some(adapter) = adapter {
+                models.extend(projected);
+                adapters.insert(field_name.clone(), adapter);
                 continue;
             }
         }
