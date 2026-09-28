@@ -60,7 +60,7 @@ fn identifier(value: &str) -> String {
     result.trim_matches('_').to_owned()
 }
 
-fn valid_public_identifier(value: &str) -> bool {
+pub(crate) fn valid_public_identifier(value: &str) -> bool {
     let mut chars = value.chars();
     matches!(chars.next(), Some(first) if first.is_ascii_alphabetic() || first == '_')
         && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
