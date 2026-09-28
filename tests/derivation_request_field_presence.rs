@@ -68,7 +68,11 @@ fn distinguishes_presence_from_nullability_for_request_fields() {
 #[test]
 fn missing_presence_evidence_fails_closed() {
     let (openapi, mut bindings, surface) = fixture();
-    bindings.structs["OpaqueRequest"][1].serialized_presence = None;
+    bindings
+        .structs
+        .get_mut("OpaqueRequest")
+        .expect("request binding")[1]
+        .serialized_presence = None;
 
     assert!(
         derive(DeriveInput {
