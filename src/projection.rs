@@ -1430,14 +1430,19 @@ struct ResponseModelContext<'a> {
     naming: &'a ModelNaming<'a>,
 }
 
+#[derive(Clone, Copy)]
+struct ResponseSchemaSource<'a> {
+    root: Option<&'a str>,
+    path: &'a [String],
+}
+
 // A child is projected only after the complete parent wire shape has been
 // proven. The active raw-type set prevents recursive schemas from expanding
 // indefinitely; no partially projected model escapes on failure.
 fn response_object_models(
     context: &ResponseModelContext<'_>,
     schema: &Value,
-    source_root: Option<&str>,
-    source_path: &[String],
+    source: ResponseSchemaSource<'_>,
     raw: &str,
     name: String,
     borrowed: bool,
@@ -1449,8 +1454,7 @@ fn response_object_models(
     let result = response_object_models_inner(
         context,
         schema,
-        source_root,
-        source_path,
+        source,
         raw,
         name,
         borrowed,
@@ -1463,8 +1467,7 @@ fn response_object_models(
 fn response_object_models_inner(
     context: &ResponseModelContext<'_>,
     schema: &Value,
-    source_root: Option<&str>,
-    source_path: &[String],
+    source: ResponseSchemaSource<'_>,
     raw: &str,
     name: String,
     borrowed: bool,
@@ -1603,23 +1606,24 @@ fn response_object_models_inner(
             } else {
                 child_fallback.clone()
             };
-            let (child_root, child_path) = if let Some(reference) = source_reference {
-                (Some(reference), Vec::new())
-            } else if let Some(root) = source_root {
-                let mut path = source_path.to_vec();
+            let child_path = if source_reference.is_none() && source.root.is_some() {
+                let mut path = source.path.to_vec();
                 path.push(field_name.clone());
                 if collection {
                     path.push("items".into());
                 }
-                (Some(root), path)
+                path
             } else {
-                (None, Vec::new())
+                Vec::new()
+            };
+            let child_source = ResponseSchemaSource {
+                root: source_reference.or(source.root),
+                path: &child_path,
             };
             let Ok(child_models) = response_object_models(
                 context,
                 &child_schema,
-                child_root,
-                &child_path,
+                child_source,
                 &value.spelling,
                 child_name.clone(),
                 true,
@@ -1705,8 +1709,8 @@ fn response_object_models_inner(
                         root: reference.into(),
                         path: Vec::new(),
                     }
-                } else if let Some(root) = source_root {
-                    let mut path = source_path.to_vec();
+                } else if let Some(root) = source.root {
+                    let mut path = source.path.to_vec();
                     path.push(field_name.clone());
                     ScalarEnumDefinition {
                         root: root.into(),
@@ -1823,8 +1827,10 @@ fn response_view_for_schema_named(
     if let Ok(mut models) = response_object_models(
         &context,
         &schema,
-        Some(schema_name),
-        &[],
+        ResponseSchemaSource {
+            root: Some(schema_name),
+            path: &[],
+        },
         raw,
         name.clone(),
         false,
@@ -1913,8 +1919,10 @@ fn inline_response_view_named(
         let models = response_object_models(
             &context,
             schema,
-            None,
-            &[],
+            ResponseSchemaSource {
+                root: None,
+                path: &[],
+            },
             raw,
             name.clone(),
             false,
