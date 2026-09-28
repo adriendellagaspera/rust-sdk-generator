@@ -2243,7 +2243,7 @@ pub(crate) fn lower(
                 .into_iter()
                 .flat_map(|properties| properties.keys())
                 .collect();
-            let raw_fields: BTreeSet<_> = bindings
+            let mut raw_fields: BTreeSet<_> = bindings
                 .fields(&raw)?
                 .iter()
                 .map(|field| {
@@ -2254,6 +2254,9 @@ pub(crate) fn lower(
                         .to_owned()
                 })
                 .collect();
+            if flattened_json_response_object_matches(&wire_schema, &raw, bindings) {
+                raw_fields.remove("additional_properties");
+            }
             if wire_fields
                 .iter()
                 .map(|name| name.as_str())
