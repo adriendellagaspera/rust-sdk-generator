@@ -1117,7 +1117,6 @@ mod optional_ref_tests {
     }
 }
 
-
 #[cfg(test)]
 mod private_transport_tests {
     use super::emit;
