@@ -966,7 +966,7 @@ fn emit_mod(ir: &FacadeIr, binding: &BindingLayout, runtime: &Runtime) -> String
         .join("\n");
     let client = client_name(binding);
     format!(
-        "{}{declarations}\npub mod {};\nmod facade_types;\n\n{resources}\npub use {}::{{{}}};\npub use facade_types::{{{}}};\n#[allow(unused_imports, reason = "generated private transport adapters")]\npub(crate) use facade_types::{{__RustSdkFromRaw, __RustSdkIntoRaw}};\n\nuse {};\n\n#[derive(Clone)]\npub struct {} {{ raw: {client} }}\n\nimpl {} {{\n    pub fn new(api_key: impl Into<String>) -> Self {{\n        Self {{ raw: {client}::{}().{}(api_key) }}\n    }}\n    #[must_use]\n    pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {{\n        self.raw = self.raw.{}(base_url);\n        self\n    }}\n{}\n}}\n",
+        "{}{declarations}\npub mod {};\nmod facade_types;\n\n{resources}\npub use {}::{{{}}};\npub use facade_types::{{{}}};\n#[allow(unused_imports, reason = \"generated private transport adapters\")]\npub(crate) use facade_types::{{__RustSdkFromRaw, __RustSdkIntoRaw}};\n\nuse {};\n\n#[derive(Clone)]\npub struct {} {{ raw: {client} }}\n\nimpl {} {{\n    pub fn new(api_key: impl Into<String>) -> Self {{\n        Self {{ raw: {client}::{}().{}(api_key) }}\n    }}\n    #[must_use]\n    pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {{\n        self.raw = self.raw.{}(base_url);\n        self\n    }}\n{}\n}}\n",
         runtime.generated_marker,
         runtime.error_module,
         runtime.error_module,
