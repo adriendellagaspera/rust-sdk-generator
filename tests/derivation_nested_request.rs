@@ -67,7 +67,7 @@ fn derives_nested_named_request_models_without_raw_name_identity() {
             .contains_key("CreatePlatformWidgetsRequestConfigLabels")
     );
     assert!(
-        !derivation
+        derivation
             .definition
             .models
             .contains_key("CreatePlatformWidgetsRequestSelector")
@@ -687,7 +687,7 @@ fn derives_nullable_union_of_named_object_and_canonical_raw_json_map() {
 }
 
 #[test]
-fn proven_nested_required_nullable_object_stays_raw_without_a_lossy_wrapper() {
+fn proven_nested_required_nullable_object_projects_through_public_wrapper() {
     let (mut openapi, mut bindings, surface) = fixture();
     openapi.0["components"]["schemas"]["WidgetConfig"]["properties"]["mode"] = serde_json::json!({
         "anyOf": [
@@ -716,13 +716,12 @@ fn proven_nested_required_nullable_object_stays_raw_without_a_lossy_wrapper() {
         DerivationStatus::Derived
     );
     let root = &derived.definition.models["CreatePlatformWidgetsRequest"];
-    assert!(
-        root.adapters
-            .as_ref()
-            .is_none_or(|adapters| !adapters.contains_key("config"))
+    assert_eq!(
+        root.adapters.as_ref().and_then(|adapters| adapters.get("config")),
+        Some(&"CreatePlatformWidgetsRequestConfig".to_owned())
     );
     assert!(
-        !derived
+        derived
             .definition
             .models
             .contains_key("CreatePlatformWidgetsRequestConfig")
@@ -733,8 +732,8 @@ fn proven_nested_required_nullable_object_stays_raw_without_a_lossy_wrapper() {
         definition: derived.definition,
         runtime: Runtime::default(),
     })
-    .expect("exact nested raw object can be passed to parent wrapper");
-    assert!(generated.files["facade_types.rs"].contains("OpaqueConfig4"));
+    .expect("required nullable nested object projects through the public facade");
+    assert!(generated.files["facade_types.rs"].contains("CreatePlatformWidgetsRequestConfig"));
 
     bindings
         .structs
@@ -758,7 +757,7 @@ fn proven_nested_required_nullable_object_stays_raw_without_a_lossy_wrapper() {
 }
 
 #[test]
-fn provable_root_with_unsafe_constructor_retains_owned_raw_request_view() {
+fn provable_required_nullable_root_projects_a_public_constructor() {
     let (mut openapi, mut bindings, surface) = fixture();
     openapi.0["components"]["schemas"]["CreateWidgetRequest"]["properties"]["name"] = serde_json::json!({
         "anyOf": [{"type": "string"}, {"type": "null"}]
@@ -785,34 +784,21 @@ fn provable_root_with_unsafe_constructor_retains_owned_raw_request_view() {
     );
     let root = &derived.definition.models["CreatePlatformWidgetsRequest"];
     assert_eq!(root.raw.as_deref(), Some("OpaqueRequest9"));
-    assert_eq!(root.borrowed, Some(false));
-    assert!(root.constructor.is_none());
-    assert!(
-        root.accessors
-            .as_ref()
-            .is_some_and(indexmap::IndexMap::is_empty)
-    );
+    assert_eq!(root.borrowed, None);
+    assert!(root.constructor.is_some());
     let generated = generate(GenerateInput {
         openapi: openapi.clone(),
         bindings: bindings.clone(),
         definition: derived.definition,
         runtime: Runtime::default(),
     })
-    .expect("generate owned raw-view request");
+    .expect("generate public request constructor");
     let types = &generated.files["facade_types.rs"];
-    assert!(types.contains("pub struct CreatePlatformWidgetsRequest { raw: OpaqueRequest9 }"));
-    assert!(types.contains("pub fn into_raw(self) -> OpaqueRequest9"));
     let request_impl = types
         .split("impl CreatePlatformWidgetsRequest {")
         .nth(1)
         .expect("root request implementation");
-    assert!(
-        !request_impl
-            .split("impl From<OpaqueRequest9> for CreatePlatformWidgetsRequest")
-            .next()
-            .expect("root request implementation end")
-            .contains("pub fn new(")
-    );
+    assert!(request_impl.contains("pub fn new("));
 
     bindings
         .structs
