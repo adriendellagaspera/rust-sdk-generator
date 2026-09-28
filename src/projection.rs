@@ -1534,6 +1534,35 @@ fn response_object_models_inner(
             || ((item_schema.get("oneOf").is_some() || item_schema.get("anyOf").is_some())
                 && request_union_matches(openapi, item_schema, &value.spelling, bindings));
         if !field_proven {
+            // Response projection intentionally ignores request-constructor
+            // presence semantics, but a directly known scalar wire type cannot
+            // safely become a different directly known scalar Rust type.
+            let raw_scalar = matches!(
+                value.spelling.as_str(),
+                "String"
+                    | "bool"
+                    | "i8"
+                    | "i16"
+                    | "i32"
+                    | "i64"
+                    | "u8"
+                    | "u16"
+                    | "u32"
+                    | "u64"
+                    | "f32"
+                    | "f64"
+                    | "uuid::Uuid"
+                    | "chrono::DateTime<chrono::Utc>"
+                    | "chrono::NaiveDate"
+                    | "url::Url"
+            );
+            let wire_scalar = matches!(
+                item_schema.get("type").and_then(Value::as_str),
+                Some("string" | "boolean" | "integer" | "number")
+            );
+            if raw_scalar && wire_scalar {
+                return Err(RESPONSE_VIEW_UNPROVEN);
+            }
             continue;
         }
         let child_fallback = format!("{name}{}", semantic_pascal_identifier(field_name)?);
