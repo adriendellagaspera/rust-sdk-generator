@@ -199,9 +199,7 @@ fn projects_structurally_proven_required_nullable_inline_object() {
     })
     .expect("required nullable nested request generates");
     let types = &generated.files["facade_types.rs"];
-    assert!(types.contains(
-        "settings: Option<CreateAccountsProfilesRequestSettings>"
-    ));
+    assert!(types.contains("settings: Option<CreateAccountsProfilesRequestSettings>"));
     assert!(types.contains("settings: settings.map(|value| value.into())"));
 
     bindings
