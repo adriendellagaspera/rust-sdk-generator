@@ -428,8 +428,7 @@ fn request_map_wrapper_matches(
         return false;
     };
     if fields.len() != 1
-        || fields[0].name.strip_prefix("r#").unwrap_or(&fields[0].name)
-            != "additional_properties"
+        || fields[0].name.strip_prefix("r#").unwrap_or(&fields[0].name) != "additional_properties"
         || fields[0].wire_name.is_some()
     {
         return false;
@@ -443,11 +442,9 @@ fn request_map_wrapper_matches(
     {
         return false;
     }
-    let Ok(value) = expand_request_type(
-        mapping.arguments[1].clone(),
-        bindings,
-        &mut BTreeSet::new(),
-    ) else {
+    let Ok(value) =
+        expand_request_type(mapping.arguments[1].clone(), bindings, &mut BTreeSet::new())
+    else {
         return false;
     };
     let Some(additional) = schema
