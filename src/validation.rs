@@ -859,6 +859,20 @@ impl SdkDefinition {
                         "request overrides require a request model",
                     ));
                 }
+                for (raw_name, adapter) in &operation.parameter_adapters {
+                    let context = format!(
+                        "definition.resources.{module}.operations.{name}.parameter_adapters.{raw_name}"
+                    );
+                    require_nonempty(&context, raw_name)?;
+                    require_identifier(&format!("{context}.model"), &adapter.model)?;
+                    if !matches!(adapter.location.as_str(), "path" | "query" | "header") {
+                        return Err(invalid(
+                            format!("{context}.location"),
+                            "parameter adapter location must be path, query, or header",
+                        ));
+                    }
+                    require_nonempty(&format!("{context}.wire_name"), &adapter.wire_name)?;
+                }
                 if let Some(enabled) = operation.multipart_filenames {
                     if !enabled {
                         return Err(invalid(
