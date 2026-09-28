@@ -31,6 +31,7 @@ fn qualify_value(value: &mut ValueSpec, bindings: &Bindings) -> Result<()> {
         | ValueSpec::IntoModel { .. }
         | ValueSpec::CollectInto(_)
         | ValueSpec::MapInto { .. }
+        | ValueSpec::OptionMapInto { .. }
         | ValueSpec::Literal(_) => {}
     }
     Ok(())
