@@ -1704,8 +1704,7 @@ fn response_object_models_inner(
             } else {
                 child_fallback.clone()
             };
-            let enum_model = if item_schema.get("type").and_then(Value::as_str)
-                == Some("string")
+            let enum_model = if item_schema.get("type").and_then(Value::as_str) == Some("string")
                 && (item_schema.get("enum").is_some()
                     || item_schema.get("const").is_some_and(Value::is_string))
             {
