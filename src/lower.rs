@@ -1055,22 +1055,23 @@ fn resolve_scalar_enum(
 ) -> Result<ScalarEnumModelSpec> {
     let config = model.scalar_enum.as_ref().expect("scalar enum policy");
     let schema = schema_at(openapi, &config.root, &config.path)?;
-    let values = schema
-        .get("enum")
-        .and_then(Value::as_array)
-        .ok_or_else(|| {
-            error(
-                "lower.scalar_enum",
-                "scalar enum policy does not resolve to a string enum",
-            )
-        })?;
+    let values = if let Some(values) = schema.get("enum").and_then(Value::as_array) {
+        values.clone()
+    } else if let Some(value) = schema.get("const").filter(|value| value.is_string()) {
+        vec![value.clone()]
+    } else {
+        return Err(error(
+            "lower.scalar_enum",
+            "scalar enum policy does not resolve to a string enum or string const",
+        ));
+    };
     if schema.get("type").and_then(Value::as_str) != Some("string")
         || values.is_empty()
         || values.iter().any(|value| !value.is_string())
     {
         return Err(error(
             "lower.scalar_enum",
-            "scalar enum policy does not resolve to a string enum",
+            "scalar enum policy does not resolve to a string enum or string const",
         ));
     }
     let variants = bindings.variants(raw)?;
