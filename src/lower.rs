@@ -672,8 +672,13 @@ fn public_alias_type(syntax: Type, bindings: &Bindings, seen: &mut Vec<String>) 
         return Err(error(
             "lower.public_alias_generated",
             format!(
-                "public type alias references generated symbol: {}",
-                syntax.spelling
+                "public type alias references generated symbol: {}; alias chain: {}",
+                syntax.spelling,
+                if seen.is_empty() {
+                    "<direct>".to_owned()
+                } else {
+                    seen.join(" -> ")
+                }
             ),
         ));
     }
