@@ -1947,12 +1947,8 @@ fn parameter_object_model(
             return Ok(None);
         }
         let schema = context.openapi.object_schema(reference)?;
-        let matched = request_object_matches(
-            context.openapi,
-            reference,
-            &core.spelling,
-            context.bindings,
-        );
+        let matched =
+            request_object_matches(context.openapi, reference, &core.spelling, context.bindings);
         (schema, matched)
     } else {
         if source_schema.get("type").and_then(Value::as_str) != Some("object")
