@@ -2978,3 +2978,272 @@ pub(crate) fn insert_projection(
         .insert(projected.public_name, projected.operation);
     Ok(())
 }
+
+
+#[cfg(test)]
+mod model_identity_tests {
+    use super::*;
+    use crate::contracts::ClientDefinition;
+
+    fn definition() -> SdkDefinition {
+        SdkDefinition {
+            schema_version: 2,
+            client: ClientDefinition {
+                name: "Client".into(),
+            },
+            models: IndexMap::new(),
+            resources: IndexMap::new(),
+        }
+    }
+
+    fn model(source: Option<&str>, raw: &str) -> ModelDefinition {
+        ModelDefinition {
+            raw: Some(raw.into()),
+            schema: source.map(str::to_owned),
+            schema_path: None,
+            constructor: None,
+            exclude: None,
+            adapters: None,
+            union: None,
+            simple_union: None,
+            type_alias: None,
+            map: None,
+            scalar_enum: None,
+            union_factory: None,
+            borrowed: Some(false),
+            accessors: Some(IndexMap::new()),
+        }
+    }
+
+    fn identity(source: &str, explicit: bool) -> BTreeSet<ModelIdentity> {
+        BTreeSet::from([ModelIdentity {
+            source_schema: source.into(),
+            representation: ModelRepresentation::Owned,
+            explicit,
+        }])
+    }
+
+    fn projected(
+        operation_id: &str,
+        operation_name: &str,
+        model_name: &str,
+        model: ModelDefinition,
+        identities: BTreeSet<ModelIdentity>,
+    ) -> ProjectedOperation {
+        ProjectedOperation {
+            resource_path: vec!["things".into()],
+            public_name: operation_name.into(),
+            models: vec![(model_name.into(), model)],
+            model_identities: BTreeMap::from([(model_name.into(), identities)]),
+            operation: OperationDefinition {
+                operation_id: operation_id.into(),
+                raw_method: Some(operation_id.into()),
+                request: None,
+                request_media: None,
+                response: Some(model_name.into()),
+                response_representation: Some(ResponseRepresentationDefinition::Json),
+                empty_response: None,
+                binary_response: None,
+                stream: None,
+                request_overrides: None,
+                multipart_filenames: None,
+            },
+        }
+    }
+
+    #[test]
+    fn same_named_source_reuses_one_public_model() {
+        let mut definition = definition();
+        let mut registry = ProjectionRegistry::default();
+
+        insert_projection(
+            &mut definition,
+            &mut registry,
+            projected(
+                "read_one",
+                "read_one",
+                "Shared",
+                model(Some("SharedSchema"), "RawShared"),
+                identity("SharedSchema", false),
+            ),
+        )
+        .expect("first projection");
+        insert_projection(
+            &mut definition,
+            &mut registry,
+            projected(
+                "read_two",
+                "read_two",
+                "Shared",
+                model(Some("SharedSchema"), "RawShared"),
+                identity("SharedSchema", false),
+            ),
+        )
+        .expect("same source identity must be reusable");
+
+        assert_eq!(definition.models.len(), 1);
+        assert_eq!(
+            definition.resources["things"].operations["read_one"]
+                .response
+                .as_deref(),
+            Some("Shared")
+        );
+        assert_eq!(
+            definition.resources["things"].operations["read_two"]
+                .response
+                .as_deref(),
+            Some("Shared")
+        );
+    }
+
+    #[test]
+    fn distinct_named_sources_are_not_structurally_deduplicated() {
+        let explicit = BTreeMap::new();
+        let naming = ModelNaming::new(true, &explicit);
+        assert_eq!(
+            naming
+                .named("FirstSchema", ModelRepresentation::Owned, "FallbackOne".into())
+                .expect("first identity"),
+            "FirstSchema"
+        );
+        assert_eq!(
+            naming
+                .named("SecondSchema", ModelRepresentation::Owned, "FallbackTwo".into())
+                .expect("second identity"),
+            "SecondSchema"
+        );
+    }
+
+    #[test]
+    fn anonymous_equal_models_do_not_gain_semantic_identity() {
+        let mut definition = definition();
+        let mut registry = ProjectionRegistry::default();
+
+        insert_projection(
+            &mut definition,
+            &mut registry,
+            projected(
+                "read_one",
+                "read_one",
+                "Inline",
+                model(None, "RawInline"),
+                BTreeSet::new(),
+            ),
+        )
+        .expect("first anonymous model");
+        let error = insert_projection(
+            &mut definition,
+            &mut registry,
+            projected(
+                "read_two",
+                "read_two",
+                "Inline",
+                model(None, "RawInline"),
+                BTreeSet::new(),
+            ),
+        )
+        .expect_err("anonymous structure must not imply identity");
+
+        assert_eq!(error.code, "capability.public_model_identity_collision");
+        assert!(
+            error
+                .detail
+                .as_deref()
+                .is_some_and(|detail| detail.contains("anonymous/inline projection"))
+        );
+    }
+
+    #[test]
+    fn explicit_policy_can_unify_compatible_source_identities() {
+        let mut definition = definition();
+        let mut registry = ProjectionRegistry::default();
+
+        insert_projection(
+            &mut definition,
+            &mut registry,
+            projected(
+                "read_first",
+                "read_first",
+                "Concept",
+                model(Some("FirstSchema"), "RawShared"),
+                identity("FirstSchema", true),
+            ),
+        )
+        .expect("first explicit identity");
+        insert_projection(
+            &mut definition,
+            &mut registry,
+            projected(
+                "read_second",
+                "read_second",
+                "Concept",
+                model(Some("SecondSchema"), "RawShared"),
+                identity("SecondSchema", true),
+            ),
+        )
+        .expect("explicitly unified compatible identity");
+
+        assert_eq!(definition.models.len(), 1);
+    }
+
+    #[test]
+    fn incompatible_explicit_identity_collision_is_actionable() {
+        let mut definition = definition();
+        let mut registry = ProjectionRegistry::default();
+
+        insert_projection(
+            &mut definition,
+            &mut registry,
+            projected(
+                "read_first",
+                "read_first",
+                "Concept",
+                model(Some("FirstSchema"), "RawFirst"),
+                identity("FirstSchema", true),
+            ),
+        )
+        .expect("first explicit identity");
+        let error = insert_projection(
+            &mut definition,
+            &mut registry,
+            projected(
+                "read_second",
+                "read_second",
+                "Concept",
+                model(Some("SecondSchema"), "RawSecond"),
+                identity("SecondSchema", true),
+            ),
+        )
+        .expect_err("different public contracts must not be silently unified");
+
+        assert_eq!(error.code, "capability.public_model_identity_collision");
+        let detail = error.detail.expect("actionable collision detail");
+        assert!(detail.contains("FirstSchema"));
+        assert!(detail.contains("SecondSchema"));
+        assert!(detail.contains("incompatible public definitions"));
+    }
+
+    #[test]
+    fn ownership_representation_is_deterministic_and_not_operation_derived() {
+        let explicit = BTreeMap::from([("SharedSchema".into(), "Shared".into())]);
+        let naming = ModelNaming::new(true, &explicit);
+
+        let owned = naming
+            .named(
+                "SharedSchema",
+                ModelRepresentation::Owned,
+                "OperationOneResponse".into(),
+            )
+            .expect("owned identity");
+        let borrowed = naming
+            .named(
+                "SharedSchema",
+                ModelRepresentation::Borrowed,
+                "OperationTwoNestedValue".into(),
+            )
+            .expect("borrowed identity");
+
+        assert_eq!(owned, "Shared");
+        assert_eq!(borrowed, "SharedRef");
+    }
+}
