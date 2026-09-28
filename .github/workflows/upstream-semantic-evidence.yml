@@ -84,7 +84,7 @@ jobs:
 
           assert upstream["schema_version"] == 1
           assert {"models", "public_helpers", "http_client"} <= set(upstream["coverage"])
-          assert bindings["schema_version"] == 4
+          assert bindings["schema_version"] == 5
           assert set(bindings["operations"]) == {
               "delete_inventory",
               "fetch_inventory_without_naming_shortcut",
@@ -97,7 +97,7 @@ jobs:
               "path": "/inventory/{id}",
           }
           assert bindings["symbol_paths"]["Inventory"] == "crate::generated::types::Inventory"
-          print("Upstream bindings metadata -> canonical Bindings v4: verified.")
+          print("Upstream bindings metadata -> canonical Bindings v5: verified.")
           PY
 
       - name: Compile standalone facade from metadata-backed Bindings

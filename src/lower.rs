@@ -6,7 +6,7 @@ use serde_json::Value;
 use crate::contracts::{
     AccessorKindDefinition, Bindings, FieldBinding, ModelDefinition, OpenApi, OperationBinding,
     RequestMediaDefinition, ResponseRepresentationBinding, ResponseRepresentationDefinition,
-    SdkDefinition, SimpleUnionVariant, StreamTransportBinding,
+    SdkDefinition, SerializedPresenceBinding, SimpleUnionVariant, StreamTransportBinding,
 };
 use crate::error::{GenerationError, Result};
 use crate::ir::*;
@@ -14,13 +14,14 @@ use crate::openapi::{OpenApiIndex, ref_name};
 use crate::reconcile::{parameter_bindings_match, unconstrained_json_alias_matches};
 use crate::rust_type::{Type, TypeKind, parse_type};
 use crate::structural::{
-    constant_enum_response_object_matches, flattened_json_response_object_matches,
-    inline_object_union_mapping, multipart_filenames_binding, object_field_names_match,
-    object_value_matches, plain_string_json_alias_matches, raw_scalar_struct_shape,
+    canonical_unconstrained_map_branch, constant_enum_response_object_matches,
+    flattened_json_response_object_matches, inline_object_union_mapping,
+    multipart_filenames_binding, object_field_names_match, object_value_matches,
+    plain_string_json_alias_matches, raw_scalar_struct_shape,
     request_object_matches_with_discriminators, request_optional_boolean_field,
-    request_union_mapping, response_array_union_matches, rust_type_matches_schema,
-    scalar_named_object_matches, scalar_object_shape, sse_payload_schema_name,
-    sse_payload_schema_names,
+    request_union_mapping, request_value_union_mapping, response_array_union_matches,
+    rust_type_matches_schema, scalar_named_object_matches, scalar_object_shape,
+    sse_payload_schema_name, sse_payload_schema_names,
 };
 use crate::symbols::{SymbolProvider, field_identifier};
 
@@ -105,8 +106,38 @@ fn constructor_argument(
     name: &str,
     field: &FieldBinding,
     adapter: Option<&str>,
+    bindings: &Bindings,
 ) -> Result<(ArgumentSpec, ValueSpec)> {
     let public_name = field_identifier(name)?;
+    let required_nullable = field.serialized_presence.as_ref()
+        == Some(&SerializedPresenceBinding::Always)
+        && option(&field.type_name)?.is_some_and(|(_, depth)| depth == 1);
+    if required_nullable {
+        let (inner, _) = option(&field.type_name)?.expect("checked one option layer");
+        if let Some(adapter) = adapter {
+            let (public_type, depth) = adapted_public_type(parse_type(&inner)?, adapter, bindings)?;
+            return Ok((
+                ArgumentSpec {
+                    name: public_name.clone(),
+                    kind: ArgumentKind::Exact,
+                    type_name: format!("Option<{public_type}>"),
+                },
+                ValueSpec::OptionMapInto {
+                    name: public_name,
+                    depth,
+                },
+            ));
+        }
+        let public_type = public_alias_type(parse_type(&inner)?, bindings, &mut Vec::new())?;
+        return Ok((
+            ArgumentSpec {
+                name: public_name.clone(),
+                kind: ArgumentKind::Exact,
+                type_name: format!("Option<{public_type}>"),
+            },
+            ValueSpec::Variable(public_name),
+        ));
+    }
     if let Some(adapter) = adapter {
         if parse_type(&field.type_name)?.unary("Vec").is_some() {
             return Ok((
@@ -254,6 +285,7 @@ fn resolve_wrapper(
                 field_name,
                 field,
                 adapters.get(field_name).map(String::as_str),
+                bindings,
             )?;
             arguments.push(argument);
             values.insert(field_name.clone(), value);
@@ -385,8 +417,9 @@ fn resolve_wrapper(
                 name: field.name.clone(),
                 wire_name: field.wire_name.clone(),
                 type_name: inner.clone(),
+                serialized_presence: field.serialized_presence.clone(),
             };
-            constructor_argument(name, &synthetic, Some(adapter))?
+            constructor_argument(name, &synthetic, Some(adapter), bindings)?
         } else {
             argument(name, &inner)?
         };
@@ -663,7 +696,10 @@ fn resolve_simple_union(
             let (type_name, depth) = adapted_public_type(raw_syntax, adapter, bindings)?;
             (type_name, Some(depth))
         } else {
-            (bindings.qualified_type(&raw_syntax.spelling)?, None)
+            (
+                public_alias_type(raw_syntax, bindings, &mut Vec::new())?,
+                None,
+            )
         };
         branches.push(SimpleUnionBranchSpec {
             raw_name: raw_name.clone(),
@@ -927,11 +963,30 @@ fn resolve_map(
     bindings: &Bindings,
 ) -> Result<MapModelSpec> {
     let config = model.map.as_ref().expect("map policy");
-    let schema = schema_at(openapi, &config.root, &config.path)?;
+    let mut schema = schema_at(openapi, &config.root, &config.path)?;
+    let direct_map = schema.get("type").and_then(Value::as_str) == Some("object")
+        && schema
+            .get("additionalProperties")
+            .is_some_and(|additional| additional != &Value::Bool(false));
+    if !direct_map
+        && let Some(branches) = schema
+            .get("oneOf")
+            .or_else(|| schema.get("anyOf"))
+            .and_then(Value::as_array)
+    {
+        let mut matching = branches
+            .iter()
+            .filter(|branch| canonical_unconstrained_map_branch(branch, raw, bindings));
+        if let Some(branch) = matching.next()
+            && matching.next().is_none()
+        {
+            schema = branch.clone();
+        }
+    }
     let additional = schema.get("additionalProperties").ok_or_else(|| {
         error(
             "lower.map_schema",
-            format!("map policy does not resolve to additionalProperties"),
+            "map policy does not resolve to additionalProperties",
         )
     })?;
     if schema.get("type").and_then(Value::as_str) != Some("object")
@@ -2079,16 +2134,31 @@ pub(crate) fn lower(
             if let Some(root) = config.schema.as_deref() {
                 let path = config.schema_path.as_deref().unwrap_or(&[]);
                 let schema = schema_at(&index, root, path)?;
-                let mapping =
-                    request_union_mapping(&index, &schema, &raw, bindings).ok_or_else(|| {
+                let mapping = request_union_mapping(&index, &schema, &raw, bindings)
+                    .map(|mapping| {
+                        mapping
+                            .into_iter()
+                            .map(|branch| branch.raw_variant)
+                            .collect::<BTreeSet<_>>()
+                    })
+                    .or_else(|| {
+                        request_value_union_mapping(&index, &schema, &raw, bindings).map(
+                            |mapping| {
+                                mapping
+                                    .into_iter()
+                                    .map(|branch| branch.raw_variant)
+                                    .collect::<BTreeSet<_>>()
+                            },
+                        )
+                    })
+                    .ok_or_else(|| {
                         error(
                             "lower.request_union_drift",
                             format!("OpenAPI/raw request union drift for {raw}"),
                         )
                     })?;
-                let proven: BTreeSet<_> =
-                    mapping.iter().map(|branch| &branch.raw_variant).collect();
-                if configured != proven {
+                let configured: BTreeSet<_> = configured.into_iter().cloned().collect();
+                if configured != mapping {
                     return Err(error(
                         "lower.request_union_drift",
                         format!("OpenAPI/raw request union drift for {raw}"),

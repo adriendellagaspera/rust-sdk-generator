@@ -83,6 +83,10 @@ pub(crate) enum ValueSpec {
         name: String,
         depth: usize,
     },
+    OptionMapInto {
+        name: String,
+        depth: usize,
+    },
     Some {
         value: Box<ValueSpec>,
         depth: usize,

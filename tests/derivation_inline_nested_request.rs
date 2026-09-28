@@ -149,7 +149,7 @@ fn lowering_revalidates_inline_schema_path_drift() {
 }
 
 #[test]
-fn preserves_structurally_proven_required_nullable_inline_object_as_raw_request() {
+fn projects_structurally_proven_required_nullable_inline_object() {
     let (mut openapi, mut bindings, surface) = fixture();
     let settings = openapi
         .0
@@ -165,11 +165,28 @@ fn preserves_structurally_proven_required_nullable_inline_object_as_raw_request(
             {"type": "null"}
         ]
     });
-    bindings
+    let root_fields = bindings
         .structs
         .get_mut("OpaqueProfile9")
-        .expect("root binding")[0]
-        .type_name = "Option<OpaqueSettings4>".into();
+        .expect("root binding");
+    root_fields[0].type_name = "Option<OpaqueSettings4>".into();
+    root_fields[0].serialized_presence =
+        Some(rust_sdk_generator::SerializedPresenceBinding::Always);
+    root_fields[1].serialized_presence =
+        Some(rust_sdk_generator::SerializedPresenceBinding::Always);
+    let settings_fields = bindings
+        .structs
+        .get_mut("OpaqueSettings4")
+        .expect("settings binding");
+    settings_fields[0].serialized_presence =
+        Some(rust_sdk_generator::SerializedPresenceBinding::OmitIfNone);
+    settings_fields[1].serialized_presence =
+        Some(rust_sdk_generator::SerializedPresenceBinding::Always);
+    bindings
+        .structs
+        .get_mut("OpaqueTuning2")
+        .expect("tuning binding")[0]
+        .serialized_presence = Some(rust_sdk_generator::SerializedPresenceBinding::OmitIfNone);
 
     let derivation = derive(DeriveInput {
         openapi: openapi.clone(),
@@ -182,22 +199,25 @@ fn preserves_structurally_proven_required_nullable_inline_object_as_raw_request(
     let outcome = &derivation.report.operations["create_profile"];
     assert_eq!(outcome.status, DerivationStatus::Derived);
     let request = &derivation.definition.models["CreateAccountsProfilesRequest"];
-    assert!(request.constructor.is_none());
-    assert!(
-        request
-            .accessors
-            .as_ref()
-            .is_some_and(indexmap::IndexMap::is_empty)
+    assert_eq!(
+        request.constructor.as_deref(),
+        Some(&["name".to_owned(), "settings".to_owned()][..])
     );
-    assert!(
-        generate(GenerateInput {
-            openapi: openapi.clone(),
-            bindings: bindings.clone(),
-            definition: derivation.definition,
-            runtime: Runtime::default(),
-        })
-        .is_ok()
+    assert_eq!(
+        request.adapters.as_ref().expect("root adapters")["settings"],
+        "CreateAccountsProfilesRequestSettings"
     );
+
+    let generated = generate(GenerateInput {
+        openapi: openapi.clone(),
+        bindings: bindings.clone(),
+        definition: derivation.definition,
+        runtime: Runtime::default(),
+    })
+    .expect("required nullable nested request generates");
+    let types = &generated.files["facade_types.rs"];
+    assert!(types.contains("settings: Option<CreateAccountsProfilesRequestSettings>"));
+    assert!(types.contains("settings: settings.map(|value| value.into())"));
 
     bindings
         .structs

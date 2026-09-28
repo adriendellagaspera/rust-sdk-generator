@@ -1,5 +1,5 @@
 //! Local-first, own-OpenAPI `rust-sdk` CLI. The library remains backend-neutral:
-//! driver -> canonical Bindings v4 -> root derive -> root generate/check-generated.
+//! driver -> canonical Bindings v5 -> root derive -> root generate/check-generated.
 #[path = "rust_sdk/driver.rs"]
 mod driver;
 
@@ -754,11 +754,11 @@ fn main_inner() -> Result<()> {
     )?;
     let generated =
         UpstreamDriver.generate(&recipe.backend, &work, &cache, cli.offline, &adapter)?;
-    let bindings: Bindings = parse(&generated.bindings, "bindings.v4")?;
-    if bindings.schema_version != 4 {
+    let bindings: Bindings = parse(&generated.bindings, "bindings.v5")?;
+    if bindings.schema_version != 5 {
         return Err(err(
-            "bindings.v4",
-            "adapter did not produce canonical Bindings v4",
+            "bindings.v5",
+            "adapter did not produce canonical Bindings v5",
         ));
     }
     write_if_changed(

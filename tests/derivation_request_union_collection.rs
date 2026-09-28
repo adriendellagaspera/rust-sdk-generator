@@ -190,6 +190,7 @@ fn preserves_optional_request_union_branch_evolution() {
             name: "tracking".into(),
             wire_name: None,
             type_name: "Option<String>".into(),
+            serialized_presence: Some(rust_sdk_generator::SerializedPresenceBinding::OmitIfNone),
         });
 
     let derivation = derive(DeriveInput {

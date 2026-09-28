@@ -4,45 +4,54 @@
     "OpaqueRequest9": [
       {
         "name": "metadata",
-        "type": "Option<OpaqueMeta7>"
+        "type": "Option<OpaqueMeta7>",
+        "serialized_presence": "omit_if_none"
       },
       {
         "name": "config",
-        "type": "OpaqueConfig4"
+        "type": "OpaqueConfig4",
+        "serialized_presence": "always"
       },
       {
         "name": "name",
-        "type": "String"
+        "type": "String",
+        "serialized_presence": "always"
       },
       {
         "name": "selector",
-        "type": "Option<OpaqueSelector>"
+        "type": "Option<OpaqueSelector>",
+        "serialized_presence": "omit_if_none"
       }
     ],
     "OpaqueConfig4": [
       {
         "name": "retries",
-        "type": "Option<i64>"
+        "type": "Option<i64>",
+        "serialized_presence": "omit_if_none"
       },
       {
         "name": "mode",
-        "type": "WidgetMode"
+        "type": "WidgetMode",
+        "serialized_presence": "always"
       },
       {
         "name": "labels",
-        "type": "Option<OpaqueLabels>"
+        "type": "Option<OpaqueLabels>",
+        "serialized_presence": "omit_if_none"
       }
     ],
     "OpaqueMeta7": [
       {
         "name": "note",
-        "type": "Option<String>"
+        "type": "Option<String>",
+        "serialized_presence": "omit_if_none"
       }
     ],
     "OpaqueLabels": [
       {
         "name": "additional_properties",
-        "type": "std::collections::BTreeMap<String, String>"
+        "type": "std::collections::BTreeMap<String, String>",
+        "serialized_presence": "always"
       }
     ]
   },
