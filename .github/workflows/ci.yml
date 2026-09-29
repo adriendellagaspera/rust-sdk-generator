@@ -239,10 +239,8 @@ jobs:
           ref: fb81f3e27ee507557926ecf923d0f933a1c76d44
           path: .fixtures/agent-protocol
           persist-credentials: false
-      - name: Install pinned Fern and policy dependency
-        run: |
-          npm install --global fern-api@5.112.0
-          python3 -m pip install --disable-pip-version-check PyYAML==6.0.3
+      - name: Install policy dependency
+        run: python3 -m pip install --disable-pip-version-check PyYAML==6.0.3
       - name: Compile LangGraph policy to Fern extensions
         run: |
           python3 surface/sdk_surface.py compile \
@@ -254,7 +252,7 @@ jobs:
         run: |
           (
             cd fixtures/langgraph
-            fern ir fern-ir.json --language rust --disable-examples --from-openapi
+            npx --yes fern-api@5.112.0 ir fern-ir.json --language rust --disable-examples --from-openapi
           )
           python3 surface/sdk_surface.py verify \
             --source .fixtures/agent-protocol/openapi.json \
@@ -275,7 +273,7 @@ jobs:
         run: |
           (
             cd fixtures/langgraph
-            fern generate --group rust-sdk --local --no-prompt --force --log-level info
+            npx --yes fern-api@5.112.0 generate --group rust-sdk --local --no-prompt --force --log-level info
           )
           python3 surface/sdk_surface.py digest \
             --root fixtures/langgraph/generated \
@@ -283,7 +281,7 @@ jobs:
           rm -rf fixtures/langgraph/generated
           (
             cd fixtures/langgraph
-            fern generate --group rust-sdk --local --no-prompt --force --log-level info
+            npx --yes fern-api@5.112.0 generate --group rust-sdk --local --no-prompt --force --log-level info
           )
           python3 surface/sdk_surface.py digest \
             --root fixtures/langgraph/generated \
