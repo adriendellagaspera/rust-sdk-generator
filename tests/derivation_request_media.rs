@@ -184,7 +184,7 @@ fn unsupported_request_media_is_rejected_deterministically() {
 }
 
 #[test]
-fn derives_exact_inline_multipart_request_as_owned_raw_view() {
+fn derives_exact_inline_multipart_request_as_constructible_public_wrapper() {
     let (mut openapi, bindings, surface) = fixture();
     let inline = openapi.0["components"]["schemas"]["UploadRequest"].clone();
     openapi.0["paths"]["/projects/{project_id}/uploads"]["post"]["requestBody"]["content"]["multipart/form-data"]
@@ -202,13 +202,17 @@ fn derives_exact_inline_multipart_request_as_owned_raw_view() {
     assert_eq!(outcome.status, DerivationStatus::Derived);
     let request = &derivation.definition.models["CreateMediaUploadsRequest"];
     assert_eq!(request.raw.as_deref(), Some("OpaqueUpload5"));
-    assert!(request.constructor.is_none());
-    assert!(
-        request
-            .accessors
-            .as_ref()
-            .is_some_and(indexmap::IndexMap::is_empty)
+    assert_eq!(
+        request.constructor.as_deref(),
+        Some(
+            &[
+                "labels".to_owned(),
+                "thumbnail".to_owned(),
+                "publish".to_owned()
+            ][..]
+        )
     );
+    assert!(request.accessors.is_none());
 
     let definition = derivation.definition.clone();
     let generated = generate(GenerateInput {
@@ -218,6 +222,10 @@ fn derives_exact_inline_multipart_request_as_owned_raw_view() {
         runtime: Runtime::default(),
     })
     .expect("generate inline multipart request");
+    assert!(
+        generated.files["facade_types.rs"]
+            .contains("pub fn new(labels: Vec<String>, thumbnail: bytes::Bytes, publish: bool)")
+    );
     assert!(generated.files.values().any(|source| {
         source.contains("self.raw.raw_upload_17(")
             && source.contains("__RustSdkIntoRaw<")
