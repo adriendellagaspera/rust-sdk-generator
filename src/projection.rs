@@ -5,12 +5,11 @@ use indexmap::IndexMap;
 use serde_json::Value;
 
 use crate::contracts::{
-    AccessorDefinition, AccessorKindDefinition, Bindings, CollectionDefinition,
-    MapDefinition, ModelDefinition, OperationDefinition, RequestDiscriminatorValue,
-    RequestMediaDefinition, ResourceDefinition,
-    ResponseRepresentationBinding, ResponseRepresentationDefinition, ScalarEnumDefinition,
-    SdkDefinition, SimpleUnionDefinition, SimpleUnionVariant, StreamDefinition,
-    StreamVariantDefinition,
+    AccessorDefinition, AccessorKindDefinition, Bindings, CollectionDefinition, MapDefinition,
+    ModelDefinition, OperationDefinition, RequestDiscriminatorValue, RequestMediaDefinition,
+    ResourceDefinition, ResponseRepresentationBinding, ResponseRepresentationDefinition,
+    ScalarEnumDefinition, SdkDefinition, SimpleUnionDefinition, SimpleUnionVariant,
+    StreamDefinition, StreamVariantDefinition,
 };
 use crate::openapi::{OpenApiIndex, inline_request_schema_root, ref_name};
 use crate::reconcile::unconstrained_json_alias_matches;
