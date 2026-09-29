@@ -488,7 +488,7 @@ mod lowered_fixture_tests {
                     raw_name: "Book".into(),
                     public_name: "Book".into(),
                     public_type: "Vec<Option<BookResponse>>".into(),
-                    adapt_depth: None,
+                    adapt: None,
                 }],
                 bidirectional: false,
             }),
