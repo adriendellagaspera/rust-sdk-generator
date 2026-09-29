@@ -90,6 +90,14 @@ pub(crate) enum ValueSpec {
         name: String,
         depth: usize,
     },
+    AdaptInto {
+        name: String,
+        plan: AdaptPlan,
+    },
+    OptionAdaptInto {
+        name: String,
+        plan: AdaptPlan,
+    },
     Some {
         value: Box<ValueSpec>,
         depth: usize,
@@ -145,11 +153,18 @@ pub(crate) struct SimpleUnionModelSpec {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AdaptPlan {
+    Direct,
+    Vec(Box<AdaptPlan>),
+    Boxed(Box<AdaptPlan>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SimpleUnionBranchSpec {
     pub raw_name: String,
     pub public_name: String,
     pub public_type: String,
-    pub adapt_depth: Option<usize>,
+    pub adapt: Option<AdaptPlan>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -178,13 +193,13 @@ pub(crate) struct AliasModelSpec {
 pub(crate) struct MapModelSpec {
     pub public_type: String,
     pub raw_field: String,
-    pub value_adapt_depth: Option<usize>,
+    pub value_adapt: Option<AdaptPlan>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CollectionModelSpec {
     pub public_type: String,
-    pub item_adapt_depth: Option<usize>,
+    pub item_adapt: Option<AdaptPlan>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
