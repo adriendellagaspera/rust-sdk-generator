@@ -79,19 +79,18 @@ fn struct_fields<'a>(bindings: &'a Bindings, raw: &str) -> Result<&'a [FieldBind
 }
 
 fn field_map<'a>(bindings: &'a Bindings, raw: &str) -> Result<IndexMap<String, &'a FieldBinding>> {
-    Ok(struct_fields(bindings, raw)?
-        .iter()
-        .map(|field| {
-            (
-                field
-                    .name
-                    .strip_prefix("r#")
-                    .unwrap_or(&field.name)
-                    .to_owned(),
-                field,
-            )
-        })
-        .collect())
+    let mut result = IndexMap::new();
+    for field in struct_fields(bindings, raw)? {
+        let raw_name = field.name.strip_prefix("r#").unwrap_or(&field.name);
+        let name = field.wire_name.as_deref().unwrap_or(raw_name);
+        if result.insert(name.to_owned(), field).is_some() {
+            return Err(error(
+                "lower.field_identity",
+                format!("duplicate raw wire field identity for {raw}: {name}"),
+            ));
+        }
+    }
+    Ok(result)
 }
 
 fn argument(name: &str, type_name: &str) -> Result<(ArgumentSpec, ValueSpec)> {
@@ -132,12 +131,13 @@ fn constructor_argument(
     name: &str,
     field: &FieldBinding,
     adapter: Option<&str>,
+    required_nullable: bool,
     bindings: &Bindings,
 ) -> Result<(ArgumentSpec, ValueSpec)> {
     let public_name = field_identifier(name)?;
-    let required_nullable = field.serialized_presence.as_ref()
-        == Some(&SerializedPresenceBinding::Always)
-        && option(&field.type_name)?.is_some_and(|(_, depth)| depth == 1);
+    let required_nullable = required_nullable
+        || (field.serialized_presence.as_ref() == Some(&SerializedPresenceBinding::Always)
+            && option(&field.type_name)?.is_some_and(|(_, depth)| depth == 1));
     if required_nullable {
         let (inner, _) = option(&field.type_name)?.expect("checked one option layer");
         if let Some(adapter) = adapter {
@@ -202,7 +202,8 @@ fn struct_value(
 ) -> Result<StructValue> {
     let mut assignments = Vec::new();
     for field in fields.values() {
-        let name = field.name.strip_prefix("r#").unwrap_or(&field.name);
+        let raw_name = field.name.strip_prefix("r#").unwrap_or(&field.name);
+        let name = field.wire_name.as_deref().unwrap_or(raw_name);
         if let Some(value) = values.get(name) {
             let shorthand = matches!(value, ValueSpec::Variable(value_name) if value_name == &field.name && !field.name.starts_with("r#"));
             assignments.push(StructFieldValue {
