@@ -5,8 +5,9 @@ use indexmap::IndexMap;
 use serde_json::Value;
 
 use crate::contracts::{
-    AccessorDefinition, AccessorKindDefinition, Bindings, MapDefinition, ModelDefinition,
-    OperationDefinition, RequestDiscriminatorValue, RequestMediaDefinition, ResourceDefinition,
+    AccessorDefinition, AccessorKindDefinition, Bindings, CollectionDefinition,
+    MapDefinition, ModelDefinition, OperationDefinition, RequestDiscriminatorValue,
+    RequestMediaDefinition, ResourceDefinition,
     ResponseRepresentationBinding, ResponseRepresentationDefinition, ScalarEnumDefinition,
     SdkDefinition, SimpleUnionDefinition, SimpleUnionVariant, StreamDefinition,
     StreamVariantDefinition,
