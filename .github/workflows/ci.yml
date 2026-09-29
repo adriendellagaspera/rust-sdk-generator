@@ -289,6 +289,9 @@ jobs:
           cmp "$RUNNER_TEMP/langgraph-first.json" "$RUNNER_TEMP/langgraph-second.json"
       - name: Compile generated SDK and require native SSE surface
         run: |
+          # The fixture lives under this repository's Cargo workspace but is a
+          # standalone Fern-generated crate; opt it out without changing Fern output semantics.
+          printf '\n[workspace]\n' >> fixtures/langgraph/generated/Cargo.toml
           cargo fmt --manifest-path fixtures/langgraph/generated/Cargo.toml -- --check
           cargo check --manifest-path fixtures/langgraph/generated/Cargo.toml --all-features
           cargo clippy --manifest-path fixtures/langgraph/generated/Cargo.toml --all-features -- \
