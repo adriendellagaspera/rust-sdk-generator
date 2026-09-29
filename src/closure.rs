@@ -247,6 +247,19 @@ pub(crate) fn inspect(ir: &FacadeIr, bindings: &Bindings) -> FacadeReport {
                     &spec.public_type,
                 );
             }
+            ModelRenderSpec::Collection(spec) => {
+                check(format!("{base}.new"), consumer.clone(), &spec.public_type);
+                check(
+                    format!("{base}.as_slice"),
+                    consumer.clone(),
+                    &spec.public_type,
+                );
+                check(
+                    format!("{base}.into_vec"),
+                    consumer.clone(),
+                    &spec.public_type,
+                );
+            }
             ModelRenderSpec::ScalarEnum(_) => {}
         }
     }
