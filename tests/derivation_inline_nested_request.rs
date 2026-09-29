@@ -92,7 +92,7 @@ fn derives_nested_inline_request_models_with_schema_paths() {
     assert!(types.contains("self.raw.tuning = Some(None);"));
     assert!(
         types.contains(
-            "pub struct CreateAccountsProfilesRequestSettingsTuning { raw: OpaqueTuning2 }"
+            "pub struct CreateAccountsProfilesRequestSettingsTuning { raw: crate::generated::types::OpaqueTuning2 }"
         )
     );
 }

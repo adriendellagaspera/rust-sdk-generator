@@ -208,15 +208,21 @@ fn preserves_required_nullable_request_as_owned_raw_view() {
     })
     .expect("derived raw-view request generates");
     let types = &generated.files["facade_types.rs"];
-    assert!(types.contains("pub struct UpdateWorkJobsRequest { raw: UpdateJobRequest }"));
-    assert!(types.contains("impl __RustSdkIntoRaw<UpdateJobRequest> for UpdateWorkJobsRequest"));
+    assert!(types.contains(
+        "pub struct UpdateWorkJobsRequest { raw: crate::generated::types::UpdateJobRequest }"
+    ));
+    assert!(types.contains(
+        "impl __RustSdkIntoRaw<crate::generated::types::UpdateJobRequest> for UpdateWorkJobsRequest"
+    ));
     let request_impl = types
         .split("impl UpdateWorkJobsRequest {")
         .nth(1)
         .expect("request implementation");
     assert!(
         !request_impl
-            .split("impl __RustSdkFromRaw<UpdateJobRequest> for UpdateWorkJobsRequest")
+            .split(
+                "impl __RustSdkFromRaw<crate::generated::types::UpdateJobRequest> for UpdateWorkJobsRequest",
+            )
             .next()
             .expect("request implementation end")
             .contains("pub fn new(")
@@ -317,15 +323,21 @@ fn preserves_root_flattened_request_as_owned_raw_view() {
     })
     .expect("flattened raw-view request generates");
     let types = &generated.files["facade_types.rs"];
-    assert!(types.contains("pub struct UpdateWorkJobsRequest { raw: UpdateJobRequest }"));
-    assert!(types.contains("impl __RustSdkIntoRaw<UpdateJobRequest> for UpdateWorkJobsRequest"));
+    assert!(types.contains(
+        "pub struct UpdateWorkJobsRequest { raw: crate::generated::types::UpdateJobRequest }"
+    ));
+    assert!(types.contains(
+        "impl __RustSdkIntoRaw<crate::generated::types::UpdateJobRequest> for UpdateWorkJobsRequest"
+    ));
     let request_impl = types
         .split("impl UpdateWorkJobsRequest {")
         .nth(1)
         .expect("request implementation");
     assert!(
         !request_impl
-            .split("impl __RustSdkFromRaw<UpdateJobRequest> for UpdateWorkJobsRequest")
+            .split(
+                "impl __RustSdkFromRaw<crate::generated::types::UpdateJobRequest> for UpdateWorkJobsRequest",
+            )
             .next()
             .expect("request implementation end")
             .contains("pub fn new(")

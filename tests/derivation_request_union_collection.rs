@@ -116,14 +116,14 @@ fn derives_request_union_collection_by_structure_not_raw_names_or_order() {
     ));
     assert!(
         types.contains(
-            "impl __RustSdkIntoRaw<OpaqueCommand7> for SendDeliveryCommandsRequestCommands"
+            "impl __RustSdkIntoRaw<crate::generated::types::OpaqueCommand7> for SendDeliveryCommandsRequestCommands"
         )
     );
     assert!(types.contains(
-        "SendDeliveryCommandsRequestCommands::EmailCommand(value) => OpaqueCommand7::VariantA(__RustSdkIntoRaw::into_raw(value))"
+        "SendDeliveryCommandsRequestCommands::EmailCommand(value) => crate::generated::types::OpaqueCommand7::VariantA(__RustSdkIntoRaw::into_raw(value))"
     ));
     assert!(types.contains(
-        "SendDeliveryCommandsRequestCommands::SmsCommand(value) => OpaqueCommand7::VariantB(__RustSdkIntoRaw::into_raw(value))"
+        "SendDeliveryCommandsRequestCommands::SmsCommand(value) => crate::generated::types::OpaqueCommand7::VariantB(__RustSdkIntoRaw::into_raw(value))"
     ));
 }
 

@@ -168,7 +168,11 @@ fn wraps_referenced_array_items_without_leaking_generated_rust_symbols() {
     })
     .expect("referenced array view lowers");
     let types = &generated.files["facade_types.rs"];
-    assert!(types.contains("pub struct TagsReportsResponse { raw: OpaqueList7 }"));
+    assert!(
+        types.contains(
+            "pub struct TagsReportsResponse { raw: crate::generated::types::OpaqueList7 }"
+        )
+    );
     assert!(types.contains("pub struct TagsReportsResponseItem<'a>"));
     assert!(!types.contains("pub type TagsReportsResponse = Vec<Record>;"));
 
@@ -260,7 +264,11 @@ fn preserves_inline_array_of_named_union_as_owned_raw_view() {
     })
     .expect("inline array union raw view generates");
     let types = &generated.files["facade_types.rs"];
-    assert!(types.contains("pub struct TagsReportsResponse { raw: OpaqueList7 }"));
+    assert!(
+        types.contains(
+            "pub struct TagsReportsResponse { raw: crate::generated::types::OpaqueList7 }"
+        )
+    );
     assert!(!types.contains("pub type TagsReportsResponse = Vec<OpaqueItemUnion>;"));
 
     openapi.0["paths"]["/reports/tags"]["get"]["responses"]["200"]["content"]["application/json"]
