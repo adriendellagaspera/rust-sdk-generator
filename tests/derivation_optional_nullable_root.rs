@@ -127,14 +127,9 @@ fn derives_exact_tri_state_root_and_preserves_public_absent_null_value() {
         .models
         .values()
         .find(|model| model.raw.as_deref() == Some("PauseAlias"))
-        .expect("owned inner request view");
-    assert!(request.constructor.is_none());
-    assert!(
-        request
-            .accessors
-            .as_ref()
-            .is_some_and(indexmap::IndexMap::is_empty)
-    );
+        .expect("owned inner request model");
+    assert_eq!(request.constructor.as_deref(), Some(&[][..]));
+    assert!(request.accessors.is_none());
 
     let generated = generate(GenerateInput {
         openapi,
@@ -150,6 +145,11 @@ fn derives_exact_tri_state_root_and_preserves_public_absent_null_value() {
         .collect::<String>();
     assert!(
         generated_source.contains("request: Option<Option<PauseWorkflowsSchedulesRequest>>"),
+        "{generated_source}"
+    );
+    assert!(
+        generated_source.contains("impl PauseWorkflowsSchedulesRequest {")
+            && generated_source.contains("pub fn new() -> Self"),
         "{generated_source}"
     );
     assert!(
