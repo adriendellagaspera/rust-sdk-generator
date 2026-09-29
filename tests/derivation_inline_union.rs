@@ -116,13 +116,17 @@ fn derives_inline_object_union_by_shape_not_raw_order_or_names() {
     );
 
     let types = &generated.files["facade_types.rs"];
-    assert!(types.contains("impl __RustSdkIntoRaw<crate::generated::types::OpaqueUnion3> for LatestEventsResponse"));
-    assert!(types.contains("impl __RustSdkFromRaw<crate::generated::types::OpaqueUnion3> for LatestEventsResponse"));
     assert!(types.contains(
-        "OpaqueUnion3::RawA(value) => Self::Variant1(__RustSdkFromRaw::from_raw(value))"
+        "impl __RustSdkIntoRaw<crate::generated::types::OpaqueUnion3> for LatestEventsResponse"
     ));
     assert!(types.contains(
-        "OpaqueUnion3::RawB(value) => Self::Variant2(__RustSdkFromRaw::from_raw(value))"
+        "impl __RustSdkFromRaw<crate::generated::types::OpaqueUnion3> for LatestEventsResponse"
+    ));
+    assert!(types.contains(
+        "crate::generated::types::OpaqueUnion3::RawA(value) => Self::Variant1(__RustSdkFromRaw::from_raw(value))"
+    ));
+    assert!(types.contains(
+        "crate::generated::types::OpaqueUnion3::RawB(value) => Self::Variant2(__RustSdkFromRaw::from_raw(value))"
     ));
 }
 
@@ -273,7 +277,9 @@ fn preserves_recursive_inline_union_as_owned_raw_view() {
     })
     .expect("recursive inline union raw view generates");
     let types = &generated.files["facade_types.rs"];
-    assert!(types.contains("pub struct LatestEventsResponse { raw: crate::generated::types::OpaqueUnion3 }"));
+    assert!(types.contains(
+        "pub struct LatestEventsResponse { raw: crate::generated::types::OpaqueUnion3 }"
+    ));
     assert!(!types.contains("pub enum LatestEventsResponse"));
 
     openapi.0["paths"]["/events/latest"]["get"]["responses"]["200"]["content"]["application/json"]
