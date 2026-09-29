@@ -24,6 +24,7 @@ pub(crate) enum ModelRenderSpec {
     View(ViewModelSpec),
     Alias(AliasModelSpec),
     Map(MapModelSpec),
+    Collection(CollectionModelSpec),
     ScalarEnum(ScalarEnumModelSpec),
 }
 
@@ -178,6 +179,12 @@ pub(crate) struct MapModelSpec {
     pub public_type: String,
     pub raw_field: String,
     pub value_adapt_depth: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CollectionModelSpec {
+    pub public_type: String,
+    pub item_adapt_depth: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
