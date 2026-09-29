@@ -788,10 +788,14 @@ fn request_object_models_value(
         .structs
         .get(&raw_shape.spelling)
         .ok_or(REQUEST_MODEL_UNPROVEN)?;
-    let by_name: BTreeMap<_, _> = fields
-        .iter()
-        .map(|field| (field.name.strip_prefix("r#").unwrap_or(&field.name), field))
-        .collect();
+    let mut by_name = BTreeMap::new();
+    for field in fields {
+        let raw_name = field.name.strip_prefix("r#").unwrap_or(&field.name);
+        let wire_name = field.wire_name.as_deref().unwrap_or(raw_name);
+        if by_name.insert(wire_name, field).is_some() {
+            return Err(REQUEST_MODEL_UNPROVEN);
+        }
+    }
     let required: Vec<String> = schema
         .get("required")
         .and_then(Value::as_array)
@@ -818,7 +822,11 @@ fn request_object_models_value(
         let field = by_name
             .get(field_name.as_str())
             .ok_or(REQUEST_MODEL_UNPROVEN)?;
-        if required.contains(field_name) && nullable && field.serialized_presence.is_none() {
+        if required.contains(field_name)
+            && nullable
+            && field.serialized_presence.is_none()
+            && context.bindings.schema_version >= 5
+        {
             return Err(REQUEST_MODEL_UNPROVEN);
         }
         let (core, _) = request_raw_core(&field.type_name)?;
@@ -1416,29 +1424,23 @@ fn request_model(
         .ok()
         .is_some_and(|schema| flattened_json_response_object_matches(&schema, raw, bindings))
     {
-        // The wire shape is fully proven, but a generated constructor would
-        // necessarily omit arbitrary additional members. Preserve the exact
-        // raw request as an owned opaque view instead.
-        if !naming.public_name_available(&name, bindings) {
-            return Err("capability.public_model_name_collision");
-        }
-        let model = ModelDefinition {
-            schema: Some(schema_name),
-            schema_path: None,
-            raw: Some(raw.clone()),
-            constructor: None,
-            exclude: None,
-            adapters: None,
-            union: None,
-            simple_union: None,
-            type_alias: None,
-            map: None,
-            scalar_enum: None,
-            union_factory: None,
-            borrowed: Some(false),
-            accessors: Some(IndexMap::new()),
-        };
-        return Ok(Some((name.clone(), vec![(name, model)], body.media)));
+        let schema = openapi
+            .object_schema(&schema_name)
+            .map_err(|_| REQUEST_MODEL_UNPROVEN)?;
+        let models = request_object_models_value(
+            &RequestModelContext {
+                openapi,
+                bindings,
+                naming,
+            },
+            &schema,
+            &schema_name,
+            &[],
+            raw,
+            name.clone(),
+            &mut BTreeSet::new(),
+        )?;
+        return Ok(Some((name, models, body.media)));
     }
     let models = match request_object_models(
         openapi,
