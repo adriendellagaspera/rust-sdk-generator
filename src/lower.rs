@@ -1000,6 +1000,7 @@ fn schema_at(openapi: &OpenApiIndex, root: &str, path: &[String]) -> Result<Valu
     let source = if let Some(operation_id) = inline {
         openapi
             .inline_structured_request_body(operation_id)?
+            .or(openapi.required_json_schema_request_body(operation_id)?)
             .ok_or_else(|| {
                 error(
                     "lower.schema_root",
@@ -1178,6 +1179,46 @@ fn resolve_map(
         public_type: format!("std::collections::BTreeMap<String, {public_value}>"),
         raw_field: fields[0].name.clone(),
         value_adapt_depth,
+    })
+}
+
+fn resolve_collection(
+    raw: &str,
+    model: &ModelDefinition,
+    openapi: &OpenApiIndex,
+    bindings: &Bindings,
+) -> Result<CollectionModelSpec> {
+    let config = model.collection.as_ref().expect("collection policy");
+    let schema = schema_at(openapi, &config.root, &config.path)?;
+    if schema.get("type").and_then(Value::as_str) != Some("array") {
+        return Err(error(
+            "lower.collection_schema",
+            format!("collection policy for {raw} does not resolve to an array"),
+        ));
+    }
+    if !rust_type_matches_schema(&schema, raw, bindings) {
+        return Err(error(
+            "lower.collection_drift",
+            format!("OpenAPI/raw collection drift for {raw}"),
+        ));
+    }
+    let raw_syntax = parse_type(raw)?;
+    let adapter = model
+        .adapters
+        .as_ref()
+        .and_then(|adapters| adapters.get("items"));
+    let (public_type, item_adapt_depth) = if let Some(adapter) = adapter {
+        let (public, depth) = adapted_public_type(raw_syntax, adapter, bindings)?;
+        (public, Some(depth))
+    } else {
+        (
+            public_alias_type(raw_syntax, bindings, &mut Vec::new())?,
+            None,
+        )
+    };
+    Ok(CollectionModelSpec {
+        public_type,
+        item_adapt_depth,
     })
 }
 
@@ -2705,6 +2746,8 @@ pub(crate) fn lower(
             })
         } else if config.map.is_some() {
             ModelRenderSpec::Map(resolve_map(&raw, config, &index, bindings)?)
+        } else if config.collection.is_some() {
+            ModelRenderSpec::Collection(resolve_collection(&raw, config, &index, bindings)?)
         } else if config.scalar_enum.is_some() {
             ModelRenderSpec::ScalarEnum(resolve_scalar_enum(&raw, config, &index, bindings)?)
         } else if config.accessors.is_some() {
