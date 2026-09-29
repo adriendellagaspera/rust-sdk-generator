@@ -37,6 +37,8 @@ fn qualify_value(value: &mut ValueSpec, bindings: &Bindings) -> Result<()> {
         | ValueSpec::CollectInto(_)
         | ValueSpec::MapInto { .. }
         | ValueSpec::OptionMapInto { .. }
+        | ValueSpec::AdaptInto { .. }
+        | ValueSpec::OptionAdaptInto { .. }
         | ValueSpec::Literal(_) => {}
     }
     Ok(())
@@ -144,6 +146,32 @@ fn map_from_raw(value: &str, depth: usize) -> String {
     }
 }
 
+fn adapt_into_raw_plan(value: &str, plan: &AdaptPlan) -> String {
+    match plan {
+        AdaptPlan::Direct => format!("__RustSdkIntoRaw::into_raw({value})"),
+        AdaptPlan::Vec(inner) => format!(
+            "{value}.into_iter().map(|value| {}).collect()",
+            adapt_into_raw_plan("value", inner)
+        ),
+        AdaptPlan::Boxed(inner) => {
+            format!("Box::new({})", adapt_into_raw_plan("*value", inner))
+        }
+    }
+}
+
+fn adapt_from_raw_plan(value: &str, plan: &AdaptPlan) -> String {
+    match plan {
+        AdaptPlan::Direct => format!("__RustSdkFromRaw::from_raw({value})"),
+        AdaptPlan::Vec(inner) => format!(
+            "{value}.into_iter().map(|value| {}).collect()",
+            adapt_from_raw_plan("value", inner)
+        ),
+        AdaptPlan::Boxed(inner) => {
+            format!("Box::new({})", adapt_from_raw_plan("*value", inner))
+        }
+    }
+}
+
 fn emit_value(value: &ValueSpec) -> String {
     match value {
         ValueSpec::Variable(name) => name.clone(),
@@ -157,6 +185,10 @@ fn emit_value(value: &ValueSpec) -> String {
         ValueSpec::MapInto { name, depth } => map_into_raw(name, *depth),
         ValueSpec::OptionMapInto { name, depth } => {
             format!("{name}.map(|value| {})", map_into_raw("value", *depth))
+        }
+        ValueSpec::AdaptInto { name, plan } => adapt_into_raw_plan(name, plan),
+        ValueSpec::OptionAdaptInto { name, plan } => {
+            format!("{name}.map(|value| {})", adapt_into_raw_plan("value", plan))
         }
         ValueSpec::Some { value, depth } => {
             let mut rendered = emit_value(value);
@@ -347,12 +379,12 @@ fn emit_union(model: &ModelSpec, spec: &UnionModelSpec) -> String {
     )
 }
 
-fn adapt_into_raw(depth: Option<usize>) -> String {
-    depth.map_or_else(|| "value".into(), |depth| map_into_raw("value", depth))
+fn adapt_into_raw(plan: Option<&AdaptPlan>) -> String {
+    plan.map_or_else(|| "value".into(), |plan| adapt_into_raw_plan("value", plan))
 }
 
-fn adapt_from_raw(depth: Option<usize>) -> String {
-    depth.map_or_else(|| "value".into(), |depth| map_from_raw("value", depth))
+fn adapt_from_raw(plan: Option<&AdaptPlan>) -> String {
+    plan.map_or_else(|| "value".into(), |plan| adapt_from_raw_plan("value", plan))
 }
 
 fn emit_simple_union(model: &ModelSpec, spec: &SimpleUnionModelSpec) -> String {
@@ -363,12 +395,12 @@ fn emit_simple_union(model: &ModelSpec, spec: &SimpleUnionModelSpec) -> String {
     let mut seen_payloads = BTreeSet::new();
     for branch in &spec.branches {
         variants.push(format!("{}({})", branch.public_name, branch.public_type));
-        let raw_value = adapt_into_raw(branch.adapt_depth);
+        let raw_value = adapt_into_raw(branch.adapt.as_ref());
         arms.push(format!(
             "{}::{}(value) => {}::{}({raw_value})",
             model.name, branch.public_name, model.raw, branch.raw_name
         ));
-        let public_value = adapt_from_raw(branch.adapt_depth);
+        let public_value = adapt_from_raw(branch.adapt.as_ref());
         reverse_arms.push(format!(
             "{}::{}(value) => Self::{}({public_value})",
             model.raw, branch.raw_name, branch.public_name
@@ -586,12 +618,13 @@ fn emit_map(model: &ModelSpec, spec: &MapModelSpec) -> String {
 
 fn emit_collection(model: &ModelSpec, spec: &CollectionModelSpec) -> String {
     let from_raw_values = spec
-        .item_adapt_depth
-        .map_or_else(|| "value".into(), |depth| map_from_raw("value", depth));
-    let into_raw_values = spec.item_adapt_depth.map_or_else(
-        || "self.values".into(),
-        |depth| map_into_raw("self.values", depth),
-    );
+        .item_adapt
+        .as_ref()
+        .map_or_else(|| "value".into(), |plan| adapt_from_raw_plan("value", plan));
+    let into_raw_values = spec
+        .item_adapt
+        .as_ref()
+        .map_or_else(|| "self.values".into(), |plan| adapt_into_raw_plan("self.values", plan));
     format!(
         "#[derive(Debug, Clone, Default)]\npub struct {} {{ values: {} }}\n\nimpl {} {{\n    pub fn new(values: {}) -> Self {{ Self {{ values }} }}\n    pub fn as_slice(&self) -> &[_] {{ &self.values }}\n    pub fn into_vec(self) -> {} {{ self.values }}\n}}\n\nimpl From<{}> for {} {{\n    fn from(values: {}) -> Self {{ Self {{ values }} }}\n}}\n\nimpl __RustSdkFromRaw<{}> for {} {{\n    fn from_raw(value: {}) -> Self {{ Self {{ values: {from_raw_values} }} }}\n}}\n\nimpl __RustSdkIntoRaw<{}> for {} {{\n    fn into_raw(self) -> {} {{ {into_raw_values} }}\n}}",
         model.name,
