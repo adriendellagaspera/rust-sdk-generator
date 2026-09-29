@@ -265,7 +265,9 @@ fn preserves_inline_array_of_named_union_as_owned_raw_view() {
     .expect("inline array union raw view generates");
     let types = &generated.files["facade_types.rs"];
     assert!(
-        types.contains("pub struct TagsReportsResponse { raw: crate::generated::types::OpaqueList7 }")
+        types.contains(
+            "pub struct TagsReportsResponse { raw: crate::generated::types::OpaqueList7 }"
+        )
     );
     assert!(!types.contains("pub type TagsReportsResponse = Vec<OpaqueItemUnion>;"));
 
