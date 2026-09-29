@@ -224,10 +224,86 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+
+  langgraph-fern:
+    name: langgraph-fern
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: langchain-ai/agent-protocol
+          ref: fb81f3e27ee507557926ecf923d0f933a1c76d44
+          path: .fixtures/agent-protocol
+          persist-credentials: false
+      - name: Install pinned Fern and policy dependency
+        run: |
+          npm install --global fern-api@5.112.0
+          python3 -m pip install --disable-pip-version-check PyYAML==6.0.3
+      - name: Compile LangGraph policy to Fern extensions
+        run: |
+          python3 surface/sdk_surface.py compile \
+            --source .fixtures/agent-protocol/openapi.json \
+            --policy fixtures/langgraph/policy.yaml \
+            --output fixtures/langgraph/fern/openapi.json \
+            --resolution "$RUNNER_TEMP/langgraph-resolution.json"
+      - name: Build and verify Fern IR
+        run: |
+          (
+            cd fixtures/langgraph
+            fern ir fern-ir.json --language rust --disable-examples --from-openapi
+          )
+          python3 surface/sdk_surface.py verify \
+            --source .fixtures/agent-protocol/openapi.json \
+            --policy fixtures/langgraph/policy.yaml \
+            --fern-ir fixtures/langgraph/fern-ir.json \
+            --inventory "$RUNNER_TEMP/langgraph-inventory.json"
+          python3 - "$RUNNER_TEMP/langgraph-inventory.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          report = json.loads(Path(sys.argv[1]).read_text())
+          assert report["source_operation_count"] == 27, report
+          assert report["published_operation_count"] == 27, report
+          assert report["excluded_operation_count"] == 0, report
+          assert not any(report["verification"].values()), report["verification"]
+          PY
+      - name: Generate deterministic LangGraph Rust SDK
+        run: |
+          (
+            cd fixtures/langgraph
+            fern generate --group rust-sdk --local --no-prompt --force --log-level info
+          )
+          python3 surface/sdk_surface.py digest \
+            --root fixtures/langgraph/generated \
+            --output "$RUNNER_TEMP/langgraph-first.json"
+          rm -rf fixtures/langgraph/generated
+          (
+            cd fixtures/langgraph
+            fern generate --group rust-sdk --local --no-prompt --force --log-level info
+          )
+          python3 surface/sdk_surface.py digest \
+            --root fixtures/langgraph/generated \
+            --output "$RUNNER_TEMP/langgraph-second.json"
+          cmp "$RUNNER_TEMP/langgraph-first.json" "$RUNNER_TEMP/langgraph-second.json"
+      - name: Compile generated SDK and require native SSE surface
+        run: |
+          cargo fmt --manifest-path fixtures/langgraph/generated/Cargo.toml -- --check
+          cargo check --manifest-path fixtures/langgraph/generated/Cargo.toml --all-features
+          cargo clippy --manifest-path fixtures/langgraph/generated/Cargo.toml --all-features -- \
+            -D clippy::correctness -D clippy::suspicious
+          grep -R -n -m 1 'SseStream' fixtures/langgraph/generated/src
+          grep -R -n -m 1 'create_and_stream_run' fixtures/langgraph/generated/src
+          grep -R -n -m 1 'open_thread_sse_stream' fixtures/langgraph/generated/src
+
+
   gate:
     name: gate
     if: always()
-    needs: [policy, lint, generator, bindings, integration, independent-sdk, own-api-sdk, production-compatibility]
+    needs: [policy, lint, generator, bindings, integration, independent-sdk, own-api-sdk, production-compatibility, langgraph-fern]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -241,7 +317,8 @@ jobs:
           INDEPENDENT_SDK: ${{ needs.independent-sdk.result }}
           OWN_API_SDK: ${{ needs.own-api-sdk.result }}
           PRODUCTION_COMPATIBILITY: ${{ needs.production-compatibility.result }}
+          LANGGRAPH_FERN: ${{ needs.langgraph-fern.result }}
         run: |
-          for result in "$POLICY" "$LINT" "$GENERATOR" "$BINDINGS" "$INTEGRATION" "$INDEPENDENT_SDK" "$OWN_API_SDK" "$PRODUCTION_COMPATIBILITY"; do
+          for result in "$POLICY" "$LINT" "$GENERATOR" "$BINDINGS" "$INTEGRATION" "$INDEPENDENT_SDK" "$OWN_API_SDK" "$PRODUCTION_COMPATIBILITY" "$LANGGRAPH_FERN"; do
             test "$result" = success
           done
