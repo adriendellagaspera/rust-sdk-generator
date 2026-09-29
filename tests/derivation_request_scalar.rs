@@ -166,7 +166,7 @@ fn rejects_optional_nullable_request_with_shallow_raw_option() {
 }
 
 #[test]
-fn preserves_required_nullable_request_as_owned_raw_view() {
+fn constructs_required_nullable_request_without_raw_access() {
     let (mut openapi, mut bindings, surface) = fixture();
     *openapi
         .0
@@ -192,13 +192,11 @@ fn preserves_required_nullable_request_as_owned_raw_view() {
 
     let request = &derivation.definition.models["UpdateWorkJobsRequest"];
     assert_eq!(request.raw.as_deref(), Some("UpdateJobRequest"));
-    assert!(request.constructor.is_none());
-    assert!(
-        request
-            .accessors
-            .as_ref()
-            .is_some_and(indexmap::IndexMap::is_empty)
+    assert_eq!(
+        request.constructor.as_deref(),
+        Some(&["title".to_owned()][..])
     );
+    assert!(request.accessors.is_none());
 
     let generated = generate(GenerateInput {
         openapi,
@@ -219,13 +217,14 @@ fn preserves_required_nullable_request_as_owned_raw_view() {
         .nth(1)
         .expect("request implementation");
     assert!(
-        !request_impl
+        request_impl
             .split(
                 "impl __RustSdkFromRaw<crate::generated::types::UpdateJobRequest> for UpdateWorkJobsRequest",
             )
             .next()
             .expect("request implementation end")
-            .contains("pub fn new(")
+            .contains("pub fn new(title: Option<String>)"),
+        "{request_impl}"
     );
 }
 
@@ -276,7 +275,7 @@ fn derives_single_all_of_request_property_with_annotations() {
 }
 
 #[test]
-fn preserves_root_flattened_request_as_owned_raw_view() {
+fn constructs_root_flattened_request_with_default_extra_map() {
     let (mut openapi, mut bindings, surface) = fixture();
     openapi.0["components"]["schemas"]["UpdateJobRequest"]["additionalProperties"] =
         serde_json::json!(true);
@@ -505,13 +504,16 @@ fn proves_renamed_request_field_by_exact_wire_name() {
             .is_some_and(indexmap::IndexMap::is_empty)
     );
 
-    generate(GenerateInput {
+    let generated = generate(GenerateInput {
         openapi: openapi.clone(),
         bindings: bindings.clone(),
         definition: derivation.definition,
         runtime: Runtime::default(),
     })
-    .expect("renamed raw request view generates");
+    .expect("renamed request wrapper generates");
+    let types = &generated.files["facade_types.rs"];
+    assert!(types.contains("pub fn new(title: impl Into<String>)"));
+    assert!(types.contains("title_internal: title.into()"));
 
     bindings
         .structs
