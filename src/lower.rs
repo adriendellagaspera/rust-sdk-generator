@@ -141,16 +141,16 @@ fn constructor_argument(
     if required_nullable {
         let (inner, _) = option(&field.type_name)?.expect("checked one option layer");
         if let Some(adapter) = adapter {
-            let (public_type, depth) = adapted_public_type(parse_type(&inner)?, adapter, bindings)?;
+            let (public_type, plan) = adapted_public_type(parse_type(&inner)?, adapter, bindings)?;
             return Ok((
                 ArgumentSpec {
                     name: public_name.clone(),
                     kind: ArgumentKind::Exact,
                     type_name: format!("Option<{public_type}>"),
                 },
-                ValueSpec::OptionMapInto {
+                ValueSpec::OptionAdaptInto {
                     name: public_name,
-                    depth,
+                    plan,
                 },
             ));
         }
@@ -165,27 +165,40 @@ fn constructor_argument(
         ));
     }
     if let Some(adapter) = adapter {
-        if parse_type(&field.type_name)?.unary("Vec").is_some() {
-            return Ok((
+        let (public_type, plan) =
+            adapted_public_type(parse_type(&field.type_name)?, adapter, bindings)?;
+        return Ok(match &plan {
+            AdaptPlan::Direct => (
+                ArgumentSpec {
+                    name: public_name.clone(),
+                    kind: ArgumentKind::IntoModel,
+                    type_name: adapter.into(),
+                },
+                ValueSpec::IntoModel {
+                    name: public_name,
+                    adapter: adapter.into(),
+                },
+            ),
+            AdaptPlan::Vec(inner) if **inner == AdaptPlan::Direct => (
                 ArgumentSpec {
                     name: public_name.clone(),
                     kind: ArgumentKind::IntoIterModel,
                     type_name: adapter.into(),
                 },
                 ValueSpec::CollectInto(public_name),
-            ));
-        }
-        return Ok((
-            ArgumentSpec {
-                name: public_name.clone(),
-                kind: ArgumentKind::IntoModel,
-                type_name: adapter.into(),
-            },
-            ValueSpec::IntoModel {
-                name: public_name,
-                adapter: adapter.into(),
-            },
-        ));
+            ),
+            _ => (
+                ArgumentSpec {
+                    name: public_name.clone(),
+                    kind: ArgumentKind::Exact,
+                    type_name: public_type,
+                },
+                ValueSpec::AdaptInto {
+                    name: public_name,
+                    plan,
+                },
+            ),
+        });
     }
     let effective = option(&field.type_name)?
         .map(|(inner, _)| inner)
@@ -683,13 +696,16 @@ fn adapted_public_type(
     syntax: Type,
     adapter: &str,
     bindings: &Bindings,
-) -> Result<(String, usize)> {
+) -> Result<(String, AdaptPlan)> {
     let syntax = expand_alias(syntax, bindings, &mut Vec::new())?;
     if syntax.constructor.as_deref() == Some("Vec") && syntax.arguments.len() == 1 {
-        let (inner, depth) = adapted_public_type(syntax.arguments[0].clone(), adapter, bindings)?;
-        Ok((format!("Vec<{inner}>"), depth + 1))
+        let (inner, plan) = adapted_public_type(syntax.arguments[0].clone(), adapter, bindings)?;
+        Ok((format!("Vec<{inner}>"), AdaptPlan::Vec(Box::new(plan))))
+    } else if syntax.constructor.as_deref() == Some("Box") && syntax.arguments.len() == 1 {
+        let (inner, plan) = adapted_public_type(syntax.arguments[0].clone(), adapter, bindings)?;
+        Ok((format!("Box<{inner}>"), AdaptPlan::Boxed(Box::new(plan))))
     } else {
-        Ok((adapter.into(), 0))
+        Ok((adapter.into(), AdaptPlan::Direct))
     }
 }
 
@@ -761,9 +777,9 @@ fn resolve_simple_union(
             SimpleUnionVariant::Name(name) => (name.clone(), None),
             SimpleUnionVariant::Adapted { name, adapter } => (name.clone(), Some(adapter.as_str())),
         };
-        let (public_type, adapt_depth) = if let Some(adapter) = adapter {
-            let (type_name, depth) = adapted_public_type(raw_syntax, adapter, bindings)?;
-            (type_name, Some(depth))
+        let (public_type, adapt) = if let Some(adapter) = adapter {
+            let (type_name, plan) = adapted_public_type(raw_syntax, adapter, bindings)?;
+            (type_name, Some(plan))
         } else {
             (
                 public_alias_type(raw_syntax, bindings, &mut Vec::new())?,
@@ -774,7 +790,7 @@ fn resolve_simple_union(
             raw_name: raw_name.clone(),
             public_name,
             public_type,
-            adapt_depth,
+            adapt,
         });
     }
     Ok(SimpleUnionModelSpec {
@@ -1138,7 +1154,7 @@ fn resolve_map(
         .adapters
         .as_ref()
         .and_then(|adapters| adapters.get(&fields[0].name));
-    let (public_value, value_adapt_depth) = if let Some(adapter) = value_adapter {
+    let (public_value, value_adapt) = if let Some(adapter) = value_adapter {
         if !map_value_matches_schema(openapi, additional, &effective.spelling, bindings) {
             return Err(error(
                 "lower.map_value",
@@ -1148,8 +1164,8 @@ fn resolve_map(
                 ),
             ));
         }
-        let (public, depth) = adapted_public_type(raw_value, adapter, bindings)?;
-        (public, Some(depth))
+        let (public, plan) = adapted_public_type(raw_value, adapter, bindings)?;
+        (public, Some(plan))
     } else {
         if effective.spelling != "serde_json::Value" {
             let additional = unwrap_nullable_schema(additional);
@@ -1178,7 +1194,7 @@ fn resolve_map(
     Ok(MapModelSpec {
         public_type: format!("std::collections::BTreeMap<String, {public_value}>"),
         raw_field: fields[0].name.clone(),
-        value_adapt_depth,
+        value_adapt,
     })
 }
 
@@ -1207,9 +1223,9 @@ fn resolve_collection(
         .adapters
         .as_ref()
         .and_then(|adapters| adapters.get("items"));
-    let (public_type, item_adapt_depth) = if let Some(adapter) = adapter {
-        let (public, depth) = adapted_public_type(raw_syntax, adapter, bindings)?;
-        (public, Some(depth))
+    let (public_type, item_adapt) = if let Some(adapter) = adapter {
+        let (public, plan) = adapted_public_type(raw_syntax, adapter, bindings)?;
+        (public, Some(plan))
     } else {
         (
             public_alias_type(raw_syntax, bindings, &mut Vec::new())?,
@@ -1218,7 +1234,7 @@ fn resolve_collection(
     };
     Ok(CollectionModelSpec {
         public_type,
-        item_adapt_depth,
+        item_adapt,
     })
 }
 
