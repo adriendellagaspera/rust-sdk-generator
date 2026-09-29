@@ -75,6 +75,7 @@ fn qualify_transport_symbols(ir: &mut FacadeIr, bindings: &Bindings) -> Result<(
             ModelRenderSpec::SimpleUnion(_)
             | ModelRenderSpec::Alias(_)
             | ModelRenderSpec::Map(_)
+            | ModelRenderSpec::Collection(_)
             | ModelRenderSpec::ScalarEnum(_) => {}
         }
     }
@@ -583,6 +584,32 @@ fn emit_map(model: &ModelSpec, spec: &MapModelSpec) -> String {
     )
 }
 
+fn emit_collection(model: &ModelSpec, spec: &CollectionModelSpec) -> String {
+    let from_raw_values = spec
+        .item_adapt_depth
+        .map_or_else(|| "value".into(), |depth| map_from_raw("value", depth));
+    let into_raw_values = spec
+        .item_adapt_depth
+        .map_or_else(|| "self.values".into(), |depth| map_into_raw("self.values", depth));
+    format!(
+        "#[derive(Debug, Clone, Default)]\npub struct {} {{ values: {} }}\n\nimpl {} {{\n    pub fn new(values: {}) -> Self {{ Self {{ values }} }}\n    pub fn as_slice(&self) -> &[_] {{ &self.values }}\n    pub fn into_vec(self) -> {} {{ self.values }}\n}}\n\nimpl From<{}> for {} {{\n    fn from(values: {}) -> Self {{ Self {{ values }} }}\n}}\n\nimpl __RustSdkFromRaw<{}> for {} {{\n    fn from_raw(value: {}) -> Self {{ Self {{ values: {from_raw_values} }} }}\n}}\n\nimpl __RustSdkIntoRaw<{}> for {} {{\n    fn into_raw(self) -> {} {{ {into_raw_values} }}\n}}",
+        model.name,
+        spec.public_type,
+        model.name,
+        spec.public_type,
+        spec.public_type,
+        spec.public_type,
+        model.name,
+        spec.public_type,
+        model.raw,
+        model.name,
+        model.raw,
+        model.raw,
+        model.name,
+        model.raw,
+    )
+}
+
 fn emit_scalar_enum(model: &ModelSpec, spec: &ScalarEnumModelSpec) -> String {
     let variants = spec.variants.join(",");
     let forward = spec
@@ -620,6 +647,7 @@ fn emit_model(model: &ModelSpec) -> String {
         ModelRenderSpec::View(spec) => emit_view(model, spec),
         ModelRenderSpec::Alias(spec) => format!("pub type {} = {};", model.name, spec.public_type),
         ModelRenderSpec::Map(spec) => emit_map(model, spec),
+        ModelRenderSpec::Collection(spec) => emit_collection(model, spec),
         ModelRenderSpec::ScalarEnum(spec) => emit_scalar_enum(model, spec),
     }
 }
