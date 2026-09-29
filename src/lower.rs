@@ -51,9 +51,35 @@ fn exact_optional_nullable_core(type_name: &str) -> Option<String> {
     Some(nullable.spelling.clone())
 }
 
+fn struct_fields<'a>(bindings: &'a Bindings, raw: &str) -> Result<&'a [FieldBinding]> {
+    let mut current = raw.to_owned();
+    let mut seen = BTreeSet::new();
+    loop {
+        if let Some(fields) = bindings.structs.get(&current) {
+            return Ok(fields);
+        }
+        if !seen.insert(current.clone()) {
+            return Err(error(
+                "lower.alias_cycle",
+                format!("raw Rust alias cycle while resolving struct fields: {raw}"),
+            ));
+        }
+        let Some(alias) = bindings.aliases.get(&current) else {
+            return bindings.fields(&current);
+        };
+        let syntax = parse_type(alias)?;
+        if syntax.kind != TypeKind::Opaque {
+            return Err(error(
+                "lower.alias_struct",
+                format!("raw Rust alias does not resolve to a struct: {raw} -> {alias}"),
+            ));
+        }
+        current = syntax.spelling;
+    }
+}
+
 fn field_map<'a>(bindings: &'a Bindings, raw: &str) -> Result<IndexMap<String, &'a FieldBinding>> {
-    Ok(bindings
-        .fields(raw)?
+    Ok(struct_fields(bindings, raw)?
         .iter()
         .map(|field| {
             (
@@ -418,7 +444,7 @@ fn resolve_wrapper(
         .chain(constructor_fields)
         .collect();
     let mut setters = Vec::new();
-    for field in bindings.fields(raw)? {
+    for field in struct_fields(bindings, raw)? {
         let name = field.name.strip_prefix("r#").unwrap_or(&field.name);
         if excluded.contains(name) {
             continue;
@@ -1190,6 +1216,20 @@ fn resolve_scalar_enum(
             .map(|value| by_wire[value.as_str().expect("string enum")].clone())
             .collect(),
     })
+}
+
+fn public_request_model_constructible(model: &ModelSpec) -> bool {
+    match &model.render {
+        ModelRenderSpec::Wrapper(wrapper) => {
+            wrapper.constructor.is_some() || !wrapper.factories.is_empty()
+        }
+        ModelRenderSpec::View(_) => false,
+        ModelRenderSpec::Union(_)
+        | ModelRenderSpec::SimpleUnion(_)
+        | ModelRenderSpec::Alias(_)
+        | ModelRenderSpec::Map(_)
+        | ModelRenderSpec::ScalarEnum(_) => true,
+    }
 }
 
 fn validate_stream_type(
@@ -2666,8 +2706,7 @@ pub(crate) fn lower(
                 .into_iter()
                 .flat_map(|properties| properties.keys())
                 .collect();
-            let mut raw_fields: BTreeSet<_> = bindings
-                .fields(&raw)?
+            let mut raw_fields: BTreeSet<_> = struct_fields(bindings, &raw)?
                 .iter()
                 .map(|field| {
                     field
@@ -3425,6 +3464,18 @@ pub(crate) fn lower(
             };
 
             let request_projection = if let Some(request) = request {
+                let request_model = models
+                    .iter()
+                    .find(|model| model.name == request)
+                    .expect("known request model");
+                if !public_request_model_constructible(request_model) {
+                    return Err(error(
+                        "lower.request_constructibility",
+                        format!(
+                            "public request model is not constructible without private transport access: {request}"
+                        ),
+                    ));
+                }
                 RequestProjection::Model {
                     media: item.request_media.unwrap_or(RequestMediaDefinition::Json),
                     model: request.into(),
