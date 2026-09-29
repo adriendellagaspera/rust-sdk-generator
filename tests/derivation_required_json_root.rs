@@ -141,7 +141,7 @@ fn fixture() -> (OpenApi, Bindings, PublicSdkSurface) {
 }
 
 #[test]
-fn derives_required_array_and_union_root_requests_as_owned_raw_views() {
+fn derives_constructible_required_array_and_union_root_requests() {
     let (openapi, bindings, surface) = fixture();
     let derivation = derive(DeriveInput {
         openapi: openapi.clone(),
@@ -158,19 +158,13 @@ fn derives_required_array_and_union_root_requests_as_owned_raw_views() {
     }
     assert!(derivation.definition.models.values().any(|model| {
         model.raw.as_deref() == Some("MembersRequest")
-            && model.constructor.is_none()
-            && model
-                .accessors
-                .as_ref()
-                .is_some_and(indexmap::IndexMap::is_empty)
+            && model.collection.is_some()
+            && model.accessors.is_none()
     }));
     assert!(derivation.definition.models.values().any(|model| {
         model.raw.as_deref() == Some("MetricsRequest")
-            && model.constructor.is_none()
-            && model
-                .accessors
-                .as_ref()
-                .is_some_and(indexmap::IndexMap::is_empty)
+            && model.simple_union.is_some()
+            && model.accessors.is_none()
     }));
 
     let generated = generate(GenerateInput {
@@ -181,9 +175,10 @@ fn derives_required_array_and_union_root_requests_as_owned_raw_views() {
     })
     .expect("generate");
     let types = &generated.files["facade_types.rs"];
-    assert!(types.contains("MembersRequest"));
-    assert!(types.contains("MetricsRequest"));
-    assert!(types.contains("into_raw"));
+    assert!(types.contains("pub struct CreateManyAdminUsersRequest"));
+    assert!(types.contains("pub fn new(values: Vec<"));
+    assert!(types.contains("pub enum UpdateRagMetricsRequest"));
+    assert!(!types.contains("pub fn into_raw"));
 }
 
 #[test]
