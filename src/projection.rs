@@ -286,14 +286,21 @@ fn request_union_models(
     public_name: String,
     seen: &mut ActiveRequestModels,
 ) -> Result<ProjectedModels, &'static str> {
-    let Some(mapping) = request_union_mapping(context.openapi, schema, raw_union, context.bindings)
+    let raw_union = expand_request_type(
+        parse_type(raw_union).map_err(|_| REQUEST_MODEL_UNPROVEN)?,
+        context.bindings,
+        &mut BTreeSet::new(),
+    )?
+    .spelling;
+    let Some(mapping) =
+        request_union_mapping(context.openapi, schema, &raw_union, context.bindings)
     else {
         return request_value_union_models(
             context,
             schema,
             source_root,
             source_path,
-            raw_union,
+            &raw_union,
             public_name,
             seen,
         );
@@ -355,7 +362,7 @@ fn request_union_models(
         ModelDefinition {
             schema: Some(source_root.into()),
             schema_path: (!source_path.is_empty()).then(|| source_path.to_vec()),
-            raw: Some(raw_union.into()),
+            raw: Some(raw_union),
             constructor: None,
             exclude: None,
             adapters: None,
