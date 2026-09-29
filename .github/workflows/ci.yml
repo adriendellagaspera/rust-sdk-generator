@@ -292,17 +292,87 @@ jobs:
           # The fixture lives under this repository's Cargo workspace but is a
           # standalone Fern-generated crate; opt it out without changing Fern output semantics.
           printf '\n[workspace]\n' >> fixtures/langgraph/generated/Cargo.toml
+          mkdir -p fixtures/langgraph/generated/tests
+          cat > fixtures/langgraph/generated/tests/sse_incremental.rs <<'RS'
+          use adriendellagaspera_api::{ClientConfig, HttpClient};
+          use futures::StreamExt;
+          use reqwest::Method;
+          use serde_json::Value;
+          use std::time::Duration;
+          use tokio::io::{AsyncReadExt, AsyncWriteExt};
+          use tokio::net::TcpListener;
+          use tokio::time::{sleep, timeout};
+
+          #[tokio::test]
+          async fn fern_sse_delivers_events_incrementally() {
+              let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+              let address = listener.local_addr().unwrap();
+
+              let server = tokio::spawn(async move {
+                  let (mut socket, _) = listener.accept().await.unwrap();
+                  let mut request = vec![0_u8; 4096];
+                  let _ = socket.read(&mut request).await.unwrap();
+
+                  socket
+                      .write_all(
+                          b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: {\"seq\":1}\n\n",
+                      )
+                      .await
+                      .unwrap();
+                  socket.flush().await.unwrap();
+
+                  sleep(Duration::from_millis(300)).await;
+
+                  socket
+                      .write_all(b"data: {\"seq\":2}\n\n")
+                      .await
+                      .unwrap();
+                  socket.flush().await.unwrap();
+              });
+
+              let config = ClientConfig {
+                  base_url: format!("http://{address}"),
+                  timeout: Duration::from_secs(2),
+                  ..Default::default()
+              };
+              let http = HttpClient::new(config).unwrap();
+              let mut stream = http
+                  .execute_sse_request::<Value>(
+                      Method::GET,
+                      "events",
+                      None,
+                      None,
+                      None,
+                      None,
+                  )
+                  .await
+                  .unwrap();
+
+              let first = timeout(Duration::from_millis(150), stream.next())
+                  .await
+                  .expect("first SSE event was buffered behind the second")
+                  .expect("stream ended before first event")
+                  .expect("first event failed");
+              assert_eq!(first["seq"], 1);
+
+              let second = timeout(Duration::from_secs(1), stream.next())
+                  .await
+                  .expect("second SSE event timed out")
+                  .expect("stream ended before second event")
+                  .expect("second event failed");
+              assert_eq!(second["seq"], 2);
+
+              server.await.unwrap();
+          }
+          RS
           cargo fmt --manifest-path fixtures/langgraph/generated/Cargo.toml -- --check
           cargo check --manifest-path fixtures/langgraph/generated/Cargo.toml --all-features
+          cargo test --manifest-path fixtures/langgraph/generated/Cargo.toml --all-features
           cargo clippy --manifest-path fixtures/langgraph/generated/Cargo.toml --all-features -- \
             -D clippy::correctness -D clippy::suspicious
           grep -R -n -m 1 'SseStream' fixtures/langgraph/generated/src
           grep -R -n -m 1 'create_and_stream_run' fixtures/langgraph/generated/src
           grep -R -n -m 1 'open_thread_sse_stream' fixtures/langgraph/generated/src
-          sed -n '1,130p' fixtures/langgraph/generated/src/api/resources/runs/runs.rs
-          sed -n '110,210p' fixtures/langgraph/generated/src/api/resources/streaming/streaming.rs
-          sed -n '1,100p' fixtures/langgraph/generated/src/client.rs
-          sed -n '1,180p' fixtures/langgraph/generated/Cargo.toml
       - name: Probe wasm32 support
         continue-on-error: true
         run: |
