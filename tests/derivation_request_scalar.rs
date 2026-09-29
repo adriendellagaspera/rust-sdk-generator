@@ -305,13 +305,11 @@ fn constructs_root_flattened_request_with_default_extra_map() {
     );
     let request = &derivation.definition.models["UpdateWorkJobsRequest"];
     assert_eq!(request.raw.as_deref(), Some("UpdateJobRequest"));
-    assert!(request.constructor.is_none());
-    assert!(
-        request
-            .accessors
-            .as_ref()
-            .is_some_and(indexmap::IndexMap::is_empty)
+    assert_eq!(
+        request.constructor.as_deref(),
+        Some(&["title".to_owned()][..])
     );
+    assert!(request.accessors.is_none());
 
     let definition = derivation.definition.clone();
     let generated = generate(GenerateInput {
@@ -332,15 +330,15 @@ fn constructs_root_flattened_request_with_default_extra_map() {
         .split("impl UpdateWorkJobsRequest {")
         .nth(1)
         .expect("request implementation");
-    assert!(
-        !request_impl
-            .split(
-                "impl __RustSdkFromRaw<crate::generated::types::UpdateJobRequest> for UpdateWorkJobsRequest",
-            )
-            .next()
-            .expect("request implementation end")
-            .contains("pub fn new(")
-    );
+    let public_impl = request_impl
+        .split(
+            "impl __RustSdkFromRaw<crate::generated::types::UpdateJobRequest> for UpdateWorkJobsRequest",
+        )
+        .next()
+        .expect("request implementation end");
+    assert!(public_impl.contains("pub fn new(title: impl Into<String>)"));
+    assert!(public_impl.contains("additional_properties: Default::default()"));
+    assert!(public_impl.contains("pub fn additional_properties("));
 
     openapi.0["components"]["schemas"]["UpdateJobRequest"]["additionalProperties"] =
         serde_json::json!(false);
@@ -496,13 +494,11 @@ fn proves_renamed_request_field_by_exact_wire_name() {
     );
     let request = &derivation.definition.models["UpdateWorkJobsRequest"];
     assert_eq!(request.raw.as_deref(), Some("UpdateJobRequest"));
-    assert!(request.constructor.is_none());
-    assert!(
-        request
-            .accessors
-            .as_ref()
-            .is_some_and(indexmap::IndexMap::is_empty)
+    assert_eq!(
+        request.constructor.as_deref(),
+        Some(&["title".to_owned()][..])
     );
+    assert!(request.accessors.is_none());
 
     let generated = generate(GenerateInput {
         openapi: openapi.clone(),
