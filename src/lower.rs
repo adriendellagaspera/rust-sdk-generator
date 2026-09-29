@@ -1001,13 +1001,12 @@ fn schema_at(openapi: &OpenApiIndex, root: &str, path: &[String]) -> Result<Valu
     // Projection can address fields contributed by allOf branches. Resolve
     // the same composed root during lowering instead of walking a raw schema
     // whose properties may be defined only in referenced sibling branches.
-    let mut schema = if inline.is_none()
-        && (source.get("allOf").is_some() || source.get("$ref").is_some())
-    {
-        openapi.object_schema(root)?
-    } else {
-        source
-    };
+    let mut schema =
+        if inline.is_none() && (source.get("allOf").is_some() || source.get("$ref").is_some()) {
+            openapi.object_schema(root)?
+        } else {
+            source
+        };
     for segment in path {
         schema = unwrap_nullable_schema(&schema).clone();
         schema = schema
@@ -2711,7 +2710,11 @@ pub(crate) fn lower(
         } else {
             let schema_name = config.schema.as_deref().unwrap_or(&raw);
             let wire_schema = if inline_request_operation(schema_name).is_some() {
-                schema_at(&index, schema_name, config.schema_path.as_deref().unwrap_or(&[]))?
+                schema_at(
+                    &index,
+                    schema_name,
+                    config.schema_path.as_deref().unwrap_or(&[]),
+                )?
             } else if let Some(path) = config.schema_path.as_deref() {
                 index.object_schema_path(schema_name, path)?
             } else {
@@ -2965,7 +2968,9 @@ pub(crate) fn lower(
                             .ok_or_else(|| {
                                 error(
                                     "lower.request_media_drift",
-                                    format!("inline structured request media drift for {operation_id}"),
+                                    format!(
+                                        "inline structured request media drift for {operation_id}"
+                                    ),
                                 )
                             })?;
                         if body.media != configured_media {
@@ -2976,14 +2981,17 @@ pub(crate) fn lower(
                         }
                         object_value_matches(&index, &body.schema, &model.raw, bindings)
                     } else {
-                        let body = index
-                            .structured_request_body(operation_id)?
-                            .ok_or_else(|| {
-                                error(
-                                    "lower.request_media_drift",
-                                    format!("structured request media drift for {operation_id}"),
-                                )
-                            })?;
+                        let body =
+                            index
+                                .structured_request_body(operation_id)?
+                                .ok_or_else(|| {
+                                    error(
+                                        "lower.request_media_drift",
+                                        format!(
+                                            "structured request media drift for {operation_id}"
+                                        ),
+                                    )
+                                })?;
                         if body.media != configured_media {
                             return Err(error(
                                 "lower.request_media_drift",
