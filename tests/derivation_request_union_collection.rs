@@ -116,7 +116,7 @@ fn derives_request_union_collection_by_structure_not_raw_names_or_order() {
     ));
     assert!(
         types.contains(
-            "impl __RustSdkIntoRaw<OpaqueCommand7> for SendDeliveryCommandsRequestCommands"
+            "impl __RustSdkIntoRaw<crate::generated::types::OpaqueCommand7> for SendDeliveryCommandsRequestCommands"
         )
     );
     assert!(types.contains(
