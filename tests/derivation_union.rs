@@ -101,12 +101,12 @@ fn derives_structurally_proven_simple_union_response() {
     );
 
     let types = &generated.files["facade_types.rs"];
-    assert!(types.contains(
-        "impl __RustSdkIntoRaw<crate::raw::LookupPayload> for LookupSearchResponse"
-    ));
-    assert!(types.contains(
-        "impl __RustSdkFromRaw<crate::raw::LookupPayload> for LookupSearchResponse"
-    ));
+    assert!(
+        types.contains("impl __RustSdkIntoRaw<crate::raw::LookupPayload> for LookupSearchResponse")
+    );
+    assert!(
+        types.contains("impl __RustSdkFromRaw<crate::raw::LookupPayload> for LookupSearchResponse")
+    );
     assert!(types.contains(
         "crate::raw::LookupPayload::Variant2(value) => Self::FoundItem(__RustSdkFromRaw::from_raw(value))"
     ));
