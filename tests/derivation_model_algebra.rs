@@ -92,8 +92,8 @@ fn derives_structurally_proven_model_algebra_responses() {
         vec!["labels", "mode", "tags"]
     );
     let facade = &generated.files["facade_types.rs"];
-    assert!(facade.contains("impl __RustSdkFromRaw<RunMode> for ModeCatalogMetadataResponse"));
-    assert!(facade.contains("impl __RustSdkIntoRaw<RunMode> for ModeCatalogMetadataResponse"));
+    assert!(facade.contains("impl __RustSdkFromRaw<crate::generated::types::RunMode> for ModeCatalogMetadataResponse"));
+    assert!(facade.contains("impl __RustSdkIntoRaw<crate::generated::types::RunMode> for ModeCatalogMetadataResponse"));
 }
 
 #[test]
