@@ -95,7 +95,7 @@ fn derives_canonical_sse_with_owned_public_wrappers_and_discriminator() {
         source.contains(
             "pub async fn watch(&self, request: WatchJobsRequest, job_id: impl AsRef<str>) -> Result<WatchJobsStream, SdkError>"
         ) && source.contains("raw.stream = Some(true);")
-            && source.contains("json_events::<_, _, OpaqueJobChunk4>(bytes)")
+            && source.contains("json_events::<_, _, crate::generated::types::OpaqueJobChunk4>(bytes)")
             && source.contains("__RustSdkFromRaw::from_raw(event.data)")
     }));
     assert!(generated.files.values().any(|source| {
@@ -173,7 +173,7 @@ fn derives_exact_named_non_scalar_sse_payload() {
     .expect("named complex SSE payload should generate");
 
     assert!(generated.files.values().any(|source| {
-        source.contains("json_events::<_, _, JobChunk>(bytes)")
+        source.contains("json_events::<_, _, crate::generated::types::JobChunk>(bytes)")
             && source.contains("__RustSdkFromRaw::from_raw(event.data)")
     }));
 }
