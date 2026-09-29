@@ -125,6 +125,33 @@ class SurfaceContractTests(unittest.TestCase):
             inventory["public_methods"],
             ["beta.files.list", "chat.complete", "chat.complete_stream"],
         )
+        chat = next(
+            item
+            for item in inventory["provenance"]["operations"]
+            if item["source_identity"] == "operationId:chat_complete"
+        )
+        self.assertEqual(chat["resource_origin"], "source-derived")
+        self.assertEqual(chat["method_origin"], "policy-overridden")
+        judge_output = next(
+            item
+            for item in inventory["provenance"]["types"]
+            if item["source_schema"]
+            == "#/components/schemas/Judge/properties/output"
+        )
+        self.assertEqual(judge_output["name_origin"], "policy-overridden")
+        self.assertEqual(
+            inventory["naming"]["method_name_lengths"],
+            {"count": 3, "median": 8, "p95": 15, "max": 15},
+        )
+        self.assertEqual(
+            inventory["naming"]["explicit_type_overrides"],
+            [
+                {
+                    "source_schema": "#/components/schemas/Judge/properties/output",
+                    "public_name": "JudgeOutputConfig",
+                }
+            ],
+        )
 
     def test_rejects_public_method_collision(self) -> None:
         policy = json.loads(json.dumps(POLICY))
