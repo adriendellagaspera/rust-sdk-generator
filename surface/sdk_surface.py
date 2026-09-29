@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -52,6 +53,8 @@ class ResolvedOperation:
     outcome: str
     resource: tuple[str, ...]
     method_name: str | None
+    resource_origin: str | None
+    method_origin: str | None
     representation: str | None
     streaming: dict[str, Any] | None
     exclusion_reason: str | None
@@ -211,6 +214,8 @@ def resolve_policy(
                     outcome="excluded",
                     resource=(),
                     method_name=None,
+                    resource_origin=None,
+                    method_origin=None,
                     representation=entry.get("representation"),
                     streaming=None,
                     exclusion_reason=exclude["reason"],
@@ -218,10 +223,18 @@ def resolve_policy(
             )
             continue
 
+        explicit_resource = entry.get("resource")
+        explicit_method = entry.get("method")
         resource = tuple(
-            entry.get("resource") or default_resource(operation, policy) or ()
+            explicit_resource or default_resource(operation, policy) or ()
         )
-        method_name = entry.get("method") or default_method(operation, policy)
+        method_name = explicit_method or default_method(operation, policy)
+        resource_origin = (
+            "policy-overridden" if explicit_resource is not None else "source-derived"
+        )
+        method_origin = (
+            "policy-overridden" if explicit_method is not None else "source-derived"
+        )
         if not resource or not method_name:
             missing = []
             if not resource:
@@ -238,6 +251,8 @@ def resolve_policy(
                 outcome="published",
                 resource=resource,
                 method_name=method_name,
+                resource_origin=resource_origin,
+                method_origin=method_origin,
                 representation=entry.get("representation"),
                 streaming=entry.get("streaming"),
                 exclusion_reason=None,
@@ -320,6 +335,8 @@ def resolution_inventory(
                 "operation_id": item.source.operation_id,
                 "outcome": item.outcome,
                 "public_paths": [".".join(path) for path in item.public_paths],
+                "resource_origin": item.resource_origin,
+                "method_origin": item.method_origin,
                 "representation": item.representation,
                 "exclusion_reason": item.exclusion_reason,
             }
@@ -328,6 +345,7 @@ def resolution_inventory(
         {
             "source_schema": pointer,
             "public_name": entry.get("name"),
+            "name_origin": "policy-overridden" if entry.get("name") else None,
             "representation": entry.get("representation"),
         }
         for pointer, entry in sorted(policy.get("types", {}).items())
@@ -450,6 +468,24 @@ def ir_public_type_names(ir: dict[str, Any]) -> list[str]:
     return sorted(types)
 
 
+
+def naming_length_stats(values: Iterable[str]) -> dict[str, int | float]:
+    lengths = sorted(len(value) for value in values)
+    if not lengths:
+        return {"count": 0, "median": 0, "p95": 0, "max": 0}
+    middle = len(lengths) // 2
+    if len(lengths) % 2:
+        median: int | float = lengths[middle]
+    else:
+        median = (lengths[middle - 1] + lengths[middle]) / 2
+    p95 = lengths[max(0, math.ceil(len(lengths) * 0.95) - 1)]
+    return {
+        "count": len(lengths),
+        "median": median,
+        "p95": p95,
+        "max": lengths[-1],
+    }
+
 def semantic_inventory(
     spec: dict[str, Any], policy: dict[str, Any], ir: dict[str, Any]
 ) -> dict[str, Any]:
@@ -474,6 +510,9 @@ def semantic_inventory(
                 "public_name": (
                     public_name if public_name in public_type_set else None
                 ),
+                "name_origin": (
+                    "policy-overridden" if override is not None else "fern-defaulted"
+                ),
             }
         )
     for pointer, entry in sorted(policy.get("types", {}).items()):
@@ -486,6 +525,7 @@ def semantic_inventory(
                 "public_name": (
                     public_name if public_name in public_type_set else None
                 ),
+                "name_origin": "policy-overridden",
             }
         )
 
@@ -502,10 +542,44 @@ def semantic_inventory(
                     "public_paths": [
                         ".".join(path) for path in item.public_paths
                     ],
+                    "resource_origin": item.resource_origin,
+                    "method_origin": item.method_origin,
                 }
                 for item in resolved
             ],
             "types": type_provenance,
+        },
+        "naming": {
+            "method_name_lengths": naming_length_stats(
+                path[-1] for path in actual if path
+            ),
+            "type_name_lengths": naming_length_stats(public_types),
+            "explicit_operation_overrides": [
+                {
+                    "source_identity": item.source.identity,
+                    "resource": (
+                        list(item.resource)
+                        if item.resource_origin == "policy-overridden"
+                        else None
+                    ),
+                    "method": (
+                        item.method_name
+                        if item.method_origin == "policy-overridden"
+                        else None
+                    ),
+                }
+                for item in resolved
+                if item.resource_origin == "policy-overridden"
+                or item.method_origin == "policy-overridden"
+            ],
+            "explicit_type_overrides": [
+                {
+                    "source_schema": pointer,
+                    "public_name": entry.get("name"),
+                }
+                for pointer, entry in sorted(policy.get("types", {}).items())
+                if entry.get("name") is not None
+            ],
         },
         "verification": {
             "missing_public_methods": missing,
