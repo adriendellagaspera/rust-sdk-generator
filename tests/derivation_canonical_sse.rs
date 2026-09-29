@@ -106,7 +106,9 @@ fn derives_canonical_sse_with_owned_public_wrappers_and_discriminator() {
     assert!(generated.files.values().any(|source| {
         source.contains("raw_notifications_31(")
             && source.contains("last_event_id")
-            && source.contains("json_events::<_, _, crate::generated::types::OpaqueNotification6>(bytes)")
+            && source.contains(
+                "json_events::<_, _, crate::generated::types::OpaqueNotification6>(bytes)",
+            )
             && source.contains("__RustSdkFromRaw::from_raw(event.data)")
     }));
 }
