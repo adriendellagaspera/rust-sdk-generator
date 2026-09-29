@@ -10,7 +10,7 @@ use crate::contracts::{
 };
 use crate::error::{GenerationError, Result};
 use crate::ir::*;
-use crate::openapi::{OpenApiIndex, ref_name};
+use crate::openapi::{OpenApiIndex, inline_request_operation, ref_name};
 use crate::reconcile::{parameter_bindings_match, unconstrained_json_alias_matches};
 use crate::rust_type::{Type, TypeKind, parse_type};
 use crate::structural::{
@@ -984,14 +984,29 @@ fn unwrap_nullable_schema(schema: &Value) -> &Value {
 }
 
 fn schema_at(openapi: &OpenApiIndex, root: &str, path: &[String]) -> Result<Value> {
-    let source = openapi.schema(root)?;
+    let inline = inline_request_operation(root);
+    let source = if let Some(operation_id) = inline {
+        openapi
+            .inline_structured_request_body(operation_id)?
+            .ok_or_else(|| {
+                error(
+                    "lower.schema_root",
+                    format!("inline request schema root no longer exists: {operation_id}"),
+                )
+            })?
+            .schema
+    } else {
+        openapi.schema(root)?.clone()
+    };
     // Projection can address fields contributed by allOf branches. Resolve
     // the same composed root during lowering instead of walking a raw schema
     // whose properties may be defined only in referenced sibling branches.
-    let mut schema = if source.get("allOf").is_some() || source.get("$ref").is_some() {
+    let mut schema = if inline.is_none()
+        && (source.get("allOf").is_some() || source.get("$ref").is_some())
+    {
         openapi.object_schema(root)?
     } else {
-        source.clone()
+        source
     };
     for segment in path {
         schema = unwrap_nullable_schema(&schema).clone();
@@ -2695,7 +2710,9 @@ pub(crate) fn lower(
             ModelRenderSpec::View(resolve_view(&raw, config, bindings)?)
         } else {
             let schema_name = config.schema.as_deref().unwrap_or(&raw);
-            let wire_schema = if let Some(path) = config.schema_path.as_deref() {
+            let wire_schema = if inline_request_operation(schema_name).is_some() {
+                schema_at(&index, schema_name, config.schema_path.as_deref().unwrap_or(&[]))?
+            } else if let Some(path) = config.schema_path.as_deref() {
                 index.object_schema_path(schema_name, path)?
             } else {
                 index.object_schema(schema_name)?
@@ -2934,28 +2951,54 @@ pub(crate) fn lower(
                         request_discriminators,
                     )
                 } else if let Some(schema_name) = model_definition.schema.as_deref() {
-                    let body = index
-                        .structured_request_body(operation_id)?
-                        .ok_or_else(|| {
-                            error(
+                    if let Some(source_operation) = inline_request_operation(schema_name) {
+                        if source_operation != operation_id {
+                            return Err(error(
+                                "lower.request_media_drift",
+                                format!(
+                                    "inline request schema provenance drift for {operation_id}: {source_operation}"
+                                ),
+                            ));
+                        }
+                        let body = index
+                            .inline_structured_request_body(operation_id)?
+                            .ok_or_else(|| {
+                                error(
+                                    "lower.request_media_drift",
+                                    format!("inline structured request media drift for {operation_id}"),
+                                )
+                            })?;
+                        if body.media != configured_media {
+                            return Err(error(
+                                "lower.request_media_drift",
+                                format!("inline structured request media drift for {operation_id}"),
+                            ));
+                        }
+                        object_value_matches(&index, &body.schema, &model.raw, bindings)
+                    } else {
+                        let body = index
+                            .structured_request_body(operation_id)?
+                            .ok_or_else(|| {
+                                error(
+                                    "lower.request_media_drift",
+                                    format!("structured request media drift for {operation_id}"),
+                                )
+                            })?;
+                        if body.media != configured_media {
+                            return Err(error(
                                 "lower.request_media_drift",
                                 format!("structured request media drift for {operation_id}"),
+                            ));
+                        }
+                        body.schema == schema_name
+                            && request_object_matches_with_discriminators(
+                                &index,
+                                schema_name,
+                                &model.raw,
+                                bindings,
+                                request_discriminators,
                             )
-                        })?;
-                    if body.media != configured_media {
-                        return Err(error(
-                            "lower.request_media_drift",
-                            format!("structured request media drift for {operation_id}"),
-                        ));
                     }
-                    body.schema == schema_name
-                        && request_object_matches_with_discriminators(
-                            &index,
-                            schema_name,
-                            &model.raw,
-                            bindings,
-                            request_discriminators,
-                        )
                 } else if let Some(body) = index.inline_structured_request_body(operation_id)? {
                     if body.media != configured_media {
                         return Err(error(
@@ -3022,6 +3065,12 @@ pub(crate) fn lower(
                             "inline request bodies do not support request overrides",
                         )
                     })?;
+                    if inline_request_operation(schema_name).is_some() {
+                        return Err(error(
+                            "lower.request_override",
+                            "inline request bodies do not support request overrides",
+                        ));
+                    }
                     for field in overrides.keys() {
                         if !request_optional_boolean_field(
                             &index,
