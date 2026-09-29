@@ -84,13 +84,13 @@ fn derives_inline_array_of_objects_as_collection_and_item_views() {
         vec!["RowsReportsResponseItem", "RowsReportsResponse"]
     );
     let types = &generated.files["facade_types.rs"];
-    assert!(types.contains("pub struct RowsReportsResponse { raw: OpaqueRows4 }"));
+    assert!(types.contains("pub struct RowsReportsResponse { raw: crate::generated::types::OpaqueRows4 }"));
     assert!(types.contains(
         "pub fn iter(&self) -> impl ExactSizeIterator<Item = RowsReportsResponseItem<'_>>"
     ));
     assert!(types.contains("self.raw.iter().map(RowsReportsResponseItem::new)"));
-    assert!(types.contains("pub struct RowsReportsResponseItem<'a> { raw: &'a OpaqueRow9 }"));
-    assert!(types.contains("impl __RustSdkFromRaw<OpaqueRows4> for RowsReportsResponse"));
+    assert!(types.contains("pub struct RowsReportsResponseItem<'a> { raw: &'a crate::generated::types::OpaqueRow9 }"));
+    assert!(types.contains("impl __RustSdkFromRaw<crate::generated::types::OpaqueRows4> for RowsReportsResponse"));
 }
 
 #[test]
