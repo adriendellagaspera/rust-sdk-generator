@@ -333,7 +333,9 @@ fn derives_typed_oneof_sse_envelope_without_raw_union_type() {
     assert!(source.contains("#[serde(untagged)]"));
     assert!(source.contains("enum __SubscribeNotificationsStreamItemRaw"));
     assert!(source.contains("NotificationChunk(crate::generated::types::OpaqueNotification6)"));
-    assert!(source.contains("NotificationErrorPayload(NotificationErrorPayload)"));
+    assert!(source.contains(
+        "NotificationErrorPayload(crate::generated::types::NotificationErrorPayload)"
+    ));
     assert!(source.contains("json_events::<_, _, __SubscribeNotificationsStreamItemRaw>(bytes)"));
     assert!(source.contains(
         "__SubscribeNotificationsStreamItemRaw::NotificationChunk(value) => SubscribeNotificationsStreamItem::NotificationChunk"
