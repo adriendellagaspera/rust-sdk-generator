@@ -31,6 +31,17 @@ pub(crate) fn ref_name(schema: &Value) -> Option<&str> {
     component_ref(schema.get("$ref"))
 }
 
+pub(crate) const INLINE_REQUEST_SCHEMA_PREFIX: &str = "@request:";
+
+pub(crate) fn inline_request_schema_root(operation_id: &str) -> String {
+    format!("{INLINE_REQUEST_SCHEMA_PREFIX}{operation_id}")
+}
+
+pub(crate) fn inline_request_operation(root: &str) -> Option<&str> {
+    root.strip_prefix(INLINE_REQUEST_SCHEMA_PREFIX)
+        .filter(|operation_id| !operation_id.is_empty())
+}
+
 fn literal_values(schema: &Map<String, Value>) -> Option<Vec<Value>> {
     if let Some(value) = schema.get("const") {
         return Some(vec![value.clone()]);
