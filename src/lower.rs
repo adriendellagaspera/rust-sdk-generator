@@ -2056,6 +2056,7 @@ fn parameter_object_model(
         simple_union: None,
         type_alias: None,
         map: None,
+        collection: None,
         scalar_enum: None,
         union_factory: None,
         borrowed: None,
