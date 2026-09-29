@@ -68,8 +68,12 @@ fn derives_inline_scalar_object_without_schema_name_identity() {
     );
 
     let types = &generated.files["facade_types.rs"];
-    assert!(types.contains("pub struct SnapshotReportsResponse { raw: crate::generated::types::OpaquePayload9 }"));
-    assert!(types.contains("impl __RustSdkFromRaw<crate::generated::types::OpaquePayload9> for SnapshotReportsResponse"));
+    assert!(types.contains(
+        "pub struct SnapshotReportsResponse { raw: crate::generated::types::OpaquePayload9 }"
+    ));
+    assert!(types.contains(
+        "impl __RustSdkFromRaw<crate::generated::types::OpaquePayload9> for SnapshotReportsResponse"
+    ));
 }
 
 #[test]
