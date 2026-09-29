@@ -81,8 +81,12 @@ fn qualify_transport_symbols(ir: &mut FacadeIr, bindings: &Bindings) -> Result<(
     for resource in &mut ir.resources {
         for operation in &mut resource.operations {
             if let ResponseProjection::Sse(stream) = &mut operation.response_projection {
-                for variant in &mut stream.variants {
-                    qualify_transport_type(&mut variant.raw, bindings)?;
+                if stream.variants.is_empty() {
+                    qualify_transport_type(&mut stream.item, bindings)?;
+                } else {
+                    for variant in &mut stream.variants {
+                        qualify_transport_type(&mut variant.raw, bindings)?;
+                    }
                 }
             }
         }
@@ -795,14 +799,6 @@ fn emit_operation(operation: &OperationSpec, runtime: &Runtime) -> Result<String
     Ok(format!("{primary}\n\n{auxiliary}"))
 }
 
-fn prelude_imports(binding: &BindingLayout) -> String {
-    binding
-        .type_preludes
-        .iter()
-        .map(|path| format!("use {path};\n"))
-        .collect()
-}
-
 fn client_name(binding: &BindingLayout) -> &str {
     binding
         .client
@@ -831,9 +827,6 @@ fn emit_resource(
     } else {
         String::new()
     };
-    if streaming {
-        imports.push_str(&prelude_imports(binding));
-    }
     let stream_helpers = resource
         .operations
         .iter()
@@ -973,10 +966,9 @@ fn emit_mod(ir: &FacadeIr, binding: &BindingLayout, runtime: &Runtime) -> String
 
 fn emit_facade_types(ir: &FacadeIr, binding: &BindingLayout, runtime: &Runtime) -> String {
     let mut source = format!(
-        "{}use std::pin::Pin;\nuse futures_util::Stream;\nuse super::{};\n{}\n#[allow(dead_code, reason = \"generated private transport adapter\")]\npub(crate) trait __RustSdkFromRaw<T>: Sized {{ fn from_raw(raw: T) -> Self; }}\n#[allow(dead_code, reason = \"generated private transport adapter\")]\npub(crate) trait __RustSdkIntoRaw<T> {{ fn into_raw(self) -> T; }}\nimpl<T> __RustSdkFromRaw<T> for T {{ fn from_raw(raw: T) -> Self {{ raw }} }}\nimpl<T> __RustSdkIntoRaw<T> for T {{ fn into_raw(self) -> T {{ self }} }}\n",
+        "{}use std::pin::Pin;\nuse futures_util::Stream;\nuse super::{};\n\n#[allow(dead_code, reason = \"generated private transport adapter\")]\npub(crate) trait __RustSdkFromRaw<T>: Sized {{ fn from_raw(raw: T) -> Self; }}\n#[allow(dead_code, reason = \"generated private transport adapter\")]\npub(crate) trait __RustSdkIntoRaw<T> {{ fn into_raw(self) -> T; }}\nimpl<T> __RustSdkFromRaw<T> for T {{ fn from_raw(raw: T) -> Self {{ raw }} }}\nimpl<T> __RustSdkIntoRaw<T> for T {{ fn into_raw(self) -> T {{ self }} }}\n",
         runtime.generated_marker,
-        runtime.error_type,
-        prelude_imports(binding)
+        runtime.error_type
     );
     source.push_str(
         &ir.models
