@@ -2169,7 +2169,7 @@ fn operation_call(
                 {
                     declarations.push(format!("request: Option<Option<{model}>>"));
                     values.push(format!(
-                        "request.map(|request| request.map(|request| <{model} as __RustSdkIntoRaw<{raw_type}>>::into_raw(request)))"
+                        "request.map(|request| request.map(<{model} as __RustSdkIntoRaw<{raw_type}>>::into_raw))"
                     ));
                 } else {
                     let (declaration, value) =
