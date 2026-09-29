@@ -3033,9 +3033,7 @@ pub(crate) fn lower(
                             if body.media != configured_media {
                                 return Err(error(
                                     "lower.request_media_drift",
-                                    format!(
-                                        "required JSON request media drift for {operation_id}"
-                                    ),
+                                    format!("required JSON request media drift for {operation_id}"),
                                 ));
                             }
                             rust_type_matches_schema(&body.schema, &model.raw, bindings)
