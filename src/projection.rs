@@ -34,6 +34,7 @@ const RESPONSE_UNION_REQUIRED: &str = "capability.response_union_derivation_requ
 const BINARY_RESPONSE_REQUIRED: &str = "capability.binary_response_derivation_required";
 
 type ProjectedModels = Vec<(String, ModelDefinition)>;
+type ActiveRequestModels = BTreeMap<(String, String), String>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum ModelRepresentation {
@@ -283,7 +284,7 @@ fn request_union_models(
     source_path: &[String],
     raw_union: &str,
     public_name: String,
-    seen: &mut BTreeSet<(String, String)>,
+    seen: &mut ActiveRequestModels,
 ) -> Result<ProjectedModels, &'static str> {
     let Some(mapping) = request_union_mapping(context.openapi, schema, raw_union, context.bindings)
     else {
@@ -313,20 +314,33 @@ fn request_union_models(
         if !public_variants.insert(public_variant.clone()) {
             return Err("capability.public_model_name_collision");
         }
-        let adapter = context.naming.named(
-            &branch.schema,
-            ModelRepresentation::Owned,
-            format!("{public_name}{public_variant}"),
-        )?;
-        models.extend(request_object_models(
-            context.openapi,
+        let raw_payload = expand_request_type(
+            parse_type(&branch.raw_payload).map_err(|_| REQUEST_MODEL_UNPROVEN)?,
             context.bindings,
-            context.naming,
-            &branch.schema,
-            &branch.raw_payload,
-            adapter.clone(),
-            seen,
-        )?);
+            &mut BTreeSet::new(),
+        )?
+        .spelling;
+        let pair = (branch.schema.clone(), raw_payload.clone());
+        let adapter = if let Some(active_name) = seen.get(&pair) {
+            active_name.clone()
+        } else {
+            context.naming.named(
+                &branch.schema,
+                ModelRepresentation::Owned,
+                format!("{public_name}{public_variant}"),
+            )?
+        };
+        if !seen.contains_key(&pair) {
+            models.extend(request_object_models(
+                context.openapi,
+                context.bindings,
+                context.naming,
+                &branch.schema,
+                &raw_payload,
+                adapter.clone(),
+                seen,
+            )?);
+        }
         variants.insert(
             branch.raw_variant,
             SimpleUnionVariant::Adapted {
@@ -399,6 +413,9 @@ fn expand_request_type(
         let result = expand_request_type(expanded, bindings, seen);
         seen.remove(&syntax.spelling);
         return result;
+    }
+    if let Some(inner) = syntax.unary("Box") {
+        return expand_request_type(inner.clone(), bindings, seen);
     }
     Ok(syntax)
 }
@@ -485,7 +502,7 @@ fn request_value_adapter_models(
     source_path: &[String],
     raw: &str,
     public_name: String,
-    seen: &mut BTreeSet<(String, String)>,
+    seen: &mut ActiveRequestModels,
 ) -> Result<(ProjectedModels, Option<String>), &'static str> {
     let syntax = expand_request_type(
         parse_type(raw).map_err(|_| REQUEST_MODEL_UNPROVEN)?,
@@ -508,6 +525,10 @@ fn request_value_adapter_models(
     }
 
     if let Some(reference) = ref_name(schema) {
+        let pair = (reference.to_owned(), syntax.spelling.clone());
+        if let Some(active_name) = seen.get(&pair) {
+            return Ok((Vec::new(), Some(active_name.clone())));
+        }
         let public_name =
             context
                 .naming
@@ -768,7 +789,7 @@ fn request_value_union_models(
     source_path: &[String],
     raw_union: &str,
     public_name: String,
-    seen: &mut BTreeSet<(String, String)>,
+    seen: &mut ActiveRequestModels,
 ) -> Result<ProjectedModels, &'static str> {
     let mapping = request_value_union_mapping(context.openapi, schema, raw_union, context.bindings)
         .ok_or(REQUEST_MODEL_UNPROVEN)?;
@@ -853,7 +874,7 @@ fn request_object_models_value(
     source_path: &[String],
     raw: &str,
     public_name: String,
-    seen: &mut BTreeSet<(String, String)>,
+    seen: &mut ActiveRequestModels,
 ) -> Result<ProjectedModels, &'static str> {
     let properties = schema
         .get("properties")
@@ -1232,16 +1253,27 @@ fn request_object_models(
     schema_name: &str,
     raw: &str,
     public_name: String,
-    seen: &mut BTreeSet<(String, String)>,
+    seen: &mut ActiveRequestModels,
 ) -> Result<ProjectedModels, &'static str> {
-    if !request_object_matches(openapi, schema_name, raw, bindings) {
+    let raw = expand_request_type(
+        parse_type(raw).map_err(|_| REQUEST_MODEL_UNPROVEN)?,
+        bindings,
+        &mut BTreeSet::new(),
+    )?
+    .spelling;
+    if !request_object_matches(openapi, schema_name, &raw, bindings) {
         return Err(REQUEST_MODEL_UNPROVEN);
     }
 
-    let pair = (schema_name.to_owned(), raw.to_owned());
-    if !seen.insert(pair.clone()) {
-        return Err(REQUEST_MODEL_UNPROVEN);
+    let pair = (schema_name.to_owned(), raw.clone());
+    if let Some(active_name) = seen.get(&pair) {
+        return if active_name == &public_name {
+            Ok(Vec::new())
+        } else {
+            Err(REQUEST_MODEL_UNPROVEN)
+        };
     }
+    seen.insert(pair.clone(), public_name.clone());
 
     let result = openapi
         .object_schema(schema_name)
@@ -1256,7 +1288,7 @@ fn request_object_models(
                 &schema,
                 schema_name,
                 &[],
-                raw,
+                &raw,
                 public_name,
                 seen,
             )
@@ -1311,7 +1343,7 @@ fn inline_request_model(
         &[],
         &matching[0].type_name,
         name.clone(),
-        &mut BTreeSet::new(),
+        &mut ActiveRequestModels::new(),
     )?;
     Ok(Some((name, models, body.media)))
 }
@@ -1369,7 +1401,7 @@ fn optional_nullable_json_ref_request_model(
         &body.schema,
         raw,
         name.clone(),
-        &mut BTreeSet::new(),
+        &mut ActiveRequestModels::new(),
     )?;
     Ok(Some((name, models, body.media)))
 }
@@ -1428,7 +1460,7 @@ fn required_json_schema_request_model(
             &["items".into()],
             &inner.spelling,
             format!("{name}Item"),
-            &mut BTreeSet::new(),
+            &mut ActiveRequestModels::new(),
         )?;
         let mut adapters = IndexMap::new();
         if let Some(adapter) = adapter {
@@ -1468,7 +1500,7 @@ fn required_json_schema_request_model(
             &[],
             raw,
             name.clone(),
-            &mut BTreeSet::new(),
+            &mut ActiveRequestModels::new(),
         )?;
         return Ok(Some((name, models, body.media)));
     }
@@ -1576,7 +1608,7 @@ fn request_model(
             &[],
             raw,
             name.clone(),
-            &mut BTreeSet::new(),
+            &mut ActiveRequestModels::new(),
         )?;
         return Ok(Some((name, models, body.media)));
     }
@@ -1587,7 +1619,7 @@ fn request_model(
         &schema_name,
         raw,
         name.clone(),
-        &mut BTreeSet::new(),
+        &mut ActiveRequestModels::new(),
     ) {
         Ok(models) => models,
         Err(REQUEST_MODEL_UNPROVEN)
