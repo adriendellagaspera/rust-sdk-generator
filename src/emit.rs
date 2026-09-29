@@ -59,7 +59,7 @@ fn qualify_transport_symbols(ir: &mut FacadeIr, bindings: &Bindings) -> Result<(
             }
             ModelRenderSpec::Union(spec) => {
                 for branch in &mut spec.branches {
-                    qualify_value(&mut branch.raw_value, bindings, &shadowed)?;
+                    qualify_value(&mut branch.raw_value, bindings)?;
                 }
                 for target in &mut spec.targets {
                     qualify_transport_type(&mut target.raw, bindings)?;
