@@ -1,0 +1,58 @@
+schema_version: 1
+defaults:
+  method: operation_id
+operations:
+  operationId:search_agents:
+    resource: [agents]
+  operationId:get_agent:
+    resource: [agents]
+  operationId:get_agent_schemas:
+    resource: [agents]
+  operationId:create_thread:
+    resource: [threads]
+  operationId:search_threads:
+    resource: [threads]
+  operationId:get_thread_history:
+    resource: [threads]
+  operationId:copy_thread:
+    resource: [threads]
+  operationId:get_thread:
+    resource: [threads]
+  operationId:delete_thread:
+    resource: [threads]
+  operationId:patch_thread:
+    resource: [threads]
+  operationId:search_runs:
+    resource: [background_runs]
+  operationId:get_run:
+    resource: [background_runs]
+  operationId:delete_run:
+    resource: [background_runs]
+  operationId:wait_run:
+    resource: [background_runs]
+  operationId:stream_run:
+    resource: [background_runs]
+  operationId:cancel_run:
+    resource: [background_runs]
+  operationId:create_run:
+    resource: [background_runs]
+  operationId:create_and_stream_run:
+    resource: [runs]
+  operationId:create_and_wait_run:
+    resource: [runs]
+  operationId:open_thread_sse_stream:
+    resource: [streaming]
+  operationId:open_thread_websocket_stream:
+    resource: [streaming]
+  operationId:send_thread_streaming_command:
+    resource: [streaming]
+  operationId:put_item:
+    resource: [store]
+  operationId:delete_item:
+    resource: [store]
+  operationId:get_item:
+    resource: [store]
+  operationId:search_items:
+    resource: [store]
+  operationId:list_namespaces:
+    resource: [store]
