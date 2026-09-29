@@ -1,0 +1,14 @@
+api:
+  specs:
+    - openapi: ./openapi.json
+
+default-group: rust-sdk
+
+groups:
+  rust-sdk:
+    generators:
+      - name: fernapi/fern-rust-sdk
+        version: 0.48.0
+        output:
+          location: local-file-system
+          path: ../generated
