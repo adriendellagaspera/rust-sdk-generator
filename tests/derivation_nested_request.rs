@@ -120,17 +120,23 @@ fn derives_nested_named_request_models_without_raw_name_identity() {
     }
 
     let types = &generated.files["facade_types.rs"];
-    assert!(types.contains("pub struct CreatePlatformWidgetsRequest { raw: crate::generated::types::OpaqueRequest9 }"));
+    assert!(types.contains(
+        "pub struct CreatePlatformWidgetsRequest { raw: crate::generated::types::OpaqueRequest9 }"
+    ));
     assert!(types.contains("config: impl Into<CreatePlatformWidgetsRequestConfig>"));
     assert!(types.contains(
         "pub fn metadata(mut self, metadata: impl Into<CreatePlatformWidgetsRequestMetadata>)"
     ));
-    assert!(types.contains("pub struct CreatePlatformWidgetsRequestConfig { raw: crate::generated::types::OpaqueConfig4 }"));
+    assert!(types.contains(
+        "pub struct CreatePlatformWidgetsRequestConfig { raw: crate::generated::types::OpaqueConfig4 }"
+    ));
     assert!(types.contains("mode: impl Into<CreatePlatformWidgetsRequestConfigMode>"));
     assert!(types.contains(
         "pub fn labels(mut self, labels: impl Into<CreatePlatformWidgetsRequestConfigLabels>)"
     ));
-    assert!(types.contains("pub struct CreatePlatformWidgetsRequestMetadata { raw: crate::generated::types::OpaqueMeta7 }"));
+    assert!(types.contains(
+        "pub struct CreatePlatformWidgetsRequestMetadata { raw: crate::generated::types::OpaqueMeta7 }"
+    ));
 }
 
 #[test]
