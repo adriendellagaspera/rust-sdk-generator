@@ -1790,7 +1790,7 @@ fn parameter_schema<'a>(
         .flatten()
 }
 
-struct ParameterScalarEnumContext<'a> {
+struct ParameterAdapterContext<'a> {
     openapi: &'a OpenApiIndex,
     resource: &'a ResourceSpec,
     operation_name: &'a str,
@@ -1799,8 +1799,29 @@ struct ParameterScalarEnumContext<'a> {
     bindings: &'a Bindings,
 }
 
+fn parameter_public_model_name(
+    context: &ParameterAdapterContext<'_>,
+    parameter: &RawParameter,
+) -> String {
+    let suffix: String = raw_parameter_name(&parameter.name)
+        .split('_')
+        .map(|part| {
+            let mut chars = part.chars();
+            chars
+                .next()
+                .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
+                .unwrap_or_default()
+        })
+        .collect();
+    format!(
+        "{}{}",
+        request_name(context.resource, context.operation_name),
+        suffix
+    )
+}
+
 fn parameter_scalar_enum_model(
-    context: &ParameterScalarEnumContext<'_>,
+    context: &ParameterAdapterContext<'_>,
     parameter: &RawParameter,
 ) -> Result<Option<ModelSpec>> {
     let syntax = parse_type(&parameter.type_name)?;
@@ -1875,22 +1896,8 @@ fn parameter_scalar_enum_model(
         return Ok(None);
     }
 
-    let suffix: String = raw_parameter_name(&parameter.name)
-        .split('_')
-        .map(|part| {
-            let mut chars = part.chars();
-            chars
-                .next()
-                .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
-                .unwrap_or_default()
-        })
-        .collect();
     Ok(Some(ModelSpec {
-        name: format!(
-            "{}{}",
-            request_name(context.resource, context.operation_name),
-            suffix
-        ),
+        name: parameter_public_model_name(context, parameter),
         raw: core.spelling,
         render: ModelRenderSpec::ScalarEnum(ScalarEnumModelSpec {
             variants: values
@@ -1901,14 +1908,119 @@ fn parameter_scalar_enum_model(
     }))
 }
 
-fn parameter_scalar_enum_models(
-    context: &ParameterScalarEnumContext<'_>,
+fn parameter_object_model(
+    context: &ParameterAdapterContext<'_>,
+    parameter: &RawParameter,
+) -> Result<Option<ModelSpec>> {
+    let syntax = parse_type(&parameter.type_name)?;
+    let core = syntax
+        .unary("Option")
+        .cloned()
+        .unwrap_or_else(|| syntax.clone());
+    if core.kind != TypeKind::Opaque || !context.bindings.structs.contains_key(&core.spelling) {
+        return Ok(None);
+    }
+
+    let Some(source_schema) =
+        parameter_schema(context.wire_operation, context.raw_operation, parameter)
+    else {
+        return Ok(None);
+    };
+
+    let (schema, matched) = if let Some(reference) = ref_name(source_schema) {
+        let annotation_only_ref = source_schema.as_object().is_some_and(|object| {
+            object.keys().all(|key| {
+                matches!(
+                    key.as_str(),
+                    "$ref"
+                        | "title"
+                        | "description"
+                        | "default"
+                        | "example"
+                        | "examples"
+                        | "deprecated"
+                        | "$comment"
+                )
+            })
+        });
+        if !annotation_only_ref {
+            return Ok(None);
+        }
+        let schema = context.openapi.object_schema(reference)?;
+        let matched =
+            request_object_matches(context.openapi, reference, &core.spelling, context.bindings);
+        (schema, matched)
+    } else {
+        if source_schema.get("type").and_then(Value::as_str) != Some("object")
+            || source_schema.get("properties").is_none()
+        {
+            return Ok(None);
+        }
+        (
+            source_schema.clone(),
+            object_value_matches(
+                context.openapi,
+                source_schema,
+                &core.spelling,
+                context.bindings,
+            ),
+        )
+    };
+    if !matched {
+        return Ok(None);
+    }
+
+    let required = schema
+        .get("required")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    let name = parameter_public_model_name(context, parameter);
+    let definition = ModelDefinition {
+        schema: None,
+        schema_path: None,
+        raw: Some(core.spelling.clone()),
+        constructor: Some(required),
+        exclude: None,
+        adapters: None,
+        union: None,
+        simple_union: None,
+        type_alias: None,
+        map: None,
+        scalar_enum: None,
+        union_factory: None,
+        borrowed: None,
+        accessors: None,
+    };
+    let render = resolve_wrapper(
+        &name,
+        &core.spelling,
+        &definition,
+        context.openapi,
+        context.bindings,
+    )?;
+    Ok(Some(ModelSpec {
+        name,
+        raw: core.spelling,
+        render: ModelRenderSpec::Wrapper(render),
+    }))
+}
+
+fn parameter_adapter_models(
+    context: &ParameterAdapterContext<'_>,
     parameters: &[RawParameter],
     models: &mut Vec<ModelSpec>,
 ) -> Result<BTreeMap<String, String>> {
     let mut adapters = BTreeMap::new();
     for parameter in parameters {
-        let Some(model) = parameter_scalar_enum_model(context, parameter)? else {
+        let model = if let Some(model) = parameter_scalar_enum_model(context, parameter)? {
+            model
+        } else if let Some(model) = parameter_object_model(context, parameter)? {
+            model
+        } else {
             continue;
         };
         if models.iter().any(|candidate| candidate.name == model.name)
@@ -3352,7 +3464,7 @@ pub(crate) fn lower(
                     type_name: parameter.type_name.clone(),
                 })
                 .collect::<Vec<_>>();
-            let parameter_context = ParameterScalarEnumContext {
+            let parameter_context = ParameterAdapterContext {
                 openapi: &index,
                 resource: &resource,
                 operation_name: public_name,
@@ -3361,7 +3473,7 @@ pub(crate) fn lower(
                 bindings,
             };
             let parameter_adapters =
-                parameter_scalar_enum_models(&parameter_context, &raw_parameters, &mut models)?;
+                parameter_adapter_models(&parameter_context, &raw_parameters, &mut models)?;
 
             let mut operation = OperationSpec {
                 name: public_name.clone(),
