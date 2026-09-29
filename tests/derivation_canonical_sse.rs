@@ -669,7 +669,10 @@ fn canonical_discriminator_proves_matching_boolean_request_constant() {
     );
     let request = &derivation.definition.models["WatchJobsRequest"];
     assert_eq!(request.raw.as_deref(), Some("OpaqueWatch8"));
-    assert!(request.constructor.is_none());
+    assert_eq!(
+        request.constructor.as_deref(),
+        Some(&["prompt".to_owned()][..])
+    );
     assert_eq!(request.exclude.as_deref(), Some(&["stream".to_owned()][..]));
 
     generate(GenerateInput {
