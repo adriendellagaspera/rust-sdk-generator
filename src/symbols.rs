@@ -26,6 +26,48 @@ fn is_identifier(name: &str) -> bool {
         && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
 }
 
+pub(crate) fn public_field_identifier(name: &str) -> Result<String> {
+    let name = name.strip_prefix("r#").unwrap_or(name);
+    let chars: Vec<_> = name.chars().collect();
+    let mut normalized = String::new();
+
+    for (index, ch) in chars.iter().copied().enumerate() {
+        if ch.is_ascii_alphanumeric() {
+            if ch.is_ascii_uppercase() {
+                let previous = index.checked_sub(1).and_then(|i| chars.get(i)).copied();
+                let next = chars.get(index + 1).copied();
+                let word_boundary = previous.is_some_and(|previous| {
+                    previous.is_ascii_lowercase()
+                        || previous.is_ascii_digit()
+                        || (previous.is_ascii_uppercase()
+                            && next.is_some_and(|next| next.is_ascii_lowercase()))
+                });
+                if word_boundary && !normalized.is_empty() && !normalized.ends_with('_') {
+                    normalized.push('_');
+                }
+                normalized.push(ch.to_ascii_lowercase());
+            } else {
+                normalized.push(ch);
+            }
+        } else if !normalized.is_empty() && !normalized.ends_with('_') {
+            normalized.push('_');
+        }
+    }
+
+    while normalized.ends_with('_') {
+        normalized.pop();
+    }
+    if !is_identifier(&normalized) {
+        return Err(GenerationError::new(
+            "symbol.invalid_public_field",
+            format!(
+                "Rust cannot represent public field/accessor identifier {name:?}; explicit mapping required"
+            ),
+        ));
+    }
+    field_identifier(&normalized)
+}
+
 pub(crate) fn field_identifier(name: &str) -> Result<String> {
     let name = name.strip_prefix("r#").unwrap_or(name);
     if matches!(name, "self" | "Self" | "super" | "crate" | "_") {
@@ -94,6 +136,26 @@ impl SymbolProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn normalizes_public_field_names_to_snake_case() {
+        assert_eq!(
+            public_field_identifier("latestVersion").expect("camelCase"),
+            "latest_version"
+        );
+        assert_eq!(
+            public_field_identifier("previous_groupName").expect("mixed separators"),
+            "previous_group_name"
+        );
+        assert_eq!(
+            public_field_identifier("URLValue").expect("acronym"),
+            "url_value"
+        );
+        assert_eq!(
+            public_field_identifier("type").expect("keyword"),
+            "r#type"
+        );
+    }
 
     #[test]
     fn escapes_protocol_owned_keywords() {
