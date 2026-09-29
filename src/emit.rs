@@ -135,17 +135,6 @@ fn map_into_raw(value: &str, depth: usize) -> String {
     }
 }
 
-fn map_from_raw(value: &str, depth: usize) -> String {
-    if depth == 0 {
-        format!("__RustSdkFromRaw::from_raw({value})")
-    } else {
-        format!(
-            "{value}.into_iter().map(|value| {}).collect()",
-            map_from_raw("value", depth - 1)
-        )
-    }
-}
-
 fn adapt_into_raw_plan(value: &str, plan: &AdaptPlan) -> String {
     match plan {
         AdaptPlan::Direct => format!("__RustSdkIntoRaw::into_raw({value})"),
@@ -621,10 +610,10 @@ fn emit_collection(model: &ModelSpec, spec: &CollectionModelSpec) -> String {
         .item_adapt
         .as_ref()
         .map_or_else(|| "value".into(), |plan| adapt_from_raw_plan("value", plan));
-    let into_raw_values = spec
-        .item_adapt
-        .as_ref()
-        .map_or_else(|| "self.values".into(), |plan| adapt_into_raw_plan("self.values", plan));
+    let into_raw_values = spec.item_adapt.as_ref().map_or_else(
+        || "self.values".into(),
+        |plan| adapt_into_raw_plan("self.values", plan),
+    );
     format!(
         "#[derive(Debug, Clone, Default)]\npub struct {} {{ values: {} }}\n\nimpl {} {{\n    pub fn new(values: {}) -> Self {{ Self {{ values }} }}\n    pub fn as_slice(&self) -> &[_] {{ &self.values }}\n    pub fn into_vec(self) -> {} {{ self.values }}\n}}\n\nimpl From<{}> for {} {{\n    fn from(values: {}) -> Self {{ Self {{ values }} }}\n}}\n\nimpl __RustSdkFromRaw<{}> for {} {{\n    fn from_raw(value: {}) -> Self {{ Self {{ values: {from_raw_values} }} }}\n}}\n\nimpl __RustSdkIntoRaw<{}> for {} {{\n    fn into_raw(self) -> {} {{ {into_raw_values} }}\n}}",
         model.name,
