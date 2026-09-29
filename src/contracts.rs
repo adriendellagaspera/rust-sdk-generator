@@ -252,6 +252,8 @@ pub struct ModelDefinition {
     #[serde(default)]
     pub map: Option<MapDefinition>,
     #[serde(default)]
+    pub collection: Option<CollectionDefinition>,
+    #[serde(default)]
     pub scalar_enum: Option<ScalarEnumDefinition>,
     #[serde(default)]
     pub union_factory: Option<UnionFactoryDefinition>,
@@ -289,6 +291,13 @@ pub enum SimpleUnionVariant {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MapDefinition {
+    pub root: String,
+    pub path: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CollectionDefinition {
     pub root: String,
     pub path: Vec<String>,
 }
