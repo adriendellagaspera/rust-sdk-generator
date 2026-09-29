@@ -11,7 +11,7 @@ use crate::contracts::{
     SdkDefinition, SimpleUnionDefinition, SimpleUnionVariant, StreamDefinition,
     StreamVariantDefinition,
 };
-use crate::openapi::{OpenApiIndex, ref_name};
+use crate::openapi::{OpenApiIndex, inline_request_schema_root, ref_name};
 use crate::reconcile::unconstrained_json_alias_matches;
 use crate::rust_type::{Type, parse_type};
 use crate::structural::{
@@ -1177,6 +1177,7 @@ fn request_object_models(
 fn inline_request_model(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
+    naming: &ModelNaming<'_>,
     operation_id: &str,
     binding: &str,
     resource_path: &[String],
@@ -1206,23 +1207,21 @@ fn inline_request_model(
     if !public_model_name_available(&name, bindings) {
         return Err("capability.public_model_name_collision");
     }
-    let model = ModelDefinition {
-        schema: None,
-        schema_path: None,
-        raw: Some(matching[0].type_name.clone()),
-        constructor: None,
-        exclude: None,
-        adapters: None,
-        union: None,
-        simple_union: None,
-        type_alias: None,
-        map: None,
-        scalar_enum: None,
-        union_factory: None,
-        borrowed: Some(false),
-        accessors: Some(IndexMap::new()),
-    };
-    Ok(Some((name.clone(), vec![(name, model)], body.media)))
+    let source_root = inline_request_schema_root(operation_id);
+    let models = request_object_models_value(
+        &RequestModelContext {
+            openapi,
+            bindings,
+            naming,
+        },
+        &body.schema,
+        &source_root,
+        &[],
+        &matching[0].type_name,
+        name.clone(),
+        &mut BTreeSet::new(),
+    )?;
+    Ok(Some((name, models, body.media)))
 }
 
 fn optional_nullable_json_ref_request_model(
@@ -1344,6 +1343,7 @@ fn request_model(
     if let Some(projected) = inline_request_model(
         openapi,
         bindings,
+        naming,
         operation_id,
         binding,
         resource_path,
