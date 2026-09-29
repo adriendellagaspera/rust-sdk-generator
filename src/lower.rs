@@ -1254,6 +1254,7 @@ fn public_request_model_constructible(model: &ModelSpec) -> bool {
         | ModelRenderSpec::SimpleUnion(_)
         | ModelRenderSpec::Alias(_)
         | ModelRenderSpec::Map(_)
+        | ModelRenderSpec::Collection(_)
         | ModelRenderSpec::ScalarEnum(_) => true,
     }
 }
