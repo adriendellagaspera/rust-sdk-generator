@@ -298,18 +298,25 @@ fn resolve_wrapper(
     let fields = field_map(bindings, raw)?;
     let constructor_fields = model.constructor.clone().unwrap_or_default();
     let adapters = model.adapters.clone().unwrap_or_default();
-    let flattened_additional_properties = model
-        .schema
-        .as_deref()
-        .and_then(|root| {
-            schema_at(
-                openapi,
-                root,
-                model.schema_path.as_deref().unwrap_or_default(),
-            )
-            .ok()
-        })
-        .is_some_and(|schema| flattened_json_response_object_matches(&schema, raw, bindings));
+    let wire_schema = model.schema.as_deref().and_then(|root| {
+        schema_at(
+            openapi,
+            root,
+            model.schema_path.as_deref().unwrap_or_default(),
+        )
+        .ok()
+    });
+    let required_fields: BTreeSet<_> = wire_schema
+        .as_ref()
+        .and_then(|schema| schema.get("required"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
+    let flattened_additional_properties = wire_schema
+        .as_ref()
+        .is_some_and(|schema| flattened_json_response_object_matches(schema, raw, bindings));
     let mut constructor = None;
     if model.constructor.is_some() || model.union_factory.is_none() {
         let mut arguments = Vec::new();
@@ -321,10 +328,13 @@ fn resolve_wrapper(
                     format!("constructor field {raw}.{field_name} not found"),
                 )
             })?;
+            let required_nullable = required_fields.contains(field_name.as_str())
+                && option(&field.type_name)?.is_some_and(|(_, depth)| depth == 1);
             let (argument, value) = constructor_argument(
                 field_name,
                 field,
                 adapters.get(field_name).map(String::as_str),
+                required_nullable,
                 bindings,
             )?;
             arguments.push(argument);
@@ -446,7 +456,8 @@ fn resolve_wrapper(
         .collect();
     let mut setters = Vec::new();
     for field in struct_fields(bindings, raw)? {
-        let name = field.name.strip_prefix("r#").unwrap_or(&field.name);
+        let raw_name = field.name.strip_prefix("r#").unwrap_or(&field.name);
+        let name = field.wire_name.as_deref().unwrap_or(raw_name);
         if excluded.contains(name) {
             continue;
         }
@@ -476,7 +487,7 @@ fn resolve_wrapper(
                 type_name: inner.clone(),
                 serialized_presence: field.serialized_presence.clone(),
             };
-            constructor_argument(name, &synthetic, Some(adapter), bindings)?
+            constructor_argument(name, &synthetic, Some(adapter), false, bindings)?
         } else {
             let public_type = public_alias_type(parse_type(&inner)?, bindings, &mut Vec::new())?;
             argument(name, &public_type)?
@@ -2730,11 +2741,8 @@ pub(crate) fn lower(
             let mut raw_fields: BTreeSet<_> = struct_fields(bindings, &raw)?
                 .iter()
                 .map(|field| {
-                    field
-                        .name
-                        .strip_prefix("r#")
-                        .unwrap_or(&field.name)
-                        .to_owned()
+                    let raw_name = field.name.strip_prefix("r#").unwrap_or(&field.name);
+                    field.wire_name.as_deref().unwrap_or(raw_name).to_owned()
                 })
                 .collect();
             if flattened_json_response_object_matches(&wire_schema, &raw, bindings) {
