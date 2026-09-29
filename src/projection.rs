@@ -1645,7 +1645,7 @@ fn request_model(
                 &[],
                 raw,
                 name.clone(),
-                &mut BTreeSet::new(),
+                &mut ActiveRequestModels::new(),
             )?
         }
         Err(reason) => return Err(reason),
