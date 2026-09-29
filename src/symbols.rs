@@ -151,10 +151,7 @@ mod tests {
             public_field_identifier("URLValue").expect("acronym"),
             "url_value"
         );
-        assert_eq!(
-            public_field_identifier("type").expect("keyword"),
-            "r#type"
-        );
+        assert_eq!(public_field_identifier("type").expect("keyword"), "r#type");
     }
 
     #[test]
