@@ -1299,6 +1299,7 @@ fn optional_nullable_json_ref_request_model(
 fn required_json_schema_request_model(
     openapi: &OpenApiIndex,
     bindings: &Bindings,
+    naming: &ModelNaming<'_>,
     operation_id: &str,
     binding: &str,
     resource_path: &[String],
@@ -1326,24 +1327,75 @@ fn required_json_schema_request_model(
     if !public_model_name_available(&name, bindings) {
         return Err("capability.public_model_name_collision");
     }
-    let model = ModelDefinition {
-        schema: None,
-        schema_path: None,
-        raw: Some(matching[0].type_name.clone()),
-        constructor: None,
-        exclude: None,
-        adapters: None,
-        union: None,
-        simple_union: None,
-        type_alias: None,
-        map: None,
-        collection: None,
-        scalar_enum: None,
-        union_factory: None,
-        borrowed: Some(false),
-        accessors: Some(IndexMap::new()),
+    let raw = &matching[0].type_name;
+    let source_root = inline_request_schema_root(operation_id);
+    let context = RequestModelContext {
+        openapi,
+        bindings,
+        naming,
     };
-    Ok(Some((name.clone(), vec![(name, model)], body.media)))
+
+    if body.schema.get("type").and_then(Value::as_str) == Some("array") {
+        let syntax = expand_request_type(
+            parse_type(raw).map_err(|_| REQUEST_MODEL_UNPROVEN)?,
+            bindings,
+            &mut BTreeSet::new(),
+        )?;
+        let inner = syntax.unary("Vec").ok_or(REQUEST_MODEL_UNPROVEN)?;
+        let items = body.schema.get("items").ok_or(REQUEST_MODEL_UNPROVEN)?;
+        let (mut models, adapter) = request_value_adapter_models(
+            &context,
+            items,
+            &source_root,
+            &["items".into()],
+            &inner.spelling,
+            format!("{name}Item"),
+            &mut BTreeSet::new(),
+        )?;
+        let mut adapters = IndexMap::new();
+        if let Some(adapter) = adapter {
+            adapters.insert("items".into(), adapter);
+        }
+        models.push((
+            name.clone(),
+            ModelDefinition {
+                schema: Some(source_root.clone()),
+                schema_path: None,
+                raw: Some(raw.clone()),
+                constructor: None,
+                exclude: None,
+                adapters: (!adapters.is_empty()).then_some(adapters),
+                union: None,
+                simple_union: None,
+                type_alias: None,
+                map: None,
+                collection: Some(CollectionDefinition {
+                    root: source_root,
+                    path: Vec::new(),
+                }),
+                scalar_enum: None,
+                union_factory: None,
+                borrowed: None,
+                accessors: None,
+            },
+        ));
+        return Ok(Some((name, models, body.media)));
+    }
+
+    if request_union_schema(&body.schema) {
+        let models = request_union_models(
+            &context,
+            &body.schema,
+            &source_root,
+            &[],
+            raw,
+            name.clone(),
+            &mut BTreeSet::new(),
+        )?;
+        return Ok(Some((name, models, body.media)));
+    }
+
+    Err(REQUEST_MODEL_UNPROVEN)
 }
 
 fn request_model(
@@ -1380,6 +1432,7 @@ fn request_model(
     if let Some(projected) = required_json_schema_request_model(
         openapi,
         bindings,
+        naming,
         operation_id,
         binding,
         resource_path,
