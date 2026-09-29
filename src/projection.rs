@@ -26,7 +26,7 @@ use crate::structural::{
     rust_type_matches_schema, scalar_named_object_matches, scalar_object_shape,
     single_one_of_alternative, sse_payload_schema_names,
 };
-use crate::symbols::field_identifier;
+use crate::symbols::{field_identifier, public_field_identifier};
 
 const REQUEST_MODEL_UNPROVEN: &str = "capability.request_model_not_structurally_provable";
 const RESPONSE_VIEW_UNPROVEN: &str = "capability.response_model_derivation_required";
@@ -1884,8 +1884,13 @@ fn response_object_models_inner(
         };
         // Optionality is driven by the raw Option representation and structural
         // proof, including OpenAPI nullable fields.
+        let accessor_name =
+            public_field_identifier(field_name).map_err(|_| RESPONSE_VIEW_UNPROVEN)?;
+        if accessors.contains_key(&accessor_name) {
+            return Err(RESPONSE_VIEW_UNPROVEN);
+        }
         accessors.insert(
-            field_name.clone(),
+            accessor_name,
             AccessorDefinition {
                 kind,
                 path: vec![field.name.clone()],
