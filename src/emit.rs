@@ -575,22 +575,22 @@ fn emit_view(model: &ModelSpec, spec: &ViewModelSpec) -> String {
 }
 
 fn emit_map(model: &ModelSpec, spec: &MapModelSpec) -> String {
-    let from_raw_values = spec.value_adapt_depth.map_or_else(
+    let from_raw_values = spec.value_adapt.as_ref().map_or_else(
         || format!("value.{}", spec.raw_field),
-        |depth| {
+        |plan| {
             format!(
                 "value.{}.into_iter().map(|(key, value)| (key, {})).collect()",
                 spec.raw_field,
-                map_from_raw("value", depth)
+                adapt_from_raw_plan("value", plan)
             )
         },
     );
-    let into_raw_values = spec.value_adapt_depth.map_or_else(
+    let into_raw_values = spec.value_adapt.as_ref().map_or_else(
         || "self.values".into(),
-        |depth| {
+        |plan| {
             format!(
                 "self.values.into_iter().map(|(key, value)| (key, {})).collect()",
-                map_into_raw("value", depth)
+                adapt_into_raw_plan("value", plan)
             )
         },
     );
