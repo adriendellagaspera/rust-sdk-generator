@@ -778,10 +778,15 @@ fn request_object_models_value(
         .get("properties")
         .and_then(Value::as_object)
         .ok_or(REQUEST_MODEL_UNPROVEN)?;
+    let raw_shape = expand_request_type(
+        parse_type(raw).map_err(|_| REQUEST_MODEL_UNPROVEN)?,
+        context.bindings,
+        &mut BTreeSet::new(),
+    )?;
     let fields = context
         .bindings
         .structs
-        .get(raw)
+        .get(&raw_shape.spelling)
         .ok_or(REQUEST_MODEL_UNPROVEN)?;
     let by_name: BTreeMap<_, _> = fields
         .iter()
@@ -1266,25 +1271,16 @@ fn optional_nullable_json_ref_request_model(
     if !naming.public_name_available(&name, bindings) {
         return Err("capability.public_model_name_collision");
     }
-    // The exact inner raw object is structurally proven. Keep an owned opaque
-    // public view rather than inventing field construction through an alias.
-    let model = ModelDefinition {
-        schema: Some(body.schema),
-        schema_path: None,
-        raw: Some(raw.clone()),
-        constructor: None,
-        exclude: None,
-        adapters: None,
-        union: None,
-        simple_union: None,
-        type_alias: None,
-        map: None,
-        scalar_enum: None,
-        union_factory: None,
-        borrowed: Some(false),
-        accessors: Some(IndexMap::new()),
-    };
-    Ok(Some((name.clone(), vec![(name, model)], body.media)))
+    let models = request_object_models(
+        openapi,
+        bindings,
+        naming,
+        &body.schema,
+        raw,
+        name.clone(),
+        &mut BTreeSet::new(),
+    )?;
+    Ok(Some((name, models, body.media)))
 }
 
 fn required_json_schema_request_model(
@@ -1463,31 +1459,22 @@ fn request_model(
                 discriminators,
             ) =>
         {
-            // Do not synthesize a lossy constructor for an otherwise exact raw
-            // request shape. An owned public view still supports From<Raw>
-            // and into_raw(), without claiming that its fields are constructible.
-            if !naming.public_name_available(&name, bindings) {
-                return Err("capability.public_model_name_collision");
-            }
-            vec![(
-                name.clone(),
-                ModelDefinition {
-                    schema: Some(schema_name.clone()),
-                    schema_path: None,
-                    raw: Some(raw.clone()),
-                    constructor: None,
-                    exclude: None,
-                    adapters: None,
-                    union: None,
-                    simple_union: None,
-                    type_alias: None,
-                    map: None,
-                    scalar_enum: None,
-                    union_factory: None,
-                    borrowed: Some(false),
-                    accessors: Some(IndexMap::new()),
+            let schema = openapi
+                .object_schema(&schema_name)
+                .map_err(|_| REQUEST_MODEL_UNPROVEN)?;
+            request_object_models_value(
+                &RequestModelContext {
+                    openapi,
+                    bindings,
+                    naming,
                 },
-            )]
+                &schema,
+                &schema_name,
+                &[],
+                raw,
+                name.clone(),
+                &mut BTreeSet::new(),
+            )?
         }
         Err(reason) => return Err(reason),
     };
