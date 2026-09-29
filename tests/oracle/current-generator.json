@@ -2,11 +2,11 @@
   "library": {
     "catalog.rs": "ac699f5afb68949826b84dca750762f1accc578bd8bcdcbf0921d9509743ebc1",
     "catalog_books.rs": "7e0616e37e1ee5bfa93dfd2cedd4fcf3112f304ba2491ec01f5deb4eaa972c23",
-    "facade_types.rs": "c833cd3e6db3d4e06af762d8ebb501693b07cdc705eab43637562fadadbe3e6d",
+    "facade_types.rs": "7c5a1c3f6fd5512bd60ea63944b346b7a95152f490fb8a08f3b87a82d8cf8228",
     "mod.rs": "1ef83abc246b08a4fb197431a0a5da2a2373cb43fd0ce6450335b6b45df227c6"
   },
   "menagerie": {
-    "facade_types.rs": "e9d2c2a8eee94992dccfa4733d37d2e32b86152ec94e240096b1d70bce811a10",
+    "facade_types.rs": "1a3540342aeacb95bd9b6410ce4def74a752f067dbe7716dfc0f95921034102d",
     "mod.rs": "b5d87de0b8911be9a047719d4a3e83c37de983e9887eb04e4c089f754f9cec82",
     "zoo.rs": "3ef1c35fc7ddcdb33a72e617d59042eeb75d0cff3b821f74ccbccc0b9c2f10de"
   }
