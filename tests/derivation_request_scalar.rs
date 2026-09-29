@@ -349,7 +349,7 @@ fn constructs_root_flattened_request_with_default_extra_map() {
         runtime: Runtime::default(),
     })
     .expect_err("flattened request drift must fail lowering");
-    assert_eq!(error.diagnostic.code, "lower.request_drift");
+    assert_eq!(error.diagnostic.code, "lower.field_drift");
 }
 
 #[test]
