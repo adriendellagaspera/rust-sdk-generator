@@ -516,6 +516,44 @@ fn request_value_adapter_models(
             .openapi
             .schema(reference)
             .map_err(|_| REQUEST_MODEL_UNPROVEN)?;
+        if referenced.get("type").and_then(Value::as_str) == Some("string")
+            && referenced.get("enum").and_then(Value::as_array).is_some()
+            && context.bindings.enums.contains_key(&syntax.spelling)
+            && rust_type_matches_schema(referenced, &syntax.spelling, context.bindings)
+        {
+            if !context
+                .naming
+                .public_name_available(&public_name, context.bindings)
+            {
+                return Err("capability.public_model_name_collision");
+            }
+            return Ok((
+                vec![(
+                    public_name.clone(),
+                    ModelDefinition {
+                        schema: Some(reference.into()),
+                        schema_path: None,
+                        raw: Some(syntax.spelling.clone()),
+                        constructor: None,
+                        exclude: None,
+                        adapters: None,
+                        union: None,
+                        simple_union: None,
+                        type_alias: None,
+                        map: None,
+                        collection: None,
+                        scalar_enum: Some(ScalarEnumDefinition {
+                            root: reference.into(),
+                            path: Vec::new(),
+                        }),
+                        union_factory: None,
+                        borrowed: None,
+                        accessors: None,
+                    },
+                )],
+                Some(public_name),
+            ));
+        }
         if request_union_schema(referenced) {
             if !request_union_matches(
                 context.openapi,
@@ -560,6 +598,46 @@ fn request_value_adapter_models(
         return request_type_is_public(syntax, context.bindings, &mut BTreeSet::new())
             .then_some((Vec::new(), None))
             .ok_or(REQUEST_MODEL_UNPROVEN);
+    }
+
+    if schema.get("type").and_then(Value::as_str) == Some("string")
+        && (schema.get("enum").and_then(Value::as_array).is_some()
+            || schema.get("const").is_some_and(Value::is_string))
+        && context.bindings.enums.contains_key(&syntax.spelling)
+        && rust_type_matches_schema(schema, &syntax.spelling, context.bindings)
+    {
+        if !context
+            .naming
+            .public_name_available(&public_name, context.bindings)
+        {
+            return Err("capability.public_model_name_collision");
+        }
+        return Ok((
+            vec![(
+                public_name.clone(),
+                ModelDefinition {
+                    schema: Some(source_root.into()),
+                    schema_path: (!source_path.is_empty()).then(|| source_path.to_vec()),
+                    raw: Some(syntax.spelling.clone()),
+                    constructor: None,
+                    exclude: None,
+                    adapters: None,
+                    union: None,
+                    simple_union: None,
+                    type_alias: None,
+                    map: None,
+                    collection: None,
+                    scalar_enum: Some(ScalarEnumDefinition {
+                        root: source_root.into(),
+                        path: source_path.to_vec(),
+                    }),
+                    union_factory: None,
+                    borrowed: None,
+                    accessors: None,
+                },
+            )],
+            Some(public_name),
+        ));
     }
 
     if schema.get("type").and_then(Value::as_str) == Some("array") {
