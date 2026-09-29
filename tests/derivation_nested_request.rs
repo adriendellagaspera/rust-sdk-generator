@@ -120,17 +120,17 @@ fn derives_nested_named_request_models_without_raw_name_identity() {
     }
 
     let types = &generated.files["facade_types.rs"];
-    assert!(types.contains("pub struct CreatePlatformWidgetsRequest { raw: OpaqueRequest9 }"));
+    assert!(types.contains("pub struct CreatePlatformWidgetsRequest { raw: crate::generated::types::OpaqueRequest9 }"));
     assert!(types.contains("config: impl Into<CreatePlatformWidgetsRequestConfig>"));
     assert!(types.contains(
         "pub fn metadata(mut self, metadata: impl Into<CreatePlatformWidgetsRequestMetadata>)"
     ));
-    assert!(types.contains("pub struct CreatePlatformWidgetsRequestConfig { raw: OpaqueConfig4 }"));
+    assert!(types.contains("pub struct CreatePlatformWidgetsRequestConfig { raw: crate::generated::types::OpaqueConfig4 }"));
     assert!(types.contains("mode: impl Into<CreatePlatformWidgetsRequestConfigMode>"));
     assert!(types.contains(
         "pub fn labels(mut self, labels: impl Into<CreatePlatformWidgetsRequestConfigLabels>)"
     ));
-    assert!(types.contains("pub struct CreatePlatformWidgetsRequestMetadata { raw: OpaqueMeta7 }"));
+    assert!(types.contains("pub struct CreatePlatformWidgetsRequestMetadata { raw: crate::generated::types::OpaqueMeta7 }"));
 }
 
 #[test]
@@ -1094,10 +1094,10 @@ fn projects_typed_request_map_values_through_public_adapters() {
         "pub struct {map_name} {{ values: std::collections::BTreeMap<String, {value_adapter}> }}"
     )));
     assert!(types.contains(&format!(
-        "impl __RustSdkFromRaw<OpaqueHeaderMap> for {map_name}"
+        "impl __RustSdkFromRaw<crate::generated::types::OpaqueHeaderMap> for {map_name}"
     )));
     assert!(types.contains(&format!(
-        "impl __RustSdkIntoRaw<OpaqueHeaderMap> for {map_name}"
+        "impl __RustSdkIntoRaw<crate::generated::types::OpaqueHeaderMap> for {map_name}"
     )));
     assert!(types.contains("__RustSdkFromRaw::from_raw(value)"));
     assert!(types.contains("__RustSdkIntoRaw::into_raw(value)"));
