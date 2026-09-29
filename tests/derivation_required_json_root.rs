@@ -37,7 +37,17 @@ fn fixture() -> (OpenApi, Bindings, PublicSdkSurface) {
             "Member": {
                 "type": "object",
                 "required": ["name"],
-                "properties": {"name": {"type": "string"}}
+                "properties": {
+                    "name": {"type": "string"},
+                    "roles": {
+                        "type": "array",
+                        "items": {"$ref": "#/components/schemas/MemberRole"}
+                    }
+                }
+            },
+            "MemberRole": {
+                "type": "string",
+                "enum": ["member", "admin"]
             },
             "Online": {
                 "type": "object",
@@ -56,11 +66,18 @@ fn fixture() -> (OpenApi, Bindings, PublicSdkSurface) {
     let bindings = serde_json::from_value(serde_json::json!({
         "schema_version": 3,
         "structs": {
-            "Member": [{"name": "name", "wire_name": "name", "type": "String"}],
+            "Member": [
+                {"name": "name", "wire_name": "name", "type": "String"},
+                {"name": "roles", "wire_name": "roles", "type": "Option<Vec<MemberRole>>"}
+            ],
             "Online": [{"name": "online", "wire_name": "online", "type": "bool"}],
             "Offline": [{"name": "batch", "wire_name": "batch", "type": "String"}]
         },
         "enums": {
+            "MemberRole": [
+                {"name": "Member", "wire_name": "member"},
+                {"name": "Admin", "wire_name": "admin"}
+            ],
             "MetricsRequest": [
                 {"name": "Online", "payload": "Online", "wire_name": "online"},
                 {"name": "Offline", "payload": "Offline", "wire_name": "offline"}
@@ -112,6 +129,7 @@ fn fixture() -> (OpenApi, Bindings, PublicSdkSurface) {
         "symbol_paths": {
             "MembersRequest": "crate::raw::MembersRequest",
             "Member": "crate::raw::Member",
+            "MemberRole": "crate::raw::MemberRole",
             "MetricsRequest": "crate::raw::MetricsRequest",
             "Online": "crate::raw::Online",
             "Offline": "crate::raw::Offline"
