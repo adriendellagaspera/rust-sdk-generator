@@ -1151,11 +1151,9 @@ mod private_transport_tests {
         assert!(source.contains("pub(crate) trait __RustSdkIntoRaw"));
         assert!(source.contains("impl<T> __RustSdkFromRaw<T> for T"));
         assert!(source.contains("impl<T> __RustSdkIntoRaw<T> for T"));
-        assert!(source.contains(
-            "impl __RustSdkFromRaw<crate::generated::types::BookResponse>"
-        ));
-        assert!(source.contains(
-            "impl __RustSdkIntoRaw<crate::generated::types::CreateBookRequest>"
-        ));
+        assert!(source.contains("impl __RustSdkFromRaw<crate::generated::types::BookResponse>"));
+        assert!(
+            source.contains("impl __RustSdkIntoRaw<crate::generated::types::CreateBookRequest>")
+        );
     }
 }
