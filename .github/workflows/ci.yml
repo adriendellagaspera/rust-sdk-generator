@@ -299,6 +299,15 @@ jobs:
           grep -R -n -m 1 'SseStream' fixtures/langgraph/generated/src
           grep -R -n -m 1 'create_and_stream_run' fixtures/langgraph/generated/src
           grep -R -n -m 1 'open_thread_sse_stream' fixtures/langgraph/generated/src
+          sed -n '1,130p' fixtures/langgraph/generated/src/api/resources/runs/runs.rs
+          sed -n '110,210p' fixtures/langgraph/generated/src/api/resources/streaming/streaming.rs
+          sed -n '1,100p' fixtures/langgraph/generated/src/client.rs
+          sed -n '1,180p' fixtures/langgraph/generated/Cargo.toml
+      - name: Probe wasm32 support
+        continue-on-error: true
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo check --manifest-path fixtures/langgraph/generated/Cargo.toml             --target wasm32-unknown-unknown --no-default-features
 
 
   gate:
