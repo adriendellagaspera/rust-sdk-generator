@@ -1,6 +1,6 @@
 # rust-sdk-generator
 
-> **Archived project.** This repository is retained for historical reference and is no longer part of the production SDK toolchain.
+> **Archived project.** This repository is retained for historical reference.
 
 Fern is now the sole Rust SDK generator. The small surface-policy/compiler verifier that remained useful was moved directly into [adriendellagaspera/mistralai-rs](https://github.com/adriendellagaspera/mistralai-rs) in [mistralai-rs#186](https://github.com/adriendellagaspera/mistralai-rs/pull/186), making that repository self-contained.
 
