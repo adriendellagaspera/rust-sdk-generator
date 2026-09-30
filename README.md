@@ -1,50 +1,9 @@
 # rust-sdk-generator
 
-Turn an OpenAPI description into a standalone Rust SDK crate. The CLI derives a public API,
-generates Rust files and reports an outcome for every source operation, so unsupported or
-excluded operations are visible before publication.
+> **Archived project.** This repository is retained for historical reference and is no longer part of the production SDK toolchain.
 
-This workspace contains the backend-neutral `rust-sdk-generator` and a concrete
-`openapi-to-rust-bindings` compatibility shim. The shim normalizes canonical Bindings v5 from an
-unmodified backend's generated Rust and its effective OpenAPI; the root generator consumes
-that contract. SDK repositories own their API source, runtime policy and releases.
+Fern is now the sole Rust SDK generator. The small surface-policy/compiler verifier that remained useful was moved directly into [adriendellagaspera/mistralai-rs](https://github.com/adriendellagaspera/mistralai-rs) in [mistralai-rs#186](https://github.com/adriendellagaspera/mistralai-rs/pull/186), making that repository self-contained.
 
-## Generate an SDK for your API
+Generic Rust generation issues belong upstream in [fern-api/fern](https://github.com/fern-api/fern). No new development is planned here.
 
-With Rust 1.88+, Cargo, Git and first-run network access:
-
-```sh
-cargo install --locked rust-sdk-cli
-rust-sdk init \
-  --openapi /path/to/your-api.json --output /path/to/your-sdk --name your-sdk
-rust-sdk sync --crate /path/to/your-sdk --check
-```
-
-`init` creates a separate compilable SDK crate, copies the API source and pins a versioned
-generation recipe. After editing that crate's `openapi.json`, `sync --check` shows operation
-coverage and a file-level diff without changing the generated files. Review the outcomes
-before accepting a changed inventory. The supported OpenAPI envelope is bounded, and the
-minimal generated runtime is not a production authentication or error policy. See
-[using your own API](docs/own-api-sdk.md) for supported shapes and ownership.
-
-## Try the self-contained example
-
-```sh
-cargo run --locked --example independent-sdk-quickstart
-```
-
-This command uses a fixed notebook API fixture: it generates a standalone SDK, compiles it
-and checks it against a local mock HTTP server. It does not exercise your API. See the
-[getting-started guide](docs/getting-started.md) for the output and next steps.
-
-## Go deeper
-
-- [Contracts and CLI](docs/contracts.md): Bindings, derivation outcomes and lower-level commands.
-- [Architecture](docs/architecture.md): data flow and responsibility boundaries.
-- [Output safety](docs/output.md): file ownership and publication.
-- [Development](docs/development.md): local verification.
-- [Bindings compatibility shim](openapi-to-rust-bindings/README.md): temporary metadata gaps and deletion criteria.
-
-The lower-level CLI accepts OpenAPI, Bindings and optional reviewed naming or override inputs.
-Its derivation report accounts for each source operation; inspect rejected and excluded
-outcomes before publishing a consumer SDK.
+The repository history preserves the former OpenAPI-to-Rust generator, Bindings adapters, facade compiler, migration experiments and the minimal Fern surface-contract work that led to the final architecture.
